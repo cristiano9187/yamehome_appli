@@ -87,126 +87,128 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
       {/* Content */}
       <div className="flex-1 md:overflow-y-auto p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">
-              <div className="col-span-2">ID Reçu</div>
-              <div className="col-span-2">Client</div>
-              <div className="col-span-2">Logement</div>
-              <div className="col-span-2">Montant</div>
-              <div className="col-span-2">Commission</div>
-              <div className="col-span-2 text-right">Actions</div>
-            </div>
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
+            <div className="min-w-[700px]">
+              <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                <div className="col-span-2">ID Reçu</div>
+                <div className="col-span-2">Client</div>
+                <div className="col-span-2">Logement</div>
+                <div className="col-span-2">Montant</div>
+                <div className="col-span-2">Commission</div>
+                <div className="col-span-2 text-right">Actions</div>
+              </div>
 
-            <div className="divide-y divide-gray-50">
-              {filteredReceipts.map((receipt) => {
-                const deadline = new Date(receipt.startDate);
-                deadline.setDate(deadline.getDate() + 1);
-                const isOverdue = new Date() > deadline;
+              <div className="divide-y divide-gray-50">
+                {filteredReceipts.map((receipt) => {
+                  const deadline = new Date(receipt.startDate);
+                  deadline.setDate(deadline.getDate() + 1);
+                  const isOverdue = new Date() > deadline;
 
-                return (
-                  <motion.div 
-                    key={receipt.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="grid grid-cols-12 gap-4 p-4 items-center hover:bg-blue-50/30 transition-all group"
-                  >
-                    <div className="col-span-2">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-mono font-bold text-gray-900">{receipt.receiptId}</span>
-                        <span className="text-[9px] text-gray-400 flex items-center gap-1">
-                          <Clock size={8} />
-                          {new Date(receipt.createdAt).toLocaleDateString('fr-FR')}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <div className="flex items-center gap-2">
+                  return (
+                    <motion.div 
+                      key={receipt.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="grid grid-cols-12 gap-4 p-4 items-center hover:bg-blue-50/30 transition-all group"
+                    >
+                      <div className="col-span-2">
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-gray-900 uppercase tracking-tight truncate max-w-[100px]">
-                            {receipt.firstName} {receipt.lastName}
-                          </span>
-                          <span className="text-[10px] text-gray-400">{receipt.phone || 'Pas de tél'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">
-                          {receipt.apartmentName}
-                        </span>
-                        <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest">
-                          {receipt.calendarSlug || 'Standard'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-black text-gray-900">
-                          {formatCurrency(receipt.grandTotal)}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full ${receipt.remaining <= 0 ? 'bg-green-500' : 'bg-orange-500'}`} />
-                          <span className="text-[9px] font-bold uppercase tracking-tighter">
-                            {receipt.remaining <= 0 ? 'Soldé' : `Reste: ${formatCurrency(receipt.remaining)}`}
+                          <span className="text-xs font-mono font-bold text-gray-900">{receipt.receiptId}</span>
+                          <span className="text-[9px] text-gray-400 flex items-center gap-1">
+                            <Clock size={8} />
+                            {new Date(receipt.createdAt).toLocaleDateString('fr-FR')}
                           </span>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="col-span-2">
-                      {receipt.agentName ? (
-                        <div className="flex flex-col">
-                          <div className={`flex items-center gap-1 ${receipt.isCommissionPaid ? 'text-green-600' : 'text-orange-600'}`}>
-                            <Banknote size={10} />
-                            <span className="text-xs font-black">{formatCurrency(receipt.commissionAmount || 0)}</span>
+                      <div className="col-span-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-gray-900 uppercase tracking-tight truncate max-w-[100px]">
+                              {receipt.firstName} {receipt.lastName}
+                            </span>
+                            <span className="text-[10px] text-gray-400">{receipt.phone || 'Pas de tél'}</span>
                           </div>
-                          <span className="text-[9px] font-bold text-gray-500 uppercase truncate max-w-[100px]">{receipt.agentName}</span>
-                          {receipt.isCommissionPaid ? (
-                            <div className="text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit bg-green-100 text-green-600">
-                              Payée
-                            </div>
-                          ) : (
-                            <div className={`text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                              Délai: {deadline.toLocaleDateString('fr-FR')}
-                            </div>
-                          )}
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-gray-300 italic">Aucun agent</span>
-                      )}
-                    </div>
+                      </div>
 
-                    <div className="col-span-2 flex justify-end gap-2">
-                      <button 
-                        onClick={() => onEdit(receipt)}
-                        className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg transition-all"
-                        title="Editer"
-                      >
-                        <ExternalLink size={16} />
-                      </button>
-                      <button 
-                        onClick={() => onPrint(receipt)}
-                        className="p-2 hover:bg-gray-100 text-gray-900 rounded-lg transition-all"
-                        title="Imprimer PDF"
-                      >
-                        <Printer size={16} />
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })}
+                      <div className="col-span-2">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">
+                            {receipt.apartmentName}
+                          </span>
+                          <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest">
+                            {receipt.calendarSlug || 'Standard'}
+                          </span>
+                        </div>
+                      </div>
 
-              {filteredReceipts.length === 0 && (
-                <div className="p-12 text-center">
-                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-                    <FileText size={32} />
+                      <div className="col-span-2">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-black text-gray-900">
+                            {formatCurrency(receipt.grandTotal)}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <div className={`w-1.5 h-1.5 rounded-full ${receipt.remaining <= 0 ? 'bg-green-500' : 'bg-orange-500'}`} />
+                            <span className="text-[9px] font-bold uppercase tracking-tighter">
+                              {receipt.remaining <= 0 ? 'Soldé' : `Reste: ${formatCurrency(receipt.remaining)}`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="col-span-2">
+                        {receipt.agentName ? (
+                          <div className="flex flex-col">
+                            <div className={`flex items-center gap-1 ${receipt.isCommissionPaid ? 'text-green-600' : 'text-orange-600'}`}>
+                              <Banknote size={10} />
+                              <span className="text-xs font-black">{formatCurrency(receipt.commissionAmount || 0)}</span>
+                            </div>
+                            <span className="text-[9px] font-bold text-gray-500 uppercase truncate max-w-[100px]">{receipt.agentName}</span>
+                            {receipt.isCommissionPaid ? (
+                              <div className="text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit bg-green-100 text-green-600">
+                                Payée
+                              </div>
+                            ) : (
+                              <div className={`text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                Délai: {deadline.toLocaleDateString('fr-FR')}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-gray-300 italic">Aucun agent</span>
+                        )}
+                      </div>
+
+                      <div className="col-span-2 flex justify-end gap-2">
+                        <button 
+                          onClick={() => onEdit(receipt)}
+                          className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg transition-all"
+                          title="Editer"
+                        >
+                          <ExternalLink size={16} />
+                        </button>
+                        <button 
+                          onClick={() => onPrint(receipt)}
+                          className="p-2 hover:bg-gray-100 text-gray-900 rounded-lg transition-all"
+                          title="Imprimer PDF"
+                        >
+                          <Printer size={16} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+
+                {filteredReceipts.length === 0 && (
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                      <FileText size={32} />
+                    </div>
+                    <p className="text-sm text-gray-400 italic">Aucun reçu trouvé pour cette recherche.</p>
                   </div>
-                  <p className="text-sm text-gray-400 italic">Aucun reçu trouvé pour cette recherche.</p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

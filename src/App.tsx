@@ -258,7 +258,8 @@ export default function App() {
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
     const name = `${formData.firstName}_${formData.lastName}`.toLowerCase().replace(/\s+/g, '_');
-    const fileName = `reçu_${name}_${dateStr}_${timeStr}`;
+    const apartment = (formData.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
+    const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
     
     const originalTitle = document.title;
     document.title = fileName;
@@ -267,7 +268,7 @@ export default function App() {
     setTimeout(() => {
       document.title = originalTitle;
     }, 1000);
-  }, [formData.firstName, formData.lastName]);
+  }, [formData.firstName, formData.lastName, formData.apartmentName]);
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -849,7 +850,8 @@ export default function App() {
                 const dateStr = now.toISOString().split('T')[0];
                 const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
                 const name = `${receipt.firstName}_${receipt.lastName}`.toLowerCase().replace(/\s+/g, '_');
-                const fileName = `reçu_${name}_${dateStr}_${timeStr}`;
+                const apartment = (receipt.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
+                const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
                 
                 const originalTitle = document.title;
                 document.title = fileName;
