@@ -182,10 +182,10 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#F5F5F4] overflow-hidden">
+    <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
       {/* Header */}
-      <div className="h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-8">
+      <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
+        <div className="flex items-center gap-4 md:gap-8">
           <div className="flex flex-col">
             <h2 className="text-sm font-black uppercase tracking-widest">Planning YameHome</h2>
             <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{monthName}</span>
@@ -223,7 +223,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
       </div>
 
       {/* Grid Container */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 md:overflow-hidden flex flex-col">
         <div className="flex-1 overflow-auto relative" ref={scrollContainerRef}>
           <table className="w-full border-collapse table-fixed min-w-[1500px]">
             <thead className="sticky top-0 z-30">

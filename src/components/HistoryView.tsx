@@ -62,9 +62,9 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#F5F5F4] overflow-hidden">
+    <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
       {/* Header */}
-      <div className="h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40">
+      <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
             <h2 className="text-sm font-black uppercase tracking-widest">Historique des Reçus</h2>
@@ -72,7 +72,7 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
           </div>
         </div>
 
-        <div className="relative w-96">
+        <div className="relative w-full md:w-96">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input 
             type="text" 
@@ -85,7 +85,7 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 md:overflow-y-auto p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">

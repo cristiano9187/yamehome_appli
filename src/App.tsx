@@ -585,15 +585,16 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100 print:bg-white">
+    <div className="min-h-screen flex flex-col md:flex-row bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100 print:bg-white">
       {/* Sidebar */}
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div 
-            initial={{ x: -300 }}
+            initial={{ x: '-100%' }}
             animate={{ x: 0 }}
-            exit={{ x: -300 }}
-            className="sidebar w-80 bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col z-50 print:hidden"
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="sidebar w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-gray-200 h-auto md:h-screen md:sticky md:top-0 flex flex-col z-50 print:hidden"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h1 className="text-2xl font-black italic tracking-tighter uppercase">YAMEHOME</h1>
@@ -830,7 +831,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="main-content-wrapper flex-1 flex flex-col h-screen overflow-hidden relative print:overflow-visible print:h-auto">
+      <div className="main-content-wrapper flex-1 flex flex-col min-h-screen md:h-screen md:overflow-hidden relative print:overflow-visible print:h-auto">
         {view === 'history' ? (
           <HistoryView 
             onEdit={(receipt) => {
@@ -957,13 +958,17 @@ export default function App() {
             </header>
 
             {/* Preview Area */}
-            <main className="receipt-viewer-main flex-1 overflow-y-auto bg-[#F5F5F4] p-8 flex justify-center scroll-smooth print:bg-white print:p-0 print:overflow-visible">
+            <main className="receipt-viewer-main flex-1 overflow-y-auto bg-[#F5F5F4] p-4 md:p-8 flex justify-center scroll-smooth print:bg-white print:p-0 print:overflow-visible">
               <motion.div 
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="receipt-motion-wrapper w-full max-w-[210mm] print:m-0 print:p-0 print:max-w-none"
               >
-                <ReceiptPreview data={formData} />
+                <div className="mobile-receipt-container w-full flex justify-center overflow-hidden md:overflow-visible">
+                  <div className="mobile-receipt-zoom origin-top transition-transform">
+                    <ReceiptPreview data={formData} />
+                  </div>
+                </div>
               </motion.div>
             </main>
           </>

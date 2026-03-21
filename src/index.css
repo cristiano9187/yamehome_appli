@@ -68,3 +68,37 @@
   .bg-red-50 { background-color: #fef2f2 !important; }
   .bg-gray-50 { background-color: #f9fafb !important; }
 }
+
+/* Responsive Zoom for Mobile Preview */
+.mobile-receipt-zoom {
+  width: 210mm;
+  transform: scale(0.42);
+  transform-origin: top center;
+}
+
+.mobile-receipt-container {
+  height: 480px; /* Approx height of scaled A4 */
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .mobile-receipt-zoom {
+    width: 100%;
+    transform: scale(1);
+  }
+  .mobile-receipt-container {
+    height: auto;
+  }
+}
+
+@media print {
+  .mobile-receipt-zoom {
+    transform: scale(1) !important;
+  }
+  .mobile-receipt-container {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
