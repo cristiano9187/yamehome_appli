@@ -44,7 +44,7 @@ export default function ReceiptPreview({ data }: ReceiptPreviewProps) {
   const totalKw = kwPerNight * nights;
 
   return (
-    <div id="receipt-content" className="w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:p-0 relative">
+    <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:p-0 relative">
       {/* Header */}
       <div className="text-center mb-6 border-b-2 border-[#2B4B8C] pb-4">
         <div className="mb-4 flex justify-center">

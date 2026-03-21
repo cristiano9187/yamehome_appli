@@ -585,7 +585,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100">
+    <div className="min-h-screen flex bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100 print:bg-white">
       {/* Sidebar */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -593,7 +593,7 @@ export default function App() {
             initial={{ x: -300 }}
             animate={{ x: 0 }}
             exit={{ x: -300 }}
-            className="w-80 bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col z-50 print:hidden"
+            className="sidebar w-80 bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col z-50 print:hidden"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h1 className="text-2xl font-black italic tracking-tighter uppercase">YAMEHOME</h1>
@@ -830,7 +830,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+      <div className="main-content-wrapper flex-1 flex flex-col h-screen overflow-hidden relative print:overflow-visible print:h-auto">
         {view === 'history' ? (
           <HistoryView 
             onEdit={(receipt) => {
@@ -900,7 +900,7 @@ export default function App() {
         ) : (
           <>
             {/* Top Bar */}
-            <header className="h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
+            <header className="top-bar h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
               <div className="flex items-center gap-4">
                 {!isSidebarOpen && (
                   <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
@@ -957,11 +957,11 @@ export default function App() {
             </header>
 
             {/* Preview Area */}
-            <main className="flex-1 overflow-y-auto bg-[#F5F5F4] p-8 flex justify-center scroll-smooth">
+            <main className="receipt-viewer-main flex-1 overflow-y-auto bg-[#F5F5F4] p-8 flex justify-center scroll-smooth print:bg-white print:p-0 print:overflow-visible">
               <motion.div 
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="w-full max-w-[210mm] print:m-0 print:p-0"
+                className="receipt-motion-wrapper w-full max-w-[210mm] print:m-0 print:p-0 print:max-w-none"
               >
                 <ReceiptPreview data={formData} />
               </motion.div>
