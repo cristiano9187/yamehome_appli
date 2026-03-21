@@ -26,7 +26,7 @@ export interface ReceiptData {
   electricityCharge: boolean;
   packEco: boolean;
   observations: string;
-  status: 'VALID' | 'ANNULE';
+  status: 'VALIDE' | 'ANNULE';
   grandTotal: number;
   totalPaid: number;
   remaining: number;
@@ -64,6 +64,14 @@ export interface UserProfile {
   email: string;
   role: 'admin' | 'agent';
   displayName: string;
+  isApproved?: boolean;
+}
+
+export interface AuthorizedEmail {
+  id?: string;
+  email: string;
+  role: 'admin' | 'agent';
+  addedAt: string;
 }
 
 export interface TarifDetails {

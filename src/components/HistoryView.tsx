@@ -114,10 +114,15 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
                       <div className="col-span-2">
                         <div className="flex flex-col">
                           <span className="text-xs font-mono font-bold text-gray-900">{receipt.receiptId}</span>
-                          <span className="text-[9px] text-gray-400 flex items-center gap-1">
-                            <Clock size={8} />
-                            {new Date(receipt.createdAt).toLocaleDateString('fr-FR')}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] text-gray-400 flex items-center gap-1">
+                              <Clock size={8} />
+                              {new Date(receipt.createdAt).toLocaleDateString('fr-FR')}
+                            </span>
+                            {receipt.status === 'ANNULE' && (
+                              <span className="text-[8px] font-black bg-red-100 text-red-600 px-1 rounded uppercase">Annulé</span>
+                            )}
+                          </div>
                         </div>
                       </div>
 

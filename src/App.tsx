@@ -27,10 +27,11 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
-import { ReceiptData, CleaningReport, Payment, UserProfile } from './types';
+import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
 import HistoryView from './components/HistoryView';
 import CalendarView from './components/CalendarView';
+import UserManagement from './components/UserManagement';
 import { 
   LogOut, 
   Plus, 
@@ -48,6 +49,9 @@ import {
   ClipboardCheck,
   ChevronRight,
   Menu,
+  Shield,
+  Users,
+  Lock,
   X,
   History,
   Calendar as CalendarIcon
@@ -89,7 +93,7 @@ export default function App() {
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
     payments: [{ id: Date.now().toString(), date: new Date().toISOString().split('T')[0], amount: 0, method: 'Espèces' }],
     signature: '', hosts: [], electricityCharge: false, packEco: false, observations: '',
-    status: 'VALID', grandTotal: 0, totalPaid: 0, remaining: 0,
+    status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
     createdAt: new Date().toISOString(),
     authorUid: auth.currentUser?.uid || ''
@@ -99,12 +103,13 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar'>('form');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users'>('form');
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchId, setSearchId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   
   const urlParams = new URLSearchParams(window.location.search);
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
@@ -128,18 +133,50 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        const userDoc = await getDoc(doc(db, 'users', u.uid));
-        if (userDoc.exists()) {
-          setUserProfile(userDoc.data() as UserProfile);
-        } else {
-          const newProfile: UserProfile = {
-            uid: u.uid,
-            email: u.email || '',
-            role: u.email === 'christian.yamepi@gmail.com' ? 'admin' : 'agent',
-            displayName: u.displayName || 'Utilisateur'
-          };
-          await setDoc(doc(db, 'users', u.uid), newProfile);
-          setUserProfile(newProfile);
+        try {
+          const docRef = doc(db, 'users', u.uid);
+          const snap = await getDoc(docRef);
+          
+          if (snap.exists()) {
+            const profile = snap.data() as UserProfile;
+            if (profile.isApproved) {
+              setUserProfile(profile);
+            } else {
+              // Check whitelist if not approved yet
+              const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
+              const whiteSnap = await getDocs(q);
+              if (!whiteSnap.empty || u.email === 'christian.yamepi@gmail.com') {
+                const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
+                const updatedProfile = { 
+                  ...profile, 
+                  isApproved: true, 
+                  role: u.email === 'christian.yamepi@gmail.com' ? 'admin' : (whiteData?.role || 'agent')
+                };
+                await setDoc(docRef, updatedProfile);
+                setUserProfile(updatedProfile);
+              } else {
+                setUserProfile(profile);
+              }
+            }
+          } else {
+            const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
+            const whiteSnap = await getDocs(q);
+            const isMainAdmin = u.email === 'christian.yamepi@gmail.com';
+            const isApproved = !whiteSnap.empty || isMainAdmin;
+            const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
+            
+            const newProfile: UserProfile = {
+              uid: u.uid,
+              email: u.email || '',
+              displayName: u.displayName || 'Utilisateur',
+              role: isMainAdmin ? 'admin' : (whiteData?.role || 'agent'),
+              isApproved: isApproved
+            };
+            await setDoc(docRef, newProfile);
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, 'users');
         }
       } else {
         setUserProfile(null);
@@ -336,7 +373,8 @@ export default function App() {
         id: docId,
         calendarSlug: finalSlug,
         authorUid: user?.uid,
-        createdAt: formData.createdAt || new Date().toISOString()
+        createdAt: formData.createdAt || new Date().toISOString(),
+        status: formData.status || 'VALIDE'
       });
       setSaveStatus('success'); 
       setTimeout(() => setSaveStatus('idle'), 3000);
@@ -399,22 +437,19 @@ export default function App() {
   };
 
   const softDeleteBooking = async () => {
-    if (window.confirm("Annuler réservation ?")) {
-      setIsSaving(true);
-      try {
-        await setDoc(doc(db, 'receipts', formData.id || formData.receiptId), {
-          ...formData,
-          status: 'ANNULE'
-        }, { merge: true });
-        setFormData(getInitialState()); 
-        setIsReadOnly(false); 
-        alert("Annulé");
-      } catch (e) { 
-        handleFirestoreError(e, OperationType.UPDATE, 'receipts');
-        alert("Erreur"); 
-      } finally { 
-        setIsSaving(false); 
-      }
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'receipts', formData.id || formData.receiptId), {
+        ...formData,
+        status: 'ANNULE'
+      }, { merge: true });
+      setFormData(getInitialState()); 
+      setIsReadOnly(false); 
+      setShowCancelConfirm(false);
+    } catch (e) { 
+      handleFirestoreError(e, OperationType.UPDATE, 'receipts');
+    } finally { 
+      setIsSaving(false); 
     }
   };
 
@@ -577,6 +612,34 @@ export default function App() {
     );
   }
 
+  if (user && userProfile && !userProfile.isApproved) {
+    return (
+      <div className="min-h-screen bg-[#141414] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white p-12 rounded-3xl shadow-2xl w-full max-w-md text-center"
+        >
+          <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-8">
+            <Lock size={40} />
+          </div>
+          <h2 className="text-2xl font-black text-[#141414] uppercase tracking-tighter mb-4">Accès Refusé</h2>
+          <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+            Votre email <span className="font-bold text-gray-900">{user.email}</span> n'est pas autorisé à accéder à cette application.
+            Veuillez contacter l'administrateur pour obtenir l'accès.
+          </p>
+          <button 
+            onClick={handleLogout} 
+            className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase tracking-widest transition-all hover:bg-gray-200 flex items-center justify-center gap-3"
+          >
+            <LogOut size={18} />
+            Se déconnecter
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-[#141414] flex items-center justify-center">
@@ -624,6 +687,15 @@ export default function App() {
                 <CalendarIcon size={16} />
                 Calendrier
               </button>
+              {userProfile?.role === 'admin' && (
+                <button 
+                  onClick={() => setView('users')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <Users size={16} />
+                  Utilisateurs
+                </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -900,6 +972,8 @@ export default function App() {
               setIsCleaningMode(true);
             }}
           />
+        ) : view === 'users' ? (
+          <UserManagement />
         ) : (
           <>
             {/* Top Bar */}
@@ -920,29 +994,31 @@ export default function App() {
                 {!isReadOnly ? (
                   <button 
                     onClick={saveToFirestore} 
-                    disabled={isSaving} 
-                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
+                    disabled={isSaving || formData.status === 'ANNULE'} 
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
                   >
                     {isSaving ? <Clock size={14} className="animate-spin"/> : saveStatus === 'success' ? <CheckCircle2 size={14}/> : <Save size={14}/>}
                     {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
                   </button>
                 ) : (
                   <div className="flex gap-2">
-                    <button 
-                      onClick={() => setIsReadOnly(false)} 
-                      className="flex items-center gap-2 px-6 py-3 bg-orange-50 text-orange-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-orange-100 transition-all"
-                    >
-                      <Edit size={14}/> Modifier
-                    </button>
+                    {(!formData.status || formData.status === 'VALIDE') && (
+                      <button 
+                        onClick={() => setIsReadOnly(false)} 
+                        className="flex items-center gap-2 px-6 py-3 bg-orange-50 text-orange-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-orange-100 transition-all"
+                      >
+                        <Edit size={14}/> Modifier
+                      </button>
+                    )}
                     <button 
                       onClick={() => { setFormData(getInitialState()); setIsReadOnly(false); setSearchId(''); }} 
                       className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
                     >
                       <Plus size={14}/> Nouveau
                     </button>
-                    {userProfile?.role === 'admin' && (
+                    {userProfile?.role === 'admin' && (!formData.status || formData.status === 'VALIDE') && (
                       <button 
-                        onClick={softDeleteBooking} 
+                        onClick={() => setShowCancelConfirm(true)} 
                         className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-red-100 transition-all"
                       >
                         <Trash2 size={14}/> Annuler
@@ -976,6 +1052,42 @@ export default function App() {
           </>
         )}
       </div>
+      {/* Modals */}
+      <AnimatePresence>
+        {showCancelConfirm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Annuler la réservation ?</h3>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                Cette action est irréversible. Le reçu sera marqué comme ANNULÉ et disparaîtra du planning.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={softDeleteBooking}
+                  disabled={isSaving}
+                  className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all disabled:opacity-50"
+                >
+                  {isSaving ? 'Annulation...' : 'Confirmer l\'annulation'}
+                </button>
+                <button 
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                >
+                  Retour
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

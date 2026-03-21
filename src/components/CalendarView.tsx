@@ -39,9 +39,11 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const qReceipts = query(collection(db, 'receipts'), where('status', '==', 'VALID'));
+    const qReceipts = query(collection(db, 'receipts'));
     const unsubReceipts = onSnapshot(qReceipts, (snapshot) => {
-      setReceipts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ReceiptData[]);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ReceiptData[];
+      // Filter out only those that are explicitly ANNULE, keeping VALIDE and those without status
+      setReceipts(data.filter(r => r.status !== 'ANNULE'));
     });
 
     const qCleaning = query(collection(db, 'cleaning_reports'));
@@ -278,7 +280,10 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                     const cleaningDates = booking ? getCleaningTasks(booking) : [];
                     const isCalculatedCleaningDay = cleaningDates.includes(dateStr);
                     const report = getCleaningReport(unit.slug, dateStr);
-                    const isCleaningDay = isCalculatedCleaningDay || !!report;
+                    // Only show report if it's MANUAL or associated with a VALID receipt
+                    const isValidReport = report && (report.menageId === 'MANUAL' || receipts.some(r => r.receiptId === report.menageId));
+                    const currentReport = isValidReport ? report : null;
+                    const isCleaningDay = isCalculatedCleaningDay || !!currentReport;
 
                     return (
                       <td 
@@ -300,9 +305,9 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                           <div 
                             onClick={() => onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr)}
                             className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 shadow-sm border ${
-                              report 
-                                ? report.status === 'EFFECTUÉ' ? 'bg-green-100 border-green-500 text-green-600 shadow-md border-2' : 
-                                  report.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
+                              currentReport 
+                                ? currentReport.status === 'EFFECTUÉ' ? 'bg-green-100 border-green-500 text-green-600 shadow-md border-2' : 
+                                  currentReport.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
                                   'bg-orange-100 border-orange-500 text-orange-600 shadow-md border-2'
                                 : isCalculatedCleaningDay 
                                   ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' 
@@ -310,7 +315,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                             }`}
                           >
                             <ClipboardCheck size={14} />
-                            {report && <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                            {currentReport && <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
                           </div>
                         )}
                       </td>

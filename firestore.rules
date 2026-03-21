@@ -62,8 +62,14 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved']) &&
              data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'agent'];
+    }
+
+    function isValidAuthorizedEmail(data) {
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'];
     }
@@ -72,7 +78,7 @@ service cloud.firestore {
       return hasRequiredFields(['receiptId', 'lastName', 'apartmentName', 'startDate', 'endDate', 'status']) &&
              data.receiptId is string && data.receiptId.size() > 0 &&
              data.lastName is string && data.lastName.size() > 0 &&
-             data.status in ['VALID', 'ANNULE'];
+             data.status in ['VALIDE', 'ANNULE'];
     }
 
     function isValidCleaningReport(data) {
@@ -88,9 +94,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ((isOwner(userId) && request.resource.data.role == 'agent') || isAdmin());
+                    ((isOwner(userId) && (request.resource.data.role == 'agent' || !('isApproved' in request.resource.data) || request.resource.data.isApproved == false)) || isAdmin());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.isApproved == resource.data.isApproved) || isAdmin());
+    }
+
+    match /authorized_emails/{emailId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     match /apartments/{apartmentId} {

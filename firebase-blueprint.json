@@ -30,7 +30,7 @@
         "grandTotal": { "type": "number" },
         "totalPaid": { "type": "number" },
         "remaining": { "type": "number" },
-        "status": { "type": "string", "enum": ["VALID", "ANNULE"], "description": "Booking status." },
+        "status": { "type": "string", "enum": ["VALIDE", "ANNULE"], "description": "Booking status." },
         "payments": {
           "type": "array",
           "items": {
@@ -77,15 +77,28 @@
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "agent"] },
-        "displayName": { "type": "string" }
+        "displayName": { "type": "string" },
+        "isApproved": { "type": "boolean" }
       },
       "required": ["uid", "email", "role"]
+    },
+    "AuthorizedEmail": {
+      "title": "Authorized Email",
+      "description": "Pre-authorized emails for system access.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "agent"] },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role"]
     }
   },
   "firestore": {
     "/apartments/{apartmentId}": { "schema": "Apartment", "description": "Collection of apartments." },
     "/receipts/{receiptId}": { "schema": "Receipt", "description": "Collection of booking receipts." },
     "/cleaning_reports/{reportId}": { "schema": "CleaningReport", "description": "Collection of cleaning reports." },
-    "/users/{userId}": { "schema": "User", "description": "Collection of system users." }
+    "/users/{userId}": { "schema": "User", "description": "Collection of system users." },
+    "/authorized_emails/{emailId}": { "schema": "AuthorizedEmail", "description": "Collection of authorized emails." }
   }
 }
