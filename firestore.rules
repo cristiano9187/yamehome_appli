@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: apartments
+    // Fields: name, location, units, basePrice, caution
+    //
+    // Collection: receipts
+    // Fields: receiptId, firstName, lastName, phone, email, apartmentName, calendarSlug, 
+    //         startDate, endDate, grandTotal, totalPaid, remaining, status, payments, 
+    //         electricityCharge, packEco, observations, signature, createdAt, authorUid
+    //
+    // Collection: cleaning_reports
+    // Fields: menageId, calendarSlug, dateIntervention, agent, status, feedback, damages, maintenance, createdAt
+    //
+    // Collection: users
+    // Fields: uid, email, role, displayName
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "christian.yamepi@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isAgent() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'agent' || isAdmin());
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'agent'];
+    }
+
+    function isValidReceipt(data) {
+      return hasRequiredFields(['receiptId', 'lastName', 'apartmentName', 'startDate', 'endDate', 'status']) &&
+             data.receiptId is string && data.receiptId.size() > 0 &&
+             data.lastName is string && data.lastName.size() > 0 &&
+             data.status in ['VALID', 'ANNULE'];
+    }
+
+    function isValidCleaningReport(data) {
+      return hasRequiredFields(['menageId', 'calendarSlug', 'dateIntervention', 'status', 'agent']) &&
+             (data.status == 'PRÉVU' || data.agent.size() > 0) &&
+             data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(userId) && request.resource.data.role == 'agent') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+    }
+
+    match /apartments/{apartmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /receipts/{receiptId} {
+      allow read: if isAgent();
+      allow create: if isAgent() && isValidReceipt(request.resource.data);
+      allow update: if isAgent() && isValidReceipt(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /cleaning_reports/{reportId} {
+      allow read: if isAgent();
+      allow create: if isAgent() && isValidCleaningReport(request.resource.data);
+      allow update: if isAgent() && isValidCleaningReport(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

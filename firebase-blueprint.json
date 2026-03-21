@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "Apartment": {
+      "title": "Apartment",
+      "description": "A rental unit in Yaoundé or Bangangté.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Display name of the apartment." },
+        "location": { "type": "string", "enum": ["Yaoundé", "Bangangté"], "description": "City where the apartment is located." },
+        "units": { "type": "array", "items": { "type": "string" }, "description": "List of specific units (slugs) for this apartment." },
+        "basePrice": { "type": "number", "description": "Standard price per night." },
+        "caution": { "type": "number", "description": "Security deposit amount." }
+      },
+      "required": ["name", "location", "basePrice"]
+    },
+    "Receipt": {
+      "title": "Receipt",
+      "description": "A booking and payment record.",
+      "type": "object",
+      "properties": {
+        "receiptId": { "type": "string", "description": "Unique identifier for the receipt." },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "apartmentName": { "type": "string" },
+        "calendarSlug": { "type": "string", "description": "Specific unit slug." },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "grandTotal": { "type": "number" },
+        "totalPaid": { "type": "number" },
+        "remaining": { "type": "number" },
+        "status": { "type": "string", "enum": ["VALID", "ANNULE"], "description": "Booking status." },
+        "payments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "date": { "type": "string", "format": "date" },
+              "amount": { "type": "number" },
+              "method": { "type": "string" }
+            }
+          }
+        },
+        "electricityCharge": { "type": "boolean" },
+        "packEco": { "type": "boolean" },
+        "observations": { "type": "string" },
+        "signature": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["receiptId", "lastName", "apartmentName", "startDate", "endDate", "status"]
+    },
+    "CleaningReport": {
+      "title": "Cleaning Report",
+      "description": "A report on apartment cleaning status.",
+      "type": "object",
+      "properties": {
+        "menageId": { "type": "string", "description": "Reference to the receipt ID." },
+        "calendarSlug": { "type": "string" },
+        "dateIntervention": { "type": "string", "format": "date" },
+        "agent": { "type": "string" },
+        "status": { "type": "string", "enum": ["EFFECTUÉ", "ANOMALIE", "REPORTÉ", "PRÉVU"] },
+        "feedback": { "type": "string" },
+        "damages": { "type": "string" },
+        "maintenance": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["menageId", "calendarSlug", "dateIntervention", "agent", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "System user with roles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "agent"] },
+        "displayName": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/apartments/{apartmentId}": { "schema": "Apartment", "description": "Collection of apartments." },
+    "/receipts/{receiptId}": { "schema": "Receipt", "description": "Collection of booking receipts." },
+    "/cleaning_reports/{reportId}": { "schema": "CleaningReport", "description": "Collection of cleaning reports." },
+    "/users/{userId}": { "schema": "User", "description": "Collection of system users." }
+  }
+}
