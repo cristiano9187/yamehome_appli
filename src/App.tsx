@@ -311,26 +311,42 @@ export default function App() {
     }));
   }, [totals]);
 
-  const handlePrint = useCallback(() => {
-    const now = new Date();
-    const dateStr = getLocalDateString(now);
-    const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
-    const name = `${formData.firstName}_${formData.lastName}`.toLowerCase().trim().replace(/\s+/g, '_');
-    const apartment = (formData.apartmentName || 'logement').toLowerCase().trim().replace(/\s+/g, '_');
-    const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
-    
-    const originalTitle = document.title;
-    document.title = fileName;
-    
-    // Give the browser a moment to register the title change
-    setTimeout(() => {
-      window.print();
-      // Restore title after print dialog opens
-      setTimeout(() => {
+  // --- TITLE SYNC FOR PDF FILENAME ---
+  useEffect(() => {
+    if (view === 'form' && isReadOnly && formData.receiptId) {
+      const dateStr = getLocalDateString(new Date(formData.createdAt || Date.now()));
+      const name = `${formData.firstName}_${formData.lastName}`
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]/g, '_') // Remove special chars
+        .replace(/_+/g, '_');
+      
+      const apartment = (formData.apartmentName || 'logement')
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]/g, '_')
+        .replace(/_+/g, '_');
+
+      const fileName = `recu_${name}_${apartment}_${dateStr}`;
+      const originalTitle = document.title;
+      document.title = fileName;
+
+      // Extra safety for some mobile browsers
+      const handleBeforePrint = () => { document.title = fileName; };
+      window.addEventListener('beforeprint', handleBeforePrint);
+
+      return () => {
         document.title = originalTitle;
-      }, 1000);
-    }, 150);
-  }, [formData.firstName, formData.lastName, formData.apartmentName]);
+        window.removeEventListener('beforeprint', handleBeforePrint);
+      };
+    }
+  }, [view, isReadOnly, formData, formData.receiptId]);
+
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -1065,24 +1081,10 @@ export default function App() {
               setFormData(receipt);
               setIsReadOnly(true);
               setView('form');
-              // Use a timeout to ensure state update and title change
+              // The useEffect will handle the title sync automatically
               setTimeout(() => {
-                const now = new Date();
-                const dateStr = getLocalDateString(now);
-                const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
-                const name = `${receipt.firstName}_${receipt.lastName}`.toLowerCase().trim().replace(/\s+/g, '_');
-                const apartment = (receipt.apartmentName || 'logement').toLowerCase().trim().replace(/\s+/g, '_');
-                const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
-                
-                const originalTitle = document.title;
-                document.title = fileName;
-                
-                // Small delay for the title to be picked up by the print system
-                setTimeout(() => {
-                  window.print();
-                  setTimeout(() => { document.title = originalTitle; }, 1000);
-                }, 150);
-              }, 600);
+                window.print();
+              }, 500);
             }}
           />
         ) : view === 'calendar' ? (
