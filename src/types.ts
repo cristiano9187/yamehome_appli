@@ -25,6 +25,7 @@ export interface ReceiptData {
   hosts: string[];
   electricityCharge: boolean;
   packEco: boolean;
+  packConfort: boolean;
   observations: string;
   status: 'VALIDE' | 'ANNULE';
   grandTotal: number;

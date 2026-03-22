@@ -45,6 +45,7 @@
         },
         "electricityCharge": { "type": "boolean" },
         "packEco": { "type": "boolean" },
+        "packConfort": { "type": "boolean" },
         "observations": { "type": "string" },
         "signature": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },

@@ -40,8 +40,21 @@ export default function ReceiptPreview({ data }: ReceiptPreviewProps) {
     : (data.isNegotiatedRate ? '(Tarif Négocié)' : '');
 
   const isAppartement = data.apartmentName.toUpperCase().includes('APPARTEMENT') && !data.apartmentName.toUpperCase().includes('STUDIO');
-  const kwPerNight = isAppartement ? 8 : 6;
-  const totalKw = kwPerNight * nights;
+  const isStudio = data.apartmentName.toUpperCase().includes('STUDIO');
+  
+  const kwPerNightEco = isAppartement ? 8 : 6;
+  const totalKwEco = kwPerNightEco * nights;
+
+  let kwPerNightConfort = 8; // Default for Chambre
+  let towelsCount = 2;
+  if (isAppartement) {
+    kwPerNightConfort = 15;
+    towelsCount = 4;
+  } else if (isStudio) {
+    kwPerNightConfort = 10;
+    towelsCount = 2;
+  }
+  const totalKwConfort = kwPerNightConfort * nights;
 
   return (
     <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:p-0 relative">
@@ -148,12 +161,17 @@ export default function ReceiptPreview({ data }: ReceiptPreviewProps) {
           <li>Départ tardif: pénalité de {formatCurrency(latePenalty)}.</li>
           {data.electricityCharge && (
             <li>
-              <strong>Électricité à la charge du client :</strong> Le client devra entièrement prendre en charge sa consommation d'électricité via le compteur prépayé présent dans le logement. Le ménage est prévu tous les 3 jours et le change du linge de lit tous les 7 jours.
+              <strong>Électricité à la charge du client :</strong> Le client devra entièrement prendre en charge sa consommation d'électricité via le compteur prépayé présent dans le logement. Le ménage est prévu tous les 3 jours et le change du linge de lit tous les 3 jours.
             </li>
           )}
           {data.packEco && (
             <li>
-              <strong>Pack ECO appliqué :</strong> Nous vous offrons en guise de bienvenue un forfait de <strong>{totalKw} kW</strong> ({kwPerNight} kW/nuit) d'électricité. Le ménage est prévu tous les 3 jours et le change du linge de lit tous les 7 jours. Tout excédent sera à la charge du voyageur.
+              <strong>Pack ECO appliqué :</strong> Nous vous offrons en guise de bienvenue un forfait de <strong>{totalKwEco} kW</strong> ({kwPerNightEco} kW/nuit) d'électricité. Le ménage est prévu tous les 3 jours et le change du linge de lit tous les 3 jours. Tout excédent sera à la charge du voyageur.
+            </li>
+          )}
+          {data.packConfort && (
+            <li>
+              <strong>Pack CONFORT appliqué :</strong> Nous vous offrons en guise de bienvenue un forfait de <strong>{totalKwConfort} kW</strong> ({kwPerNightConfort} kW/nuit) d'électricité. Le ménage est prévu tous les 2 jours, le change du linge de lit tous les 2 jours et {towelsCount} serviettes sont fournies à l'arrivée. Tout excédent sera à la charge du voyageur.
             </li>
           )}
           <li className="mt-1">

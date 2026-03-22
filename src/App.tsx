@@ -101,7 +101,7 @@ export default function App() {
     isCustomRate: false, customLodgingTotal: 0,
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
     payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
-    signature: '', hosts: [], electricityCharge: false, packEco: false, observations: '',
+    signature: '', hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
     createdAt: new Date().toISOString(),
@@ -355,8 +355,9 @@ export default function App() {
     if (type === 'checkbox') {
       if (name === 'isCustomRate') setFormData(prev => ({ ...prev, isCustomRate: checked, isNegotiatedRate: checked ? false : prev.isNegotiatedRate }));
       else if (name === 'isNegotiatedRate') setFormData(prev => ({ ...prev, isNegotiatedRate: checked, isCustomRate: checked ? false : prev.isCustomRate }));
-      else if (name === 'electricityCharge') setFormData(prev => ({ ...prev, electricityCharge: checked, packEco: checked ? false : prev.packEco }));
-      else if (name === 'packEco') setFormData(prev => ({ ...prev, packEco: checked, electricityCharge: checked ? false : prev.electricityCharge }));
+      else if (name === 'electricityCharge') setFormData(prev => ({ ...prev, electricityCharge: checked, packEco: checked ? false : prev.packEco, packConfort: checked ? false : prev.packConfort }));
+      else if (name === 'packEco') setFormData(prev => ({ ...prev, packEco: checked, electricityCharge: checked ? false : prev.electricityCharge, packConfort: checked ? false : prev.packConfort }));
+      else if (name === 'packConfort') setFormData(prev => ({ ...prev, packConfort: checked, electricityCharge: checked ? false : prev.electricityCharge, packEco: checked ? false : prev.packEco }));
       else setFormData(prev => ({ ...prev, [name]: checked }));
     } else if (name === 'hosts') {
       const options = e.target.options;
@@ -946,6 +947,10 @@ export default function App() {
                     <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
                       <input disabled={isReadOnly} type="checkbox" name="packEco" checked={formData.packEco} onChange={handleChange} className="mr-2 accent-green-600" /> 
                       Pack ECO
+                    </label>
+                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
+                      <input disabled={isReadOnly} type="checkbox" name="packConfort" checked={formData.packConfort} onChange={handleChange} className="mr-2 accent-purple-600" /> 
+                      Pack CONFORT
                     </label>
                   </div>
                   

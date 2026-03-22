@@ -12,7 +12,7 @@ service cloud.firestore {
     // Collection: receipts
     // Fields: receiptId, firstName, lastName, phone, email, apartmentName, calendarSlug, 
     //         startDate, endDate, grandTotal, totalPaid, remaining, status, payments, 
-    //         electricityCharge, packEco, observations, signature, createdAt, authorUid
+    //         electricityCharge, packEco, packConfort, observations, signature, createdAt, authorUid
     //
     // Collection: cleaning_reports
     // Fields: menageId, calendarSlug, dateIntervention, agent, status, feedback, damages, maintenance, createdAt
