@@ -143,7 +143,7 @@ export default function UserManagement({ onAlert }: UserManagementProps) {
                   </span>
                 </div>
                 <div className="col-span-2 text-right">
-                  {item.email !== 'christian.yamepi@gmail.com' && (
+                  {item.email !== 'christian.yamepi@gmail.com' && item.email !== 'cyamepi@gmail.com' && (
                     <button
                       onClick={() => setDeleteConfirmId(item.id!)}
                       className="p-2 text-gray-400 hover:text-red-500 transition-all"

@@ -779,7 +779,7 @@ export default function App() {
                 <CalendarIcon size={16} />
                 Calendrier
               </button>
-              {userProfile?.role === 'admin' && (
+              {(user?.email === 'christian.yamepi@gmail.com' || user?.email === 'cyamepi@gmail.com') && (
                 <button 
                   onClick={() => setView('users')}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
@@ -1167,7 +1167,7 @@ export default function App() {
                     >
                       <Plus size={14}/> Nouveau
                     </button>
-                    {userProfile?.role === 'admin' && (!formData.status || formData.status === 'VALIDE') && (
+                    {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setShowCancelConfirm(true)} 
                         className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-red-100 transition-all"
