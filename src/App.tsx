@@ -43,6 +43,7 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Clock,
+  Check,
   User as UserIcon,
   Home,
   FileText,
@@ -54,6 +55,7 @@ import {
   Lock,
   X,
   History,
+  Info,
   Calendar as CalendarIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -81,6 +83,13 @@ function handleFirestoreError(error: unknown, operationType: string, path: strin
   console.error('Firestore Error: ', JSON.stringify(errInfo));
 }
 
+const getLocalDateString = (date: Date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -91,7 +100,7 @@ export default function App() {
     apartmentName: '', startDate: '', endDate: '',
     isCustomRate: false, customLodgingTotal: 0,
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
-    payments: [{ id: Date.now().toString(), date: new Date().toISOString().split('T')[0], amount: 0, method: 'Espèces' }],
+    payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
     signature: '', hosts: [], electricityCharge: false, packEco: false, observations: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
@@ -110,6 +119,8 @@ export default function App() {
   const [searchId, setSearchId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [alertType, setAlertType] = useState<'info' | 'error' | 'success'>('info');
   
   const urlParams = new URLSearchParams(window.location.search);
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
@@ -119,7 +130,7 @@ export default function App() {
   const [cleaningReport, setCleaningReport] = useState<CleaningReport>({
     menageId: urlParams.get('menageId') || '',
     calendarSlug: urlParams.get('slug') || '',
-    dateIntervention: urlParams.get('date') || new Date().toISOString().split('T')[0],
+    dateIntervention: urlParams.get('date') || getLocalDateString(),
     agent: '', 
     status: 'PRÉVU', 
     feedback: '', 
@@ -136,21 +147,32 @@ export default function App() {
         try {
           const docRef = doc(db, 'users', u.uid);
           const snap = await getDoc(docRef);
+          const isMainAdmin = u.email === 'christian.yamepi@gmail.com' || u.email === 'cyamepi@gmail.com';
           
           if (snap.exists()) {
             const profile = snap.data() as UserProfile;
-            if (profile.isApproved) {
-              setUserProfile(profile);
+            // If profile exists and is already admin or approved, set it
+            if (profile.isApproved || profile.role === 'admin' || isMainAdmin) {
+              const updatedProfile = { 
+                ...profile, 
+                isApproved: true,
+                role: (isMainAdmin || profile.role === 'admin') ? 'admin' : profile.role
+              };
+              // Sync to Firestore if needed (e.g. adding isApproved)
+              if (!profile.isApproved || (isMainAdmin && profile.role !== 'admin')) {
+                await setDoc(docRef, updatedProfile);
+              }
+              setUserProfile(updatedProfile);
             } else {
               // Check whitelist if not approved yet
               const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
               const whiteSnap = await getDocs(q);
-              if (!whiteSnap.empty || u.email === 'christian.yamepi@gmail.com') {
+              if (!whiteSnap.empty) {
                 const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
                 const updatedProfile = { 
                   ...profile, 
                   isApproved: true, 
-                  role: u.email === 'christian.yamepi@gmail.com' ? 'admin' : (whiteData?.role || 'agent')
+                  role: whiteData?.role || 'agent'
                 };
                 await setDoc(docRef, updatedProfile);
                 setUserProfile(updatedProfile);
@@ -161,7 +183,6 @@ export default function App() {
           } else {
             const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
             const whiteSnap = await getDocs(q);
-            const isMainAdmin = u.email === 'christian.yamepi@gmail.com';
             const isApproved = !whiteSnap.empty || isMainAdmin;
             const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
             
@@ -292,7 +313,7 @@ export default function App() {
 
   const handlePrint = useCallback(() => {
     const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const dateStr = getLocalDateString(now);
     const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
     const name = `${formData.firstName}_${formData.lastName}`.toLowerCase().replace(/\s+/g, '_');
     const apartment = (formData.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
@@ -335,7 +356,11 @@ export default function App() {
   };
 
   const submitCleaningReport = async () => {
-    if (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent) return alert("Nom agent requis");
+    if (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent) {
+      setAlertType('error');
+      setAlertMessage("Nom agent requis");
+      return;
+    }
     setIsSaving(true);
     try {
       // Create a unique deterministic ID if not already present
@@ -345,12 +370,14 @@ export default function App() {
         id: reportId,
         createdAt: new Date().toISOString()
       });
-      alert("Rapport enregistré !");
+      setAlertType('success');
+      setAlertMessage("Rapport enregistré !");
       setIsCleaningMode(false);
       setView('calendar');
     } catch (e) { 
       handleFirestoreError(e, OperationType.WRITE, 'cleaning_reports');
-      alert("Erreur d'enregistrement");
+      setAlertType('error');
+      setAlertMessage("Erreur d'enregistrement");
     } finally { 
       setIsSaving(false); 
     }
@@ -358,16 +385,80 @@ export default function App() {
 
   const saveToFirestore = async () => {
     if (isReadOnly) return;
-    if (!formData.apartmentName || !formData.lastName) return alert("Remplir Nom et Logement");
+    if (!formData.apartmentName || !formData.lastName) {
+      setAlertType('error');
+      setAlertMessage("Remplir Nom et Logement");
+      return;
+    }
+    if (!formData.startDate || !formData.endDate) {
+      setAlertType('error');
+      setAlertMessage("Précisez les dates d'arrivée et de départ");
+      return;
+    }
     
     const apartmentData = TARIFS[formData.apartmentName];
     const units = apartmentData?.units || [];
     const finalSlug = units.length === 1 ? units[0] : formData.calendarSlug;
-    if (units.length > 1 && !finalSlug) return alert("Précisez l'unité");
+    if (units.length > 1 && !finalSlug) {
+      setAlertType('error');
+      setAlertMessage("Précisez l'unité");
+      return;
+    }
 
     setIsSaving(true);
     try {
       const docId = formData.id || formData.receiptId;
+
+      // --- OVERLAP CHECK ---
+      // Get all apartment names that share this physical unit (slug)
+      const relatedApartments = Object.entries(TARIFS)
+        .filter(([_, data]) => data.units?.includes(finalSlug))
+        .map(([name, _]) => name);
+
+      // Query by slug (modern) AND by apartment names (legacy/fallback)
+      const qSlug = query(collection(db, 'receipts'), where('calendarSlug', '==', finalSlug));
+      
+      let snapAptDocs: any[] = [];
+      if (relatedApartments.length > 0) {
+        const qApt = query(collection(db, 'receipts'), where('apartmentName', 'in', relatedApartments));
+        const snapApt = await getDocs(qApt);
+        snapAptDocs = snapApt.docs;
+      }
+      
+      const snapSlug = await getDocs(qSlug);
+      
+      // Merge results and remove duplicates
+      const allDocs = [...snapSlug.docs, ...snapAptDocs];
+      const docMap = new Map();
+      allDocs.forEach(d => docMap.set(d.id, { id: d.id, ...d.data() }));
+      
+      const existingBookings = Array.from(docMap.values()) as ReceiptData[];
+      const activeBookings = existingBookings.filter(b => b.status !== 'ANNULE');
+      
+      const newStart = formData.startDate;
+      const newEnd = formData.endDate;
+      
+      const overlap = activeBookings.find(b => {
+        // Skip current booking if updating
+        if (b.id === docId || b.receiptId === docId || b.receiptId === formData.receiptId) return false;
+        
+        const bStart = b.startDate;
+        const bEnd = b.endDate;
+        
+        if (!bStart || !bEnd) return false;
+
+        // Overlap logic (exclusive of checkout day): (StartA < EndB) and (EndA > StartB)
+        return newStart < bEnd && newEnd > bStart;
+      });
+      
+      if (overlap) {
+        setIsSaving(false);
+        const overlapName = `${overlap.firstName} ${overlap.lastName}`.trim() || 'un autre client';
+        setAlertType('error');
+        setAlertMessage(`CONFLIT DE RÉSERVATION : Le logement "${finalSlug}" est déjà réservé par ${overlapName} du ${overlap.startDate} au ${overlap.endDate}. Veuillez annuler ou déplacer l'ancienne réservation avant de continuer.`);
+        return;
+      }
+
       await setDoc(doc(db, 'receipts', docId), {
         ...formData,
         id: docId,
@@ -427,7 +518,8 @@ export default function App() {
             return;
           }
         }
-        alert("Reçu non trouvé");
+        setAlertType('error');
+        setAlertMessage("Reçu non trouvé");
       }
     } catch (e) {
       handleFirestoreError(e, OperationType.GET, 'receipts');
@@ -797,7 +889,7 @@ export default function App() {
                       {!isReadOnly && (
                         <button 
                           type="button" 
-                          onClick={() => setFormData(prev => ({...prev, payments: [...prev.payments, { id: Date.now().toString(), date: new Date().toISOString().split('T')[0], amount: 0, method: 'Espèces' }]}))} 
+                          onClick={() => setFormData(prev => ({...prev, payments: [...prev.payments, { id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }]}))} 
                           className="text-blue-600 hover:text-blue-700 font-black text-[10px] uppercase tracking-widest flex items-center gap-1"
                         >
                           <Plus size={12} /> Ajouter
@@ -839,9 +931,39 @@ export default function App() {
                   
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Contacts Utiles (Hôtes)</label>
-                    <select disabled={isReadOnly} name="hosts" multiple value={formData.hosts || []} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-[10px] h-32 outline-none focus:border-blue-500 transition-all">
-                      {HOSTS.map(h => <option key={h.id} value={h.label} className="p-1">{h.label}</option>)}
-                    </select>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {HOSTS.map(h => {
+                        const isSelected = (formData.hosts || []).includes(h.label);
+                        return (
+                          <button
+                            key={h.id}
+                            type="button"
+                            disabled={isReadOnly}
+                            onClick={() => {
+                              const current = formData.hosts || [];
+                              const next = isSelected 
+                                ? current.filter(x => x !== h.label)
+                                : [...current, h.label];
+                              setFormData(prev => ({ ...prev, hosts: next }));
+                              
+                              // Auto-set signature if empty
+                              if (!formData.signature && next.length > 0) {
+                                const firstHostName = next[0].split(' ')[0].toUpperCase();
+                                setFormData(prev => ({ ...prev, signature: firstHostName, hosts: next }));
+                              }
+                            }}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border text-[10px] font-bold transition-all ${
+                              isSelected 
+                                ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                                : 'bg-white border-gray-100 text-gray-500 hover:border-gray-200'
+                            }`}
+                          >
+                            <span>{h.label}</span>
+                            {isSelected && <Check size={12} />}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -878,7 +1000,30 @@ export default function App() {
                     </div>
                   </div>
 
-                  <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Signature (Gérant)</label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {(formData.hosts || []).map(h => {
+                        const name = h.split(' ')[0].toUpperCase();
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            disabled={isReadOnly}
+                            onClick={() => setFormData(prev => ({ ...prev, signature: name }))}
+                            className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                              formData.signature === name 
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                                : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
+                  </div>
                   <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={2} placeholder="Observations particulières..." className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange}></textarea>
                 </div>
               </form>
@@ -919,7 +1064,7 @@ export default function App() {
               // Use a slightly longer timeout to ensure state update and title change
               setTimeout(() => {
                 const now = new Date();
-                const dateStr = now.toISOString().split('T')[0];
+                const dateStr = getLocalDateString(now);
                 const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
                 const name = `${receipt.firstName}_${receipt.lastName}`.toLowerCase().replace(/\s+/g, '_');
                 const apartment = (receipt.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
@@ -952,7 +1097,8 @@ export default function App() {
               if (!snap.empty) {
                 const existing = snap.docs[0].data() as CleaningReport;
                 // Warning as requested by user
-                alert(`Note : Un rapport de ménage existe déjà pour ${slug} le ${date}. Vous allez consulter/modifier le rapport existant.`);
+                setAlertType('info');
+                setAlertMessage(`Note : Un rapport de ménage existe déjà pour ${slug} le ${date}. Vous allez consulter/modifier le rapport existant.`);
                 setCleaningReport(existing);
                 setIsCleaningReadOnly(true);
               } else {
@@ -973,7 +1119,12 @@ export default function App() {
             }}
           />
         ) : view === 'users' ? (
-          <UserManagement />
+          <UserManagement 
+            onAlert={(msg, type) => {
+              setAlertType(type || 'info');
+              setAlertMessage(msg);
+            }} 
+          />
         ) : (
           <>
             {/* Top Bar */}
@@ -1084,6 +1235,45 @@ export default function App() {
                   Retour
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {alertMessage && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+            >
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${
+                alertType === 'error' ? 'bg-red-50 text-red-600' : 
+                alertType === 'success' ? 'bg-green-50 text-green-600' : 
+                'bg-blue-50 text-blue-600'
+              }`}>
+                {alertType === 'error' ? <AlertCircle size={32} /> : 
+                 alertType === 'success' ? <CheckCircle2 size={32} /> : 
+                 <Info size={32} />}
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">
+                {alertType === 'error' ? 'Attention' : 
+                 alertType === 'success' ? 'Succès' : 
+                 'Information'}
+              </h3>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                {alertMessage}
+              </p>
+              <button 
+                onClick={() => setAlertMessage(null)}
+                className={`w-full font-black py-4 rounded-2xl uppercase text-xs tracking-widest transition-all ${
+                  alertType === 'error' ? 'bg-red-600 text-white shadow-xl shadow-red-600/20 hover:bg-red-700' : 
+                  alertType === 'success' ? 'bg-green-600 text-white shadow-xl shadow-green-600/20 hover:bg-green-700' : 
+                  'bg-blue-600 text-white shadow-xl shadow-blue-600/20 hover:bg-blue-700'
+                }`}
+              >
+                D'accord
+              </button>
             </motion.div>
           </div>
         )}

@@ -5,12 +5,18 @@ import { AuthorizedEmail } from '../types';
 import { Trash2, UserPlus, Shield, User as UserIcon, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function UserManagement() {
+interface UserManagementProps {
+  onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
+}
+
+export default function UserManagement({ onAlert }: UserManagementProps) {
   const [emails, setEmails] = useState<AuthorizedEmail[]>([]);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'agent'>('agent');
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'authorized_emails'));
@@ -34,18 +40,22 @@ export default function UserManagement() {
       setNewEmail('');
     } catch (error) {
       console.error("Error adding email:", error);
-      alert("Erreur lors de l'ajout de l'email");
+      onAlert("Erreur lors de l'ajout de l'email", 'error');
     } finally {
       setIsAdding(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Supprimer cet accès ?")) return;
+    setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'authorized_emails', id));
+      setDeleteConfirmId(null);
     } catch (error) {
       console.error("Error deleting email:", error);
+      onAlert("Erreur lors de la suppression", 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -135,7 +145,7 @@ export default function UserManagement() {
                 <div className="col-span-2 text-right">
                   {item.email !== 'christian.yamepi@gmail.com' && (
                     <button
-                      onClick={() => handleDelete(item.id!)}
+                      onClick={() => setDeleteConfirmId(item.id!)}
                       className="p-2 text-gray-400 hover:text-red-500 transition-all"
                     >
                       <Trash2 size={16} />
@@ -152,6 +162,43 @@ export default function UserManagement() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Supprimer l'accès ?</h3>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                L'utilisateur avec l'email <strong>{emails.find(e => e.id === deleteConfirmId)?.email}</strong> ne pourra plus accéder à l'application.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={() => handleDelete(deleteConfirmId)}
+                  disabled={isDeleting}
+                  className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all disabled:opacity-50"
+                >
+                  {isDeleting ? 'Suppression...' : 'Confirmer la suppression'}
+                </button>
+                <button 
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

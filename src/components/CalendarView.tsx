@@ -136,8 +136,15 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
     return days;
   }, [currentDate]);
 
+  const getLocalDateString = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const getBookingForUnitAndDay = (unitSlug: string, date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = getLocalDateString(date);
     return receipts.find(r => 
       r.calendarSlug === unitSlug && 
       dateStr >= r.startDate && 
@@ -157,7 +164,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
     let current = new Date(start);
     current.setDate(current.getDate() + 3);
     while (current < end) {
-      tasks.push(current.toISOString().split('T')[0]);
+      tasks.push(getLocalDateString(current));
       current.setDate(current.getDate() + 3);
     }
     
@@ -271,7 +278,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                     </div>
                   </td>
                   {daysInMonth.map(date => {
-                    const dateStr = date.toISOString().split('T')[0];
+                    const dateStr = getLocalDateString(date);
                     const booking = getBookingForUnitAndDay(unit.slug, date);
                     const isToday = date.toDateString() === new Date().toDateString();
                     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
