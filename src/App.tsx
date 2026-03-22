@@ -315,17 +315,21 @@ export default function App() {
     const now = new Date();
     const dateStr = getLocalDateString(now);
     const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
-    const name = `${formData.firstName}_${formData.lastName}`.toLowerCase().replace(/\s+/g, '_');
-    const apartment = (formData.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
+    const name = `${formData.firstName}_${formData.lastName}`.toLowerCase().trim().replace(/\s+/g, '_');
+    const apartment = (formData.apartmentName || 'logement').toLowerCase().trim().replace(/\s+/g, '_');
     const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
     
     const originalTitle = document.title;
     document.title = fileName;
-    window.print();
-    // Restore title after print dialog opens
+    
+    // Give the browser a moment to register the title change
     setTimeout(() => {
-      document.title = originalTitle;
-    }, 1000);
+      window.print();
+      // Restore title after print dialog opens
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 1000);
+    }, 150);
   }, [formData.firstName, formData.lastName, formData.apartmentName]);
 
   // --- HANDLERS ---
@@ -1054,26 +1058,30 @@ export default function App() {
           <HistoryView 
             onEdit={(receipt) => {
               setFormData(receipt);
-              setIsReadOnly(false);
+              setIsReadOnly(true);
               setView('form');
             }}
             onPrint={(receipt) => {
               setFormData(receipt);
               setIsReadOnly(true);
               setView('form');
-              // Use a slightly longer timeout to ensure state update and title change
+              // Use a timeout to ensure state update and title change
               setTimeout(() => {
                 const now = new Date();
                 const dateStr = getLocalDateString(now);
                 const timeStr = `${now.getHours()}h${now.getMinutes().toString().padStart(2, '0')}`;
-                const name = `${receipt.firstName}_${receipt.lastName}`.toLowerCase().replace(/\s+/g, '_');
-                const apartment = (receipt.apartmentName || 'logement').toLowerCase().replace(/\s+/g, '_');
+                const name = `${receipt.firstName}_${receipt.lastName}`.toLowerCase().trim().replace(/\s+/g, '_');
+                const apartment = (receipt.apartmentName || 'logement').toLowerCase().trim().replace(/\s+/g, '_');
                 const fileName = `reçu_${name}_${apartment}_${dateStr}_${timeStr}`;
                 
                 const originalTitle = document.title;
                 document.title = fileName;
-                window.print();
-                setTimeout(() => { document.title = originalTitle; }, 1000);
+                
+                // Small delay for the title to be picked up by the print system
+                setTimeout(() => {
+                  window.print();
+                  setTimeout(() => { document.title = originalTitle; }, 1000);
+                }, 150);
               }, 600);
             }}
           />
@@ -1081,7 +1089,7 @@ export default function App() {
           <CalendarView 
             onEdit={(receipt) => {
               setFormData(receipt);
-              setIsReadOnly(false);
+              setIsReadOnly(true);
               setView('form');
             }}
             onOpenCleaning={async (menageId, slug, date) => {
