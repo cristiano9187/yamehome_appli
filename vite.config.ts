@@ -9,7 +9,7 @@ export default defineConfig(({mode}) => {
   return {
     // ⚠️ AJOUT CRUCIAL POUR GITHUB PAGES
     // Cela indique à Vite que le projet est dans le sous-dossier /yamehome_appli/
-    base: '/yamehome_appli/', 
+    base: '/', // ⚠️ Doit être un slash tout seul maintenant puisque on part sur vercel
 
     plugins: [react(), tailwindcss()],
     define: {
