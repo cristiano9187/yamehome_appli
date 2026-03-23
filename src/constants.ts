@@ -17,6 +17,15 @@ export const HOSTS = [
   { id: "madeleine", label: "Madeleine (+237 693 00 96 26)" }
 ];
 
+export const SITES = [
+  "Matera",
+  "Rieti",
+  "Modena",
+  "Gallagers",
+  "Yaoundé",
+  "Bangangté"
+];
+
 export const TARIFS: TarifMap = {
   'RIETI YAMEHOME - APPARTEMENT TERRACOTTA mode STUDIO': { 
       address: 'Odza entrée Fécafoot Yaoundé, Porte 201',

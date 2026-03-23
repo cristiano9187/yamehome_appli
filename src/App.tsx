@@ -109,10 +109,12 @@ export default function App() {
   });
 
   // --- STATES ---
+  const urlParams = new URLSearchParams(window.location.search);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users'>('form');
+  const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -122,7 +124,6 @@ export default function App() {
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [alertType, setAlertType] = useState<'info' | 'error' | 'success'>('info');
   
-  const urlParams = new URLSearchParams(window.location.search);
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
   const [isCleaningReadOnly, setIsCleaningReadOnly] = useState(false);
@@ -270,7 +271,7 @@ export default function App() {
   // --- CALCULATIONS ---
   const totals = useMemo(() => {
     if (!formData.startDate || !formData.endDate || !formData.apartmentName) {
-      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0 };
+      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0 };
     }
     const diffTime = new Date(formData.endDate).getTime() - new Date(formData.startDate).getTime();
     const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
@@ -299,37 +300,57 @@ export default function App() {
       remaining: grandTotal - totalPaid,
       commissionAmount
     };
-  }, [formData]);
+  }, [
+    formData.startDate, 
+    formData.endDate, 
+    formData.apartmentName, 
+    formData.isNegotiatedRate, 
+    formData.negotiatedPricePerNight, 
+    formData.isCustomRate, 
+    formData.customLodgingTotal, 
+    formData.payments, 
+    formData.agentName
+  ]);
 
   useEffect(() => {
-    setFormData(prev => ({
-      ...prev,
-      grandTotal: totals.grandTotal,
-      totalPaid: totals.totalPaid,
-      remaining: totals.remaining,
-      commissionAmount: totals.commissionAmount
-    }));
-  }, [totals]);
+    if (
+      formData.grandTotal !== totals.grandTotal ||
+      formData.totalPaid !== totals.totalPaid ||
+      formData.remaining !== totals.remaining ||
+      formData.commissionAmount !== totals.commissionAmount
+    ) {
+      setFormData(prev => ({
+        ...prev,
+        grandTotal: totals.grandTotal,
+        totalPaid: totals.totalPaid,
+        remaining: totals.remaining,
+        commissionAmount: totals.commissionAmount
+      }));
+    }
+  }, [totals, formData.grandTotal, formData.totalPaid, formData.remaining, formData.commissionAmount]);
 
   // --- TITLE SYNC FOR PDF FILENAME ---
   useEffect(() => {
     if (view === 'form' && isReadOnly && formData.receiptId) {
-      const dateStr = getLocalDateString(new Date(formData.createdAt || Date.now()));
-      const name = `${formData.firstName}_${formData.lastName}`
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]/g, '_') // Remove special chars
-        .replace(/_+/g, '_');
-      
-      const apartment = (formData.apartmentName || 'logement')
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]/g, '_')
-        .replace(/_+/g, '_');
+      const createdAt = new Date(formData.createdAt || Date.now());
+      const dateStr = getLocalDateString(createdAt);
+      const hours = String(createdAt.getHours()).padStart(2, '0');
+      const minutes = String(createdAt.getMinutes()).padStart(2, '0');
+      const timeStr = `${hours}h${minutes}`;
 
-      const fileName = `recu_${name}_${apartment}_${dateStr}`;
+      const cleanString = (str: string) => {
+        return str
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // Remove accents
+          .trim()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-zA-Z0-9_]/g, ''); // Keep only alphanumeric and underscores
+      };
+
+      const clientName = cleanString(`${formData.firstName} ${formData.lastName}`);
+      const apartmentShort = cleanString((formData.apartmentName || '').substring(0, 10));
+
+      const fileName = `reçu_${clientName}_${apartmentShort}_${dateStr}_${timeStr}`;
       const originalTitle = document.title;
       document.title = fileName;
 
@@ -1094,6 +1115,13 @@ export default function App() {
           />
         ) : view === 'calendar' ? (
           <CalendarView 
+            viewMode={calendarViewMode}
+            onViewModeChange={setCalendarViewMode}
+            userProfile={userProfile}
+            onAlert={(msg, type) => {
+              setAlertType(type || 'info');
+              setAlertMessage(msg);
+            }}
             onEdit={(receipt) => {
               setFormData(receipt);
               setIsReadOnly(true);

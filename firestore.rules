@@ -88,6 +88,20 @@ service cloud.firestore {
              data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU'];
     }
 
+    function isValidEmployee(data) {
+      return hasRequiredFields(['name', 'role', 'active']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.role is string && data.role.size() > 0 &&
+             data.active is bool;
+    }
+
+    function isValidAttendance(data) {
+      return hasRequiredFields(['employeeId', 'date', 'status', 'updatedAt']) &&
+             data.employeeId is string && data.employeeId.size() > 0 &&
+             data.date is string && data.date.size() > 0 &&
+             data.status in ['PRÉSENT', 'ABSENT', 'REPOS', 'PRÉVU_REPOS'];
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -122,6 +136,16 @@ service cloud.firestore {
       allow create: if isAgent() && isValidCleaningReport(request.resource.data);
       allow update: if isAgent() && isValidCleaningReport(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isAgent();
+      allow write: if isAdmin() && isValidEmployee(request.resource.data);
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAgent();
+      allow write: if isAgent() && isValidAttendance(request.resource.data);
     }
 
     // Default deny

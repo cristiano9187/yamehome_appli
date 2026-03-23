@@ -6,8 +6,9 @@ import {
   where
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ReceiptData, CleaningReport } from '../types';
-import { TARIFS } from '../constants';
+import { ReceiptData, CleaningReport, UserProfile } from '../types';
+import { TARIFS, SITES } from '../constants';
+import AttendanceView from './AttendanceView';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -26,17 +27,53 @@ import { motion, AnimatePresence } from 'motion/react';
 interface CalendarViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onOpenCleaning: (menageId: string, slug: string, date: string) => void;
+  viewMode: 'reservations' | 'cleaning' | 'presence';
+  onViewModeChange: (mode: 'reservations' | 'cleaning' | 'presence') => void;
+  userProfile: UserProfile | null;
+  onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewProps) {
+export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewModeChange, userProfile, onAlert }: CalendarViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [cleaningReports, setCleaningReports] = useState<CleaningReport[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<ReceiptData | null>(null);
-  const [viewMode, setViewMode] = useState<'reservations' | 'cleaning'>('reservations');
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to current day
+  useEffect(() => {
+    if ((viewMode === 'reservations' || viewMode === 'cleaning') && scrollContainerRef.current) {
+      const today = new Date();
+      if (today.getMonth() === currentDate.getMonth() && today.getFullYear() === currentDate.getFullYear()) {
+        const timeoutId = setTimeout(() => {
+          const container = scrollContainerRef.current;
+          const todayEl = document.getElementById('calendar-today-column');
+          const firstCol = container?.querySelector('th.sticky') as HTMLElement;
+          
+          if (container && todayEl && firstCol) {
+            const containerRect = container.getBoundingClientRect();
+            const todayRect = todayEl.getBoundingClientRect();
+            const firstColRect = firstCol.getBoundingClientRect();
+            
+            // We want today to be at: firstCol.right + (4 * today.width)
+            // The distance from the container's left to today's desired position
+            const targetLeft = firstColRect.right + (4 * todayRect.width);
+            const diff = todayRect.left - targetLeft;
+            
+            container.scrollTo({
+              left: container.scrollLeft + diff,
+              behavior: 'smooth'
+            });
+          }
+        }, 150); // Slightly longer timeout to ensure layout is stable
+        return () => clearTimeout(timeoutId);
+      } else {
+        scrollContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+      }
+    }
+  }, [viewMode, currentDate.getTime()]);
 
   useEffect(() => {
     const qReceipts = query(collection(db, 'receipts'));
@@ -202,16 +239,22 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
 
           <div className="flex bg-gray-100 p-1 rounded-xl">
             <button 
-              onClick={() => setViewMode('reservations')}
+              onClick={() => onViewModeChange('reservations')}
               className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'reservations' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
             >
               Réservations
             </button>
             <button 
-              onClick={() => setViewMode('cleaning')}
+              onClick={() => onViewModeChange('cleaning')}
               className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'cleaning' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
             >
               Suivi Ménage
+            </button>
+            <button 
+              onClick={() => onViewModeChange('presence')}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'presence' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
+            >
+              Présence
             </button>
           </div>
         </div>
@@ -233,8 +276,13 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
 
       {/* Grid Container */}
       <div className="flex-1 md:overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-auto relative" ref={scrollContainerRef}>
-          <table className="w-full border-collapse table-fixed min-w-[1500px]">
+        {viewMode === 'presence' ? (
+          <div className="flex-1 overflow-y-auto bg-[#F5F5F4]">
+            <AttendanceView userProfile={userProfile} onAlert={onAlert} currentDate={currentDate} />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto relative" ref={scrollContainerRef}>
+            <table className="w-full border-collapse table-fixed min-w-[1500px]">
             <thead className="sticky top-0 z-30">
               <tr className="bg-zinc-900 text-white">
                 <th className="w-[120px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-4 text-left text-[10px] font-black uppercase tracking-widest text-gray-400">
@@ -246,6 +294,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                   return (
                     <th 
                       key={date.toISOString()} 
+                      id={isToday ? 'calendar-today-column' : undefined}
                       className={`w-16 border-b border-white/10 p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
                     >
                       <div className="flex flex-col items-center">
@@ -295,7 +344,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
                     return (
                       <td 
                         key={date.toISOString()} 
-                        className={`border-r border-b border-gray-50 h-16 relative ${isToday ? 'bg-blue-50/10' : isWeekend ? 'bg-gray-50/30' : ''}`}
+                        className={`border-r border-b border-gray-50 h-16 relative transition-colors ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
                         {viewMode === 'reservations' && booking && (
                           <div 
@@ -333,6 +382,7 @@ export default function CalendarView({ onEdit, onOpenCleaning }: CalendarViewPro
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* Booking Sidebar */}

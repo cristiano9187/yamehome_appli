@@ -93,6 +93,34 @@
         "addedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "role"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "An employee for attendance tracking.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "role", "active"]
+    },
+    "AttendanceRecord": {
+      "title": "Attendance Record",
+      "description": "Daily attendance record for an employee.",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["PRÉSENT", "ABSENT", "REPOS", "PRÉVU_REPOS"] },
+        "checkInTime": { "type": "string" },
+        "checkOutTime": { "type": "string" },
+        "site": { "type": "string" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "date", "status", "updatedAt"]
     }
   },
   "firestore": {
@@ -100,6 +128,8 @@
     "/receipts/{receiptId}": { "schema": "Receipt", "description": "Collection of booking receipts." },
     "/cleaning_reports/{reportId}": { "schema": "CleaningReport", "description": "Collection of cleaning reports." },
     "/users/{userId}": { "schema": "User", "description": "Collection of system users." },
-    "/authorized_emails/{emailId}": { "schema": "AuthorizedEmail", "description": "Collection of authorized emails." }
+    "/authorized_emails/{emailId}": { "schema": "AuthorizedEmail", "description": "Collection of authorized emails." },
+    "/employees/{employeeId}": { "schema": "Employee", "description": "Collection of employees." },
+    "/attendance/{attendanceId}": { "schema": "AttendanceRecord", "description": "Collection of attendance records." }
   }
 }

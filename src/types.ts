@@ -75,6 +75,26 @@ export interface AuthorizedEmail {
   addedAt: string;
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AttendanceRecord {
+  id?: string;
+  employeeId: string;
+  date: string; // YYYY-MM-DD
+  status: 'PRÉSENT' | 'ABSENT' | 'REPOS' | 'PRÉVU_REPOS';
+  checkInTime?: string; // HH:mm
+  checkOutTime?: string; // HH:mm
+  site?: string;
+  notes?: string;
+  updatedAt: string;
+}
+
 export interface TarifDetails {
   prix: number;
   caution: number;
