@@ -47,6 +47,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<'daily' | 'planning' | 'employees'>('daily');
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newEmployee, setNewEmployee] = useState({ name: '', role: '' });
   const planningScrollRef = useRef<HTMLDivElement>(null);
 
@@ -146,6 +147,19 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
   };
 
+  const handleUpdateEmployee = async () => {
+    if (!editingEmployee || !editingEmployee.name || !editingEmployee.role) return;
+    try {
+      await setDoc(doc(db, 'employees', editingEmployee.id), {
+        ...editingEmployee
+      });
+      setEditingEmployee(null);
+      onAlert("Employé mis à jour", "success");
+    } catch (e) {
+      onAlert("Erreur lors de la mise à jour", "error");
+    }
+  };
+
   const handleDeleteEmployee = async (id: string) => {
     if (!window.confirm("Supprimer cet employé ?")) return;
     try {
@@ -180,19 +194,26 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   };
 
   const handleCheckIn = (employeeId: string) => {
+    const record = attendance[employeeId];
+    if (!record?.checkInSite) {
+      onAlert("Veuillez sélectionner un site d'entrée", "info");
+      return;
+    }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     
-    // Auto-validation logic: if status was PRÉVU_REPOS, it stays REPOS but we record the time?
-    // User said: "le reste de statut passera a pr" (probably "présent" if they check in)
     updateAttendance(employeeId, { 
       checkInTime: timeStr, 
-      status: 'PRÉSENT',
-      site: SITES[0] 
+      status: 'PRÉSENT'
     });
   };
 
   const handleCheckOut = (employeeId: string) => {
+    const record = attendance[employeeId];
+    if (!record?.checkOutSite) {
+      onAlert("Veuillez sélectionner un site de sortie", "info");
+      return;
+    }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     updateAttendance(employeeId, { checkOutTime: timeStr });
@@ -359,18 +380,34 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                       </div>
                     </div>
 
-                    <div className="space-y-2 w-full md:w-48">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                        <MapPin className="w-4 h-4" /> Site
+                    <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+                      <div className="space-y-2 w-full md:w-40">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <MapPin className="w-3 h-3" /> Site Entrée
+                        </div>
+                        <select 
+                          value={record?.checkInSite || ''}
+                          onChange={(e) => updateAttendance(emp.id, { checkInSite: e.target.value })}
+                          className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
+                        >
+                          <option value="">Site Entrée</option>
+                          {SITES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
                       </div>
-                      <select 
-                        value={record?.site || ''}
-                        onChange={(e) => updateAttendance(emp.id, { site: e.target.value })}
-                        className="w-full text-sm border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
-                      >
-                        <option value="">Sélectionner site</option>
-                        {SITES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+
+                      <div className="space-y-2 w-full md:w-40">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <MapPin className="w-3 h-3" /> Site Sortie
+                        </div>
+                        <select 
+                          value={record?.checkOutSite || ''}
+                          onChange={(e) => updateAttendance(emp.id, { checkOutSite: e.target.value })}
+                          className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
+                        >
+                          <option value="">Site Sortie</option>
+                          {SITES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
                     </div>
 
                     <div className="space-y-2 w-full md:w-64">
@@ -529,18 +566,57 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {employees.map(emp => (
               <div key={emp.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group">
-                <div>
-                  <h4 className="font-bold text-slate-900">{emp.name}</h4>
-                  <p className="text-xs text-slate-500">{emp.role}</p>
-                </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => handleDeleteEmployee(emp.id)}
-                    className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                {editingEmployee?.id === emp.id ? (
+                  <div className="flex-1 space-y-3 p-2">
+                    <input 
+                      type="text" 
+                      value={editingEmployee.name}
+                      onChange={(e) => setEditingEmployee({...editingEmployee, name: e.target.value})}
+                      className="w-full text-sm border-slate-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <input 
+                      type="text" 
+                      value={editingEmployee.role}
+                      onChange={(e) => setEditingEmployee({...editingEmployee, role: e.target.value})}
+                      className="w-full text-sm border-slate-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleUpdateEmployee}
+                        className="flex-1 bg-emerald-600 text-white py-1.5 rounded-lg text-xs font-bold"
+                      >
+                        OK
+                      </button>
+                      <button 
+                        onClick={() => setEditingEmployee(null)}
+                        className="flex-1 bg-slate-100 text-slate-600 py-1.5 rounded-lg text-xs font-bold"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-slate-900">{emp.name}</h4>
+                      <p className="text-xs text-slate-500">{emp.role}</p>
+                    </div>
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => setEditingEmployee(emp)}
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteEmployee(emp.id)}
+                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>

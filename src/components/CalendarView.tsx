@@ -1,12 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  collection, 
-  query, 
-  onSnapshot,
-  where
-} from 'firebase/firestore';
 import { db } from '../firebase';
-import { ReceiptData, CleaningReport, UserProfile } from '../types';
+import { ReceiptData, CleaningReport, UserProfile, BlockedDate } from '../types';
 import { TARIFS, SITES } from '../constants';
 import AttendanceView from './AttendanceView';
 import { 
@@ -20,8 +14,20 @@ import {
   Search,
   Filter,
   ArrowRight,
-  X
+  X,
+  Lock,
+  Unlock,
+  AlertTriangle
 } from 'lucide-react';
+import { 
+  collection, 
+  query, 
+  onSnapshot,
+  where,
+  addDoc,
+  deleteDoc,
+  doc
+} from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface CalendarViewProps {
@@ -36,9 +42,11 @@ interface CalendarViewProps {
 export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewModeChange, userProfile, onAlert }: CalendarViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [cleaningReports, setCleaningReports] = useState<CleaningReport[]>([]);
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<ReceiptData | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -89,9 +97,15 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
       setLoading(false);
     });
 
+    const qBlocked = query(collection(db, 'blocked_dates'));
+    const unsubBlocked = onSnapshot(qBlocked, (snapshot) => {
+      setBlockedDates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BlockedDate[]);
+    });
+
     return () => {
       unsubReceipts();
       unsubCleaning();
+      unsubBlocked();
     };
   }, []);
 
@@ -219,6 +233,45 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
   const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const monthName = currentDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
+  const handleBlockDate = async (unitSlug: string, date: string) => {
+    if (userProfile?.role !== 'admin') {
+      onAlert("Seul l'administrateur peut bloquer des dates", "error");
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'blocked_dates'), {
+        date,
+        calendarSlug: unitSlug,
+        createdAt: new Date().toISOString(),
+        authorUid: userProfile.uid,
+        reason: 'Travaux / Maintenance'
+      });
+      onAlert("Date bloquée avec succès", "success");
+      setSelectedCell(null);
+    } catch (error: any) {
+      console.error("Error blocking date:", error);
+      const errorMsg = error.message?.includes('permission-denied') 
+        ? "Permission refusée. Vérifiez vos droits admin." 
+        : "Erreur lors du blocage de la date";
+      onAlert(errorMsg, "error");
+    }
+  };
+
+  const handleUnblockDate = async (blockedId: string) => {
+    if (userProfile?.role !== 'admin') {
+      onAlert("Seul l'administrateur peut débloquer des dates", "error");
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, 'blocked_dates', blockedId));
+      onAlert("Date débloquée avec succès", "success");
+      setSelectedCell(null);
+    } catch (error) {
+      console.error("Error unblocking date:", error);
+      onAlert("Erreur lors du déblocage de la date", "error");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
@@ -332,6 +385,9 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
                     const isToday = date.toDateString() === new Date().toDateString();
                     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                     
+                    const blockedDate = blockedDates.find(b => b.calendarSlug === unit.slug && b.date === dateStr);
+                    const isBlocked = !!blockedDate;
+
                     // Cleaning Logic
                     const cleaningDates = booking ? getCleaningTasks(booking) : [];
                     const isCalculatedCleaningDay = cleaningDates.includes(dateStr);
@@ -344,8 +400,20 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
                     return (
                       <td 
                         key={date.toISOString()} 
-                        className={`border-r border-b border-gray-50 h-16 relative transition-colors ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
+                        onClick={() => {
+                          if (viewMode === 'reservations' && !booking) {
+                            setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                          }
+                        }}
+                        className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
+                        {viewMode === 'reservations' && isBlocked && (
+                          <div className="absolute inset-0 bg-red-50/50 flex items-center justify-center overflow-hidden">
+                            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #ef4444, #ef4444 10px, transparent 10px, transparent 20px)' }} />
+                            <Lock size={14} className="text-red-400 relative z-10" />
+                          </div>
+                        )}
+
                         {viewMode === 'reservations' && booking && (
                           <div 
                             onClick={() => setSelectedBooking(booking)}
@@ -387,6 +455,74 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
 
       {/* Booking Sidebar */}
       <AnimatePresence>
+        {selectedCell && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
+                    <CalendarIcon size={20} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black uppercase tracking-widest text-gray-900">Gestion Date</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">{new Date(selectedCell.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedCell(null)} className="p-2 hover:bg-gray-200 rounded-full transition-all">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="flex flex-col items-center text-center space-y-2">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-400 mb-2">
+                    <Home size={32} />
+                  </div>
+                  <span className="text-sm font-black uppercase tracking-tighter text-gray-900">{selectedCell.unitSlug}</span>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Souhaitez-vous modifier la disponibilité de ce logement pour cette date ?
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {userProfile?.role === 'admin' ? (
+                    blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date) ? (
+                      <button 
+                        onClick={() => {
+                          const b = blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date);
+                          if (b?.id) handleUnblockDate(b.id);
+                        }}
+                        className="w-full flex items-center justify-center gap-3 bg-emerald-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all"
+                      >
+                        <Unlock size={16} />
+                        Ouvrir la date
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => handleBlockDate(selectedCell.unitSlug, selectedCell.date)}
+                        className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-zinc-900/20 hover:bg-black transition-all"
+                      >
+                        <Lock size={16} />
+                        Fermer la date
+                      </button>
+                    )
+                  ) : (
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-3 text-amber-600">
+                      <AlertTriangle size={18} />
+                      <span className="text-[10px] font-bold uppercase">Seul l'admin peut modifier</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {selectedBooking && (
           <motion.div 
             initial={{ x: 400 }}

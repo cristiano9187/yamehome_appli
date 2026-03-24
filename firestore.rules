@@ -20,6 +20,12 @@ service cloud.firestore {
     // Collection: users
     // Fields: uid, email, role, displayName
     //
+    // Collection: attendance
+    // Fields: employeeId, date, status, checkInTime, checkOutTime, checkInSite, checkOutSite, notes, updatedAt
+    //
+    // Collection: blocked_dates
+    // Fields: date, calendarSlug, reason, createdAt, authorUid
+    //
     // ===============================================================
 
     // ===============================================================
@@ -36,14 +42,18 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "christian.yamepi@gmail.com" && request.auth.token.email_verified == true) ||
-          (request.auth.token.email == "cyamepi@gmail.com" && request.auth.token.email_verified == true));
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          request.auth.token.email == "christian.yamepi@gmail.com" ||
+          request.auth.token.email == "cyamepi@gmail.com");
     }
 
     function isAgent() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'agent' || isAdmin());
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'agent' || 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')) || 
+          isAdmin());
     }
 
     function hasRequiredFields(fields) {
@@ -102,6 +112,14 @@ service cloud.firestore {
              data.status in ['PRÉSENT', 'ABSENT', 'REPOS', 'PRÉVU_REPOS'];
     }
 
+    function isValidBlockedDate(data) {
+      return hasRequiredFields(['date', 'calendarSlug', 'createdAt', 'authorUid']) &&
+             hasOnlyAllowedFields(['date', 'calendarSlug', 'createdAt', 'authorUid', 'reason']) &&
+             data.date is string && data.date.size() > 0 &&
+             data.calendarSlug is string && data.calendarSlug.size() > 0 &&
+             data.authorUid == request.auth.uid;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -146,6 +164,12 @@ service cloud.firestore {
     match /attendance/{attendanceId} {
       allow read: if isAgent();
       allow write: if isAgent() && isValidAttendance(request.resource.data);
+    }
+
+    match /blocked_dates/{blockedId} {
+      allow read: if isAgent();
+      allow create, update: if isAdmin() && isValidBlockedDate(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Default deny

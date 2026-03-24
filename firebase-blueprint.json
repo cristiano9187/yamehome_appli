@@ -116,11 +116,25 @@
         "status": { "type": "string", "enum": ["PRÉSENT", "ABSENT", "REPOS", "PRÉVU_REPOS"] },
         "checkInTime": { "type": "string" },
         "checkOutTime": { "type": "string" },
-        "site": { "type": "string" },
+        "checkInSite": { "type": "string" },
+        "checkOutSite": { "type": "string" },
         "notes": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["employeeId", "date", "status", "updatedAt"]
+    },
+    "BlockedDate": {
+      "title": "Blocked Date",
+      "description": "A date blocked for maintenance or other reasons.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "calendarSlug": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["date", "calendarSlug", "createdAt", "authorUid"]
     }
   },
   "firestore": {
@@ -130,6 +144,7 @@
     "/users/{userId}": { "schema": "User", "description": "Collection of system users." },
     "/authorized_emails/{emailId}": { "schema": "AuthorizedEmail", "description": "Collection of authorized emails." },
     "/employees/{employeeId}": { "schema": "Employee", "description": "Collection of employees." },
-    "/attendance/{attendanceId}": { "schema": "AttendanceRecord", "description": "Collection of attendance records." }
+    "/attendance/{attendanceId}": { "schema": "AttendanceRecord", "description": "Collection of attendance records." },
+    "/blocked_dates/{blockedId}": { "schema": "BlockedDate", "description": "Collection of blocked dates." }
   }
 }

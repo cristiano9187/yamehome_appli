@@ -4,10 +4,12 @@ import {
   query, 
   orderBy, 
   onSnapshot,
+  doc,
+  updateDoc,
   Timestamp 
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ReceiptData } from '../types';
+import { ReceiptData, UserProfile } from '../types';
 import { formatCurrency } from '../constants';
 import { 
   Search, 
@@ -19,19 +21,35 @@ import {
   CreditCard,
   ChevronRight,
   Clock,
-  Banknote
+  Banknote,
+  ShieldCheck
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface HistoryViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onPrint: (receipt: ReceiptData) => void;
+  userProfile: UserProfile | null;
 }
 
-export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
+export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
+    if (!receipt.id) return;
+    try {
+      const docRef = doc(db, 'receipts', receipt.id);
+      await updateDoc(docRef, {
+        isCautionRefunded: true,
+        cautionRefundDate: new Date().toISOString(),
+        cautionRefundMethod: method
+      });
+    } catch (error) {
+      console.error("Error updating refund status:", error);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'));
@@ -90,12 +108,13 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
             <div className="min-w-[700px]">
               <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                <div className="col-span-2">ID Reçu</div>
+                <div className="col-span-1">ID Reçu</div>
                 <div className="col-span-2">Client</div>
                 <div className="col-span-2">Logement</div>
                 <div className="col-span-2">Montant</div>
                 <div className="col-span-2">Commission</div>
-                <div className="col-span-2 text-right">Actions</div>
+                <div className="col-span-2">Caution</div>
+                <div className="col-span-1 text-right">Actions</div>
               </div>
 
               <div className="divide-y divide-gray-50">
@@ -104,6 +123,11 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
                   deadline.setDate(deadline.getDate() + 1);
                   const isOverdue = new Date() > deadline;
 
+                  const refundDeadline = receipt.endDate ? new Date(receipt.endDate) : null;
+                  if (refundDeadline) refundDeadline.setHours(refundDeadline.getHours() + 24);
+                  const isRefundOverdue = refundDeadline && new Date() > refundDeadline;
+                  const hasCaution = receipt.totalPaid >= receipt.grandTotal && receipt.cautionAmount && receipt.cautionAmount > 0;
+
                   return (
                     <motion.div 
                       key={receipt.id}
@@ -111,7 +135,7 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
                       animate={{ opacity: 1 }}
                       className="grid grid-cols-12 gap-4 p-4 items-center hover:bg-blue-50/30 transition-all group"
                     >
-                      <div className="col-span-2">
+                      <div className="col-span-1">
                         <div className="flex flex-col">
                           <span className="text-xs font-mono font-bold text-gray-900">{receipt.receiptId}</span>
                           <div className="flex items-center gap-1">
@@ -185,7 +209,50 @@ export default function HistoryView({ onEdit, onPrint }: HistoryViewProps) {
                         )}
                       </div>
 
-                      <div className="col-span-2 flex justify-end gap-2">
+                      <div className="col-span-2">
+                        {hasCaution ? (
+                          <div className="flex flex-col">
+                            <div className={`flex items-center gap-1 ${receipt.isCautionRefunded ? 'text-green-600' : 'text-blue-600'}`}>
+                              <ShieldCheck size={10} />
+                              <span className="text-xs font-black">{formatCurrency(receipt.cautionAmount || 0)}</span>
+                            </div>
+                            {receipt.isCautionRefunded ? (
+                              <div className="flex flex-col mt-1">
+                                <span className="text-[8px] font-black uppercase bg-green-100 text-green-600 px-1.5 py-0.5 rounded w-fit">Remboursée</span>
+                                <span className="text-[7px] text-gray-400 font-bold mt-0.5">
+                                  {new Date(receipt.cautionRefundDate!).toLocaleDateString('fr-FR')} via {receipt.cautionRefundMethod}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col mt-1 gap-1">
+                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded w-fit ${isRefundOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                  Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
+                                </div>
+                                {userProfile?.role === 'admin' && (
+                                  <div className="flex gap-1">
+                                    <button 
+                                      onClick={() => handleRefundCaution(receipt, 'Espèces')}
+                                      className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                    >
+                                      Espèces
+                                    </button>
+                                    <button 
+                                      onClick={() => handleRefundCaution(receipt, 'Mobile')}
+                                      className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                    >
+                                      Mobile
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-gray-300 italic">Aucune caution</span>
+                        )}
+                      </div>
+
+                      <div className="col-span-1 flex justify-end gap-2">
                         <button 
                           onClick={() => onEdit(receipt)}
                           className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg transition-all"

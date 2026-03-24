@@ -27,7 +27,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
-import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail } from './types';
+import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
 import HistoryView from './components/HistoryView';
 import CalendarView from './components/CalendarView';
@@ -104,6 +104,7 @@ export default function App() {
     signature: '', hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
+    cautionAmount: 0, isCautionRefunded: false,
     createdAt: new Date().toISOString(),
     authorUid: auth.currentUser?.uid || ''
   });
@@ -278,7 +279,8 @@ export default function App() {
     const rates = getRateForApartment(formData.apartmentName, nights);
     const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
     const totalLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
-    const grandTotal = totalLodging + rates.caution;
+    const cautionAmount = rates.caution;
+    const grandTotal = totalLodging + cautionAmount;
     const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
     
     let commissionAmount = 0;
@@ -298,7 +300,8 @@ export default function App() {
       grandTotal,
       totalPaid,
       remaining: grandTotal - totalPaid,
-      commissionAmount
+      commissionAmount,
+      cautionAmount
     };
   }, [
     formData.startDate, 
@@ -317,14 +320,16 @@ export default function App() {
       formData.grandTotal !== totals.grandTotal ||
       formData.totalPaid !== totals.totalPaid ||
       formData.remaining !== totals.remaining ||
-      formData.commissionAmount !== totals.commissionAmount
+      formData.commissionAmount !== totals.commissionAmount ||
+      formData.cautionAmount !== totals.cautionAmount
     ) {
       setFormData(prev => ({
         ...prev,
         grandTotal: totals.grandTotal,
         totalPaid: totals.totalPaid,
         remaining: totals.remaining,
-        commissionAmount: totals.commissionAmount
+        commissionAmount: totals.commissionAmount,
+        cautionAmount: totals.cautionAmount
       }));
     }
   }, [totals, formData.grandTotal, formData.totalPaid, formData.remaining, formData.commissionAmount]);
@@ -498,6 +503,22 @@ export default function App() {
         const overlapName = `${overlap.firstName} ${overlap.lastName}`.trim() || 'un autre client';
         setAlertType('error');
         setAlertMessage(`CONFLIT DE RÉSERVATION : Le logement "${finalSlug}" est déjà réservé par ${overlapName} du ${overlap.startDate} au ${overlap.endDate}. Veuillez annuler ou déplacer l'ancienne réservation avant de continuer.`);
+        return;
+      }
+
+      // --- BLOCKED DATES CHECK ---
+      const qBlocked = query(collection(db, 'blocked_dates'), where('calendarSlug', '==', finalSlug));
+      const snapBlocked = await getDocs(qBlocked);
+      const blockedDates = snapBlocked.docs.map(d => d.data() as BlockedDate);
+      
+      const blocked = blockedDates.find(b => {
+        return b.date >= newStart && b.date < newEnd;
+      });
+      
+      if (blocked) {
+        setIsSaving(false);
+        setAlertType('error');
+        setAlertMessage(`DATE BLOQUÉE : Le logement "${finalSlug}" est bloqué pour maintenance le ${blocked.date}. Veuillez choisir une autre date ou un autre logement.`);
         return;
       }
 
@@ -1098,6 +1119,7 @@ export default function App() {
       <div className="main-content-wrapper flex-1 flex flex-col min-h-screen md:h-screen md:overflow-hidden relative print:overflow-visible print:h-auto">
         {view === 'history' ? (
           <HistoryView 
+            userProfile={userProfile}
             onEdit={(receipt) => {
               setFormData(receipt);
               setIsReadOnly(true);

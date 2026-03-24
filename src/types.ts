@@ -34,6 +34,10 @@ export interface ReceiptData {
   agentName?: string;
   commissionAmount?: number;
   isCommissionPaid?: boolean;
+  cautionAmount?: number;
+  isCautionRefunded?: boolean;
+  cautionRefundDate?: string;
+  cautionRefundMethod?: string;
   createdAt: string;
   authorUid: string;
 }
@@ -90,7 +94,8 @@ export interface AttendanceRecord {
   status: 'PRÉSENT' | 'ABSENT' | 'REPOS' | 'PRÉVU_REPOS';
   checkInTime?: string; // HH:mm
   checkOutTime?: string; // HH:mm
-  site?: string;
+  checkInSite?: string;
+  checkOutSite?: string;
   notes?: string;
   updatedAt: string;
 }
@@ -108,4 +113,13 @@ export interface ApartmentTarif {
 
 export interface TarifMap {
   [key: string]: ApartmentTarif;
+}
+
+export interface BlockedDate {
+  id?: string;
+  date: string; // YYYY-MM-DD
+  calendarSlug: string;
+  reason?: string;
+  createdAt: string;
+  authorUid: string;
 }
