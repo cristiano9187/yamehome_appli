@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -29,9 +29,9 @@ import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
-import HistoryView from './components/HistoryView';
-import CalendarView from './components/CalendarView';
-import UserManagement from './components/UserManagement';
+const HistoryView = lazy(() => import('./components/HistoryView'));
+const CalendarView = lazy(() => import('./components/CalendarView'));
+const UserManagement = lazy(() => import('./components/UserManagement'));
 import { 
   LogOut, 
   Plus, 
@@ -1126,85 +1126,90 @@ export default function App() {
 
       {/* Main Content */}
       <div className="main-content-wrapper flex-1 flex flex-col min-h-screen md:h-screen md:overflow-hidden relative print:overflow-visible print:h-auto">
-        {view === 'history' ? (
-          <HistoryView 
-            userProfile={userProfile}
-            onEdit={(receipt) => {
-              setFormData(receipt);
-              setIsReadOnly(true);
-              setView('form');
-            }}
-            onPrint={(receipt) => {
-              setFormData(receipt);
-              setIsReadOnly(true);
-              setView('form');
-              // The useEffect will handle the title sync automatically
-              setTimeout(() => {
-                window.print();
-              }, 500);
-            }}
-          />
-        ) : view === 'calendar' ? (
-          <CalendarView 
-            viewMode={calendarViewMode}
-            onViewModeChange={setCalendarViewMode}
-            userProfile={userProfile}
-            onAlert={(msg, type) => {
-              setAlertType(type || 'info');
-              setAlertMessage(msg);
-            }}
-            initialScrollPosition={lastCalendarScroll}
-            onScrollChange={setLastCalendarScroll}
-            currentDate={calendarDate}
-            onDateChange={setCalendarDate}
-            onEdit={(receipt) => {
-              setFormData(receipt);
-              setIsReadOnly(true);
-              setView('form');
-            }}
-            onOpenCleaning={async (menageId, slug, date) => {
-              // Check if report exists for this unit and date (regardless of menageId)
-              const q = query(
-                collection(db, 'cleaning_reports'), 
-                where('calendarSlug', '==', slug),
-                where('dateIntervention', '==', date), 
-                limit(1)
-              );
-              const snap = await getDocs(q);
-              
-              if (!snap.empty) {
-                const existing = snap.docs[0].data() as CleaningReport;
-                // Store pending data and show confirmation instead of opening directly
-                setPendingCleaningData({ menageId, slug, date, report: existing });
-                setShowCleaningConfirm(true);
-              } else {
-                setCleaningReport({
-                  menageId: menageId || 'MANUAL',
-                  calendarSlug: slug,
-                  dateIntervention: date,
-                  agent: '',
-                  status: 'PRÉVU',
-                  feedback: '',
-                  damages: '',
-                  maintenance: '',
-                  createdAt: new Date().toISOString()
-                });
-                setIsCleaningReadOnly(false);
-                setIsCleaningMode(true);
-              }
-            }}
-          />
-        ) : view === 'users' ? (
-          <UserManagement 
-            onAlert={(msg, type) => {
-              setAlertType(type || 'info');
-              setAlertMessage(msg);
-            }} 
-          />
-        ) : (
-          <>
-            {/* Top Bar */}
-            <header className="top-bar h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
+        <Suspense fallback={
+          <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          {view === 'history' ? (
+            <HistoryView 
+              userProfile={userProfile}
+              onEdit={(receipt) => {
+                setFormData(receipt);
+                setIsReadOnly(true);
+                setView('form');
+              }}
+              onPrint={(receipt) => {
+                setFormData(receipt);
+                setIsReadOnly(true);
+                setView('form');
+                // The useEffect will handle the title sync automatically
+                setTimeout(() => {
+                  window.print();
+                }, 500);
+              }}
+            />
+          ) : view === 'calendar' ? (
+            <CalendarView 
+              viewMode={calendarViewMode}
+              onViewModeChange={setCalendarViewMode}
+              userProfile={userProfile}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+              initialScrollPosition={lastCalendarScroll}
+              onScrollChange={setLastCalendarScroll}
+              currentDate={calendarDate}
+              onDateChange={setCalendarDate}
+              onEdit={(receipt) => {
+                setFormData(receipt);
+                setIsReadOnly(true);
+                setView('form');
+              }}
+              onOpenCleaning={async (menageId, slug, date) => {
+                // Check if report exists for this unit and date (regardless of menageId)
+                const q = query(
+                  collection(db, 'cleaning_reports'), 
+                  where('calendarSlug', '==', slug),
+                  where('dateIntervention', '==', date), 
+                  limit(1)
+                );
+                const snap = await getDocs(q);
+                
+                if (!snap.empty) {
+                  const existing = snap.docs[0].data() as CleaningReport;
+                  // Store pending data and show confirmation instead of opening directly
+                  setPendingCleaningData({ menageId, slug, date, report: existing });
+                  setShowCleaningConfirm(true);
+                } else {
+                  setCleaningReport({
+                    menageId: menageId || 'MANUAL',
+                    calendarSlug: slug,
+                    dateIntervention: date,
+                    agent: '',
+                    status: 'PRÉVU',
+                    feedback: '',
+                    damages: '',
+                    maintenance: '',
+                    createdAt: new Date().toISOString()
+                  });
+                  setIsCleaningReadOnly(false);
+                  setIsCleaningMode(true);
+                }
+              }}
+            />
+          ) : view === 'users' ? (
+            <UserManagement 
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }} 
+            />
+          ) : (
+            <>
+              {/* Top Bar */}
+              <header className="top-bar h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
               <div className="flex items-center gap-4">
                 {!isSidebarOpen && (
                   <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
@@ -1264,20 +1269,27 @@ export default function App() {
 
             {/* Preview Area */}
             <main className="receipt-viewer-main flex-1 overflow-y-auto bg-[#F5F5F4] p-4 md:p-8 flex justify-center scroll-smooth print:bg-white print:p-0 print:overflow-visible">
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="receipt-motion-wrapper w-full max-w-[210mm] print:m-0 print:p-0 print:max-w-none"
-              >
-                <div className="mobile-receipt-container w-full flex justify-center overflow-hidden md:overflow-visible">
-                  <div className="mobile-receipt-zoom origin-top transition-transform">
-                    <ReceiptPreview data={formData} />
-                  </div>
+              {isSaving && (urlParams.has('id') || urlParams.has('menageId')) ? (
+                <div className="flex items-center justify-center w-full h-full">
+                  <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                 </div>
-              </motion.div>
+              ) : (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="receipt-motion-wrapper w-full max-w-[210mm] print:m-0 print:p-0 print:max-w-none"
+                >
+                  <div className="mobile-receipt-container w-full flex justify-center overflow-hidden md:overflow-visible">
+                    <div className="mobile-receipt-zoom origin-top transition-transform">
+                      <ReceiptPreview data={formData} />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
             </main>
           </>
         )}
+        </Suspense>
       </div>
       {/* Modals */}
       <AnimatePresence>

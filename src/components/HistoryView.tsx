@@ -6,7 +6,8 @@ import {
   onSnapshot,
   doc,
   updateDoc,
-  Timestamp 
+  Timestamp,
+  limit 
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ReceiptData, UserProfile } from '../types';
@@ -52,7 +53,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'), limit(50));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         id: doc.id,

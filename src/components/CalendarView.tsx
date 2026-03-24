@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { db } from '../firebase';
 import { ReceiptData, CleaningReport, UserProfile, BlockedDate } from '../types';
 import { TARIFS, SITES } from '../constants';
-import AttendanceView from './AttendanceView';
+const AttendanceView = lazy(() => import('./AttendanceView'));
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -120,20 +120,37 @@ export default function CalendarView({
   }, [viewMode, currentDate.getTime()]);
 
   useEffect(() => {
-    const qReceipts = query(collection(db, 'receipts'));
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDayStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDayStr = `${year}-${String(month + 1).padStart(2, '0')}-${new Date(year, month + 1, 0).getDate()}`;
+
+    const qReceipts = query(
+      collection(db, 'receipts'),
+      where('endDate', '>=', firstDayStr)
+    );
+
     const unsubReceipts = onSnapshot(qReceipts, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ReceiptData[];
       // Filter out only those that are explicitly ANNULE, keeping VALIDE and those without status
       setReceipts(data.filter(r => r.status !== 'ANNULE'));
     });
 
-    const qCleaning = query(collection(db, 'cleaning_reports'));
+    const qCleaning = query(
+      collection(db, 'cleaning_reports'),
+      where('dateIntervention', '>=', firstDayStr),
+      where('dateIntervention', '<=', lastDayStr)
+    );
     const unsubCleaning = onSnapshot(qCleaning, (snapshot) => {
       setCleaningReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as CleaningReport[]);
       setLoading(false);
     });
 
-    const qBlocked = query(collection(db, 'blocked_dates'));
+    const qBlocked = query(
+      collection(db, 'blocked_dates'),
+      where('date', '>=', firstDayStr),
+      where('date', '<=', lastDayStr)
+    );
     const unsubBlocked = onSnapshot(qBlocked, (snapshot) => {
       setBlockedDates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BlockedDate[]);
     });
@@ -143,7 +160,7 @@ export default function CalendarView({
       unsubCleaning();
       unsubBlocked();
     };
-  }, []);
+  }, [currentDate.getMonth(), currentDate.getFullYear()]);
 
   // Flatten all units for the left column
   const allUnits = useMemo(() => {
@@ -379,7 +396,13 @@ export default function CalendarView({
       <div className="flex-1 md:overflow-hidden flex flex-col">
         {viewMode === 'presence' ? (
           <div className="flex-1 overflow-y-auto bg-[#F5F5F4]">
-            <AttendanceView userProfile={userProfile} onAlert={onAlert} currentDate={currentDate} />
+            <Suspense fallback={
+              <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
+                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            }>
+              <AttendanceView userProfile={userProfile} onAlert={onAlert} currentDate={currentDate} />
+            </Suspense>
           </div>
         ) : (
           <div 

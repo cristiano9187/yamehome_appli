@@ -44,6 +44,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Record<string, AttendanceRecord>>({});
   const [planningData, setPlanningData] = useState<Record<string, AttendanceRecord>>({});
+  const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<'daily' | 'planning' | 'employees'>('daily');
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
@@ -86,9 +87,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
 
   // Fetch Employees
   useEffect(() => {
-    const q = query(collection(db, 'employees'), orderBy('name'));
+    const q = query(collection(db, 'employees'), where('active', '==', true), orderBy('name'));
     return onSnapshot(q, (snap) => {
       setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+      setLoading(false);
     });
   }, []);
 
@@ -150,13 +152,17 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const handleUpdateEmployee = async () => {
     if (!editingEmployee || !editingEmployee.name || !editingEmployee.role) return;
     try {
+      setLoading(true);
       await setDoc(doc(db, 'employees', editingEmployee.id), {
-        ...editingEmployee
+        ...editingEmployee,
+        updatedAt: new Date().toISOString()
       });
       setEditingEmployee(null);
       onAlert("Employé mis à jour", "success");
     } catch (e) {
       onAlert("Erreur lors de la mise à jour", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -229,6 +235,14 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
     return days;
   }, [currentDate.getTime()]);
+
+  if (loading && employees.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
