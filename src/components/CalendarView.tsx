@@ -37,26 +37,61 @@ interface CalendarViewProps {
   onViewModeChange: (mode: 'reservations' | 'cleaning' | 'presence') => void;
   userProfile: UserProfile | null;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  initialScrollPosition?: number;
+  onScrollChange?: (scrollLeft: number) => void;
+  currentDate: Date;
+  onDateChange: (date: Date) => void;
 }
 
-export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewModeChange, userProfile, onAlert }: CalendarViewProps) {
+export default function CalendarView({ 
+  onEdit, 
+  onOpenCleaning, 
+  viewMode, 
+  onViewModeChange, 
+  userProfile, 
+  onAlert,
+  initialScrollPosition = 0,
+  onScrollChange,
+  currentDate,
+  onDateChange
+}: CalendarViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [cleaningReports, setCleaningReports] = useState<CleaningReport[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<ReceiptData | null>(null);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const hasRestoredScroll = useRef(false);
+
+  // Restore scroll position on mount
+  useEffect(() => {
+    if (scrollContainerRef.current && initialScrollPosition > 0 && !hasRestoredScroll.current) {
+      const container = scrollContainerRef.current;
+      const timeoutId = setTimeout(() => {
+        if (container) {
+          container.scrollLeft = initialScrollPosition;
+          hasRestoredScroll.current = true;
+        }
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [initialScrollPosition]);
 
   // Auto-scroll to current day
   useEffect(() => {
     if ((viewMode === 'reservations' || viewMode === 'cleaning') && scrollContainerRef.current) {
+      // If we've already restored a specific scroll position, don't auto-scroll to today
+      if (hasRestoredScroll.current) return;
+
       const today = new Date();
       if (today.getMonth() === currentDate.getMonth() && today.getFullYear() === currentDate.getFullYear()) {
         const timeoutId = setTimeout(() => {
           const container = scrollContainerRef.current;
+          // Re-check if we restored scroll during the timeout
+          if (hasRestoredScroll.current) return;
+          
           const todayEl = document.getElementById('calendar-today-column');
           const firstCol = container?.querySelector('th.sticky') as HTMLElement;
           
@@ -77,7 +112,8 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
           }
         }, 150); // Slightly longer timeout to ensure layout is stable
         return () => clearTimeout(timeoutId);
-      } else {
+      } else if (!hasRestoredScroll.current) {
+        // Only scroll to 0 if we haven't restored a position
         scrollContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
       }
     }
@@ -229,8 +265,8 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
     return cleaningReports.find(r => r.calendarSlug === unitSlug && r.dateIntervention === dateStr);
   };
 
-  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  const nextMonth = () => onDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  const prevMonth = () => onDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const monthName = currentDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
   const handleBlockDate = async (unitSlug: string, date: string) => {
@@ -238,6 +274,18 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
       onAlert("Seul l'administrateur peut bloquer des dates", "error");
       return;
     }
+
+    // Check if date is in the past
+    const selectedDate = new Date(date);
+    selectedDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      onAlert("Vous ne pouvez bloquer que des dates présentes ou futures", "error");
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'blocked_dates'), {
         date,
@@ -334,7 +382,14 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
             <AttendanceView userProfile={userProfile} onAlert={onAlert} currentDate={currentDate} />
           </div>
         ) : (
-          <div className="flex-1 overflow-auto relative" ref={scrollContainerRef}>
+          <div 
+            className="flex-1 overflow-auto relative" 
+            ref={scrollContainerRef}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              onScrollChange?.(target.scrollLeft);
+            }}
+          >
             <table className="w-full border-collapse table-fixed min-w-[1500px]">
             <thead className="sticky top-0 z-30">
               <tr className="bg-zinc-900 text-white">
@@ -502,15 +557,28 @@ export default function CalendarView({ onEdit, onOpenCleaning, viewMode, onViewM
                         <Unlock size={16} />
                         Ouvrir la date
                       </button>
-                    ) : (
-                      <button 
-                        onClick={() => handleBlockDate(selectedCell.unitSlug, selectedCell.date)}
-                        className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-zinc-900/20 hover:bg-black transition-all"
-                      >
-                        <Lock size={16} />
-                        Fermer la date
-                      </button>
-                    )
+                    ) : (() => {
+                      const d = new Date(selectedCell.date);
+                      d.setHours(0, 0, 0, 0);
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const isPast = d < today;
+
+                      return isPast ? (
+                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center gap-3 text-gray-400">
+                          <AlertTriangle size={18} />
+                          <span className="text-[10px] font-bold uppercase">Impossible de bloquer une date passée</span>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => handleBlockDate(selectedCell.unitSlug, selectedCell.date)}
+                          className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-zinc-900/20 hover:bg-black transition-all"
+                        >
+                          <Lock size={16} />
+                          Fermer la date
+                        </button>
+                      );
+                    })()
                   ) : (
                     <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-3 text-amber-600">
                       <AlertTriangle size={18} />

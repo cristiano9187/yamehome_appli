@@ -116,6 +116,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users'>('form');
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
+  const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -128,6 +129,14 @@ export default function App() {
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
   const [isCleaningReadOnly, setIsCleaningReadOnly] = useState(false);
+  const [showCleaningConfirm, setShowCleaningConfirm] = useState(false);
+  const [lastCalendarScroll, setLastCalendarScroll] = useState(0);
+  const [pendingCleaningData, setPendingCleaningData] = useState<{
+    menageId: string;
+    slug: string;
+    date: string;
+    report?: CleaningReport;
+  } | null>(null);
 
   const [cleaningReport, setCleaningReport] = useState<CleaningReport>({
     menageId: urlParams.get('menageId') || '',
@@ -1144,6 +1153,10 @@ export default function App() {
               setAlertType(type || 'info');
               setAlertMessage(msg);
             }}
+            initialScrollPosition={lastCalendarScroll}
+            onScrollChange={setLastCalendarScroll}
+            currentDate={calendarDate}
+            onDateChange={setCalendarDate}
             onEdit={(receipt) => {
               setFormData(receipt);
               setIsReadOnly(true);
@@ -1161,11 +1174,9 @@ export default function App() {
               
               if (!snap.empty) {
                 const existing = snap.docs[0].data() as CleaningReport;
-                // Warning as requested by user
-                setAlertType('info');
-                setAlertMessage(`Note : Un rapport de ménage existe déjà pour ${slug} le ${date}. Vous allez consulter/modifier le rapport existant.`);
-                setCleaningReport(existing);
-                setIsCleaningReadOnly(true);
+                // Store pending data and show confirmation instead of opening directly
+                setPendingCleaningData({ menageId, slug, date, report: existing });
+                setShowCleaningConfirm(true);
               } else {
                 setCleaningReport({
                   menageId: menageId || 'MANUAL',
@@ -1179,8 +1190,8 @@ export default function App() {
                   createdAt: new Date().toISOString()
                 });
                 setIsCleaningReadOnly(false);
+                setIsCleaningMode(true);
               }
-              setIsCleaningMode(true);
             }}
           />
         ) : view === 'users' ? (
@@ -1270,6 +1281,51 @@ export default function App() {
       </div>
       {/* Modals */}
       <AnimatePresence>
+        {showCleaningConfirm && pendingCleaningData && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ClipboardCheck size={32} />
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Rapport existant</h3>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                Un rapport de ménage a déjà été effectué pour <span className="font-bold text-gray-900">{pendingCleaningData.slug}</span> le <span className="font-bold text-gray-900">{pendingCleaningData.date}</span>. 
+                Souhaitez-vous le consulter ou le modifier ?
+              </p>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={() => {
+                    if (pendingCleaningData.report) {
+                      setCleaningReport(pendingCleaningData.report);
+                      setIsCleaningReadOnly(true);
+                      setIsCleaningMode(true);
+                    }
+                    setShowCleaningConfirm(false);
+                    setPendingCleaningData(null);
+                  }}
+                  className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                >
+                  Consulter le rapport
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowCleaningConfirm(false);
+                    setPendingCleaningData(null);
+                  }}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showCancelConfirm && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <motion.div 
