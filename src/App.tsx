@@ -541,6 +541,8 @@ export default function App() {
         status: formData.status || 'VALIDE'
       });
       setSaveStatus('success'); 
+      setAlertType('success');
+      setAlertMessage("Reçu enregistré avec succès !");
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
     } catch (error) { 
@@ -611,6 +613,8 @@ export default function App() {
       setFormData(getInitialState()); 
       setIsReadOnly(false); 
       setShowCancelConfirm(false);
+      setAlertType('success');
+      setAlertMessage("Réservation annulée avec succès !");
     } catch (e) { 
       handleFirestoreError(e, OperationType.UPDATE, 'receipts');
     } finally { 
@@ -1135,6 +1139,10 @@ export default function App() {
           {view === 'history' ? (
             <HistoryView 
               userProfile={userProfile}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
               onEdit={(receipt) => {
                 setFormData(receipt);
                 setIsReadOnly(true);

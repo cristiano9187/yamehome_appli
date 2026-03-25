@@ -31,9 +31,10 @@ interface HistoryViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onPrint: (receipt: ReceiptData) => void;
   userProfile: UserProfile | null;
+  onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
 }
 
-export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryViewProps) {
+export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: HistoryViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,8 +50,10 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
         cautionRefundDate: new Date().toISOString(),
         cautionRefundMethod: method
       });
+      onAlert("Caution remboursée avec succès !", "success");
     } catch (error) {
       console.error("Error updating refund status:", error);
+      onAlert("Erreur lors du remboursement de la caution", "error");
     }
   };
 
