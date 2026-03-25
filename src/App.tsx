@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useDeferredValue } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -118,6 +118,7 @@ export default function App() {
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
+  const deferredFormData = useDeferredValue(formData);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchId, setSearchId] = useState('');
@@ -1281,7 +1282,7 @@ export default function App() {
                 >
                   <div className="mobile-receipt-container w-full flex justify-center overflow-hidden md:overflow-visible">
                     <div className="mobile-receipt-zoom origin-top transition-transform">
-                      <ReceiptPreview data={formData} />
+                      <ReceiptPreview data={deferredFormData} />
                     </div>
                   </div>
                 </motion.div>

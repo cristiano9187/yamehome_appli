@@ -37,6 +37,8 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [displayLimit, setDisplayLimit] = useState(20);
+  const [firestoreLimit, setFirestoreLimit] = useState(50);
 
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
@@ -53,7 +55,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'), limit(50));
+    const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'), limit(firestoreLimit));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -63,7 +65,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
       setLoading(false);
     });
     return unsubscribe;
-  }, []);
+  }, [firestoreLimit]);
 
   const filteredReceipts = receipts.filter(r => 
     r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -71,6 +73,15 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
     r.apartmentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (r.agentName && r.agentName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  const displayedReceipts = filteredReceipts.slice(0, displayLimit);
+
+  const handleLoadMore = () => {
+    setDisplayLimit(prev => prev + 20);
+    if (displayLimit + 20 >= firestoreLimit) {
+      setFirestoreLimit(prev => prev + 50);
+    }
+  };
 
   if (loading) {
     return (
@@ -119,7 +130,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
               </div>
 
               <div className="divide-y divide-gray-50">
-                {filteredReceipts.map((receipt) => {
+                {displayedReceipts.map((receipt) => {
                   const deadline = new Date(receipt.startDate);
                   deadline.setDate(deadline.getDate() + 1);
                   const isOverdue = new Date() > deadline;
@@ -272,6 +283,17 @@ export default function HistoryView({ onEdit, onPrint, userProfile }: HistoryVie
                     </motion.div>
                   );
                 })}
+
+                {filteredReceipts.length > displayLimit && (
+                  <div className="p-6 border-t border-gray-50 flex justify-center">
+                    <button 
+                      onClick={handleLoadMore}
+                      className="px-6 py-3 bg-blue-50 text-blue-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-100 transition-all"
+                    >
+                      Charger plus de reçus
+                    </button>
+                  </div>
+                )}
 
                 {filteredReceipts.length === 0 && (
                   <div className="p-12 text-center">

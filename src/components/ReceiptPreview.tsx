@@ -1,3 +1,4 @@
+import React from 'react';
 import { ReceiptData } from '../types';
 import { getRateForApartment, LOGO_BASE64, formatCurrency } from '../constants';
 
@@ -5,7 +6,7 @@ interface ReceiptPreviewProps {
   data: ReceiptData;
 }
 
-export default function ReceiptPreview({ data }: ReceiptPreviewProps) {
+const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
   if (!data.lastName && !data.apartmentName) {
     return (
       <div className="w-full max-w-[210mm] h-[297mm] bg-white shadow-lg flex items-center justify-center text-gray-400 italic text-sm">
@@ -203,4 +204,6 @@ export default function ReceiptPreview({ data }: ReceiptPreviewProps) {
       <p className="text-center text-[10px] text-gray-400 italic mt-8">Merci pour votre confiance !</p>
     </div>
   );
-}
+});
+
+export default ReceiptPreview;
