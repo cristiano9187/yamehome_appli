@@ -17,6 +17,7 @@ export default function UserManagement({ onAlert }: UserManagementProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'authorized_emails'));
@@ -56,6 +57,21 @@ export default function UserManagement({ onAlert }: UserManagementProps) {
       onAlert("Erreur lors de la suppression", 'error');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleUpdateRole = async (id: string, newRole: 'admin' | 'agent') => {
+    setIsUpdating(id);
+    try {
+      await setDoc(doc(db, 'authorized_emails', id), {
+        role: newRole
+      }, { merge: true });
+      onAlert("Rôle mis à jour avec succès", 'success');
+    } catch (error) {
+      console.error("Error updating role:", error);
+      onAlert("Erreur lors de la mise à jour du rôle", 'error');
+    } finally {
+      setIsUpdating(null);
     }
   };
 
@@ -136,11 +152,20 @@ export default function UserManagement({ onAlert }: UserManagementProps) {
                   <span className="text-sm font-medium text-gray-900">{item.email}</span>
                 </div>
                 <div className="col-span-4">
-                  <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${
-                    item.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                  }`}>
-                    {item.role}
-                  </span>
+                  {isUpdating === item.id ? (
+                    <Loader2 className="animate-spin text-blue-600" size={14} />
+                  ) : (
+                    <select
+                      value={item.role}
+                      onChange={(e) => handleUpdateRole(item.id!, e.target.value as 'admin' | 'agent')}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter border-none bg-transparent cursor-pointer focus:ring-1 focus:ring-blue-500 transition-all ${
+                        item.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                      }`}
+                    >
+                      <option value="agent">Agent</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
                 </div>
                 <div className="col-span-2 text-right">
                   {item.email !== 'christian.yamepi@gmail.com' && item.email !== 'cyamepi@gmail.com' && (
