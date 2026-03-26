@@ -61,9 +61,17 @@ export default function CalendarView({
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<ReceiptData | null>(null);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
+  const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredScroll = useRef(false);
+
+  // Close expanded unit on click outside
+  useEffect(() => {
+    const handleClickOutside = () => setExpandedUnitSlug(null);
+    window.addEventListener('pointerdown', handleClickOutside);
+    return () => window.removeEventListener('pointerdown', handleClickOutside);
+  }, []);
 
   // Restore scroll position on mount
   useEffect(() => {
@@ -164,70 +172,107 @@ export default function CalendarView({
 
   // Flatten all units for the left column
   const allUnits = useMemo(() => {
-    const units: { slug: string, category: string, color: string }[] = [];
+    const units: { slug: string, category: string, color: string, site: string, shortName: string }[] = [];
     
     const SITE_COLORS: { [key: string]: string } = {
       'RIETI': 'bg-emerald-500',
       'MODENA': 'bg-blue-500',
       'MATERA': 'bg-orange-500',
       'GALLAGHERS': 'bg-purple-500',
-      'BGT': 'bg-purple-500', // Gallagers is in Bangangté (BGT)
+      'BGT': 'bg-purple-500',
       'DEFAULT': 'bg-gray-500'
+    };
+
+    const SITE_NAMES: { [key: string]: string } = {
+      'RIETI': 'Rieti',
+      'MODENA': 'Modena',
+      'MATERA': 'Matera',
+      'GALLAGHERS': 'Gallagers',
+      'BGT': 'Gallagers',
+      'DEFAULT': 'Autres'
     };
 
     Object.entries(TARIFS).forEach(([category, data]) => {
       const upperCategory = category.toUpperCase();
-      let color = SITE_COLORS.DEFAULT;
+      let siteKey = 'DEFAULT';
       
-      if (upperCategory.includes('RIETI')) color = SITE_COLORS.RIETI;
-      else if (upperCategory.includes('MODENA')) color = SITE_COLORS.MODENA;
-      else if (upperCategory.includes('MATERA')) color = SITE_COLORS.MATERA;
-      else if (upperCategory.includes('GALLAGHERS') || upperCategory.includes('CITY')) color = SITE_COLORS.GALLAGHERS;
+      if (upperCategory.includes('RIETI')) siteKey = 'RIETI';
+      else if (upperCategory.includes('MODENA')) siteKey = 'MODENA';
+      else if (upperCategory.includes('MATERA')) siteKey = 'MATERA';
+      else if (upperCategory.includes('GALLAGHERS') || upperCategory.includes('CITY')) siteKey = 'GALLAGHERS';
+
+      const color = SITE_COLORS[siteKey] || SITE_COLORS.DEFAULT;
+      const siteName = SITE_NAMES[siteKey] || SITE_NAMES.DEFAULT;
+
+      // Extract short name from category
+      let shortName = category;
+      if (category.includes(' - ')) {
+        shortName = category.split(' - ')[1]
+          .replace('APPARTEMENT ', '')
+          .replace('STUDIO ', '')
+          .replace('CHAMBRE ', '')
+          .replace('mode STUDIO', '(Studio)')
+          .trim();
+      }
 
       if (data.units) {
         data.units.forEach(slug => {
-          // Avoid duplicates if multiple categories point to same unit
           if (!units.find(u => u.slug === slug)) {
-            units.push({ slug, category, color });
+            // Refine short name based on slug for specific units
+            let refinedShortName = shortName;
+            if (slug.includes('superior')) refinedShortName = 'Americain Sup';
+            else if (slug.includes('studio') && !slug.includes('superior')) refinedShortName = 'Americain';
+            else if (slug.includes('chambre-a')) refinedShortName = 'Chambre Std A';
+            else if (slug.includes('chambre-b')) refinedShortName = 'Chambre Std B';
+            else if (slug.includes('standard-a')) refinedShortName = 'Chambre A';
+            else if (slug.includes('standard-b')) refinedShortName = 'Chambre B';
+            else if (slug.includes('standard-c')) refinedShortName = 'Chambre C';
+            else if (slug.includes('cuisine')) refinedShortName = 'Chambre Cuisine';
+            else if (slug.includes('deluxe')) refinedShortName = 'Deluxe';
+            else if (slug.includes('emeraude')) refinedShortName = 'Emeraude';
+            else if (slug.includes('terracotta')) refinedShortName = 'Terracotta';
+            else if (slug.includes('haut-standing')) refinedShortName = 'Haut Standing';
+
+            units.push({ slug, category, color, site: siteName, shortName: refinedShortName });
           }
         });
       } else {
         const slug = category.toLowerCase();
         if (!units.find(u => u.slug === slug)) {
-          units.push({ slug, category, color });
+          units.push({ slug, category, color, site: siteName, shortName });
         }
       }
     });
     
     // Sort units to keep sites together with specific priority
     const SITE_PRIORITY: { [key: string]: number } = {
-      'MATERA': 1,
-      'RIETI': 2,
-      'MODENA': 3,
-      'GALLAGHERS': 4,
-      'CITY': 4,
-      'BGT': 4
+      'Matera': 1,
+      'Rieti': 2,
+      'Modena': 3,
+      'Gallagers': 4,
+      'Autres': 5
     };
 
     return units.sort((a, b) => {
-      const getPriority = (cat: string) => {
-        const upper = cat.toUpperCase();
-        if (upper.includes('MATERA')) return SITE_PRIORITY.MATERA;
-        if (upper.includes('RIETI')) return SITE_PRIORITY.RIETI;
-        if (upper.includes('MODENA')) return SITE_PRIORITY.MODENA;
-        if (upper.includes('GALLAGHERS') || upper.includes('CITY')) return SITE_PRIORITY.GALLAGHERS;
-        return 99;
-      };
-
-      const priorityA = getPriority(a.category);
-      const priorityB = getPriority(b.category);
-
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-      return a.slug.localeCompare(b.slug);
+      const pA = SITE_PRIORITY[a.site] || 99;
+      const pB = SITE_PRIORITY[b.site] || 99;
+      if (pA !== pB) return pA - pB;
+      return a.shortName.localeCompare(b.shortName);
     });
   }, []);
+
+  const groupedUnits = useMemo(() => {
+    const groups: { site: string, color: string, units: typeof allUnits }[] = [];
+    allUnits.forEach(unit => {
+      let group = groups.find(g => g.site === unit.site);
+      if (!group) {
+        group = { site: unit.site, color: unit.color, units: [] };
+        groups.push(group);
+      }
+      group.units.push(unit);
+    });
+    return groups;
+  }, [allUnits]);
 
   const daysInMonth = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -442,21 +487,40 @@ export default function CalendarView({
               </tr>
             </thead>
             <tbody>
-              {allUnits.map((unit) => (
-                <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
-                  <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-2 md:p-4 group-hover:bg-gray-50 transition-all w-[80px] md:w-64">
-                    <div className="flex items-center gap-2 md:gap-3">
-                      <div className={`w-1 md:w-2 h-6 md:h-8 rounded-full ${unit.color}`} />
-                      <div className="flex flex-col overflow-hidden">
-                        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight text-gray-900 truncate w-14 md:w-40">
-                          {unit.slug}
-                        </span>
-                        <span className="text-[7px] md:text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">
-                          {unit.category}
-                        </span>
-                      </div>
-                    </div>
-                  </td>
+              {groupedUnits.map((group) => (
+                <React.Fragment key={group.site}>
+                  {group.units.map((unit) => (
+                    <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
+                      <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64 overflow-hidden">
+                        <div className="flex h-full items-stretch">
+                          {/* Site Vertical Bar */}
+                          <div className={`w-1 md:w-6 flex items-center justify-center ${group.color} relative`}>
+                            <span className="hidden md:block text-[8px] font-black text-white uppercase tracking-widest -rotate-90 whitespace-nowrap origin-center">
+                              {group.site}
+                            </span>
+                          </div>
+                          
+                          {/* Unit Details */}
+                          <div 
+                            className="flex-1 flex flex-col justify-center p-2 md:p-3 overflow-hidden relative"
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setExpandedUnitSlug(expandedUnitSlug === unit.slug ? null : unit.slug);
+                            }}
+                          >
+                            <span className={`text-[9px] md:text-[11px] font-black uppercase tracking-tight transition-all duration-300 ${
+                              expandedUnitSlug === unit.slug 
+                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-xl z-50 fixed left-10 md:left-64 top-1/2 -translate-y-1/2 w-48 md:w-64 whitespace-normal ring-2 ring-blue-300' 
+                                : 'text-gray-900 truncate'
+                            }`}>
+                              {unit.shortName}
+                            </span>
+                            <span className="text-[7px] md:text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                              {unit.slug}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
                   {daysInMonth.map(date => {
                     const dateStr = getLocalDateString(date);
                     const booking = getBookingForUnitAndDay(unit.slug, date);
@@ -525,7 +589,9 @@ export default function CalendarView({
                   })}
                 </tr>
               ))}
-            </tbody>
+            </React.Fragment>
+          ))}
+        </tbody>
           </table>
         </div>
         )}

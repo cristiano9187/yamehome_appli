@@ -42,6 +42,13 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
   const [firestoreLimit, setFirestoreLimit] = useState(50);
   const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
 
+  // Close expanded apartment on click outside
+  useEffect(() => {
+    const handleClickOutside = () => setExpandedApartmentId(null);
+    window.addEventListener('pointerdown', handleClickOutside);
+    return () => window.removeEventListener('pointerdown', handleClickOutside);
+  }, []);
+
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
     try {
