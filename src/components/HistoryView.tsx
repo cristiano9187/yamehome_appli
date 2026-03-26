@@ -113,7 +113,13 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
       <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
         <div className="flex items-center gap-4">
           {onMenuClick && (
-            <button onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onMenuClick();
+              }} 
+              className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all"
+            >
               <Menu size={20} />
             </button>
           )}

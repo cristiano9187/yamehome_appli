@@ -57,6 +57,7 @@ import {
   X,
   History,
   Info,
+  Eye,
   Calendar as CalendarIcon,
   Loader2
 } from 'lucide-react';
@@ -138,6 +139,14 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchId, setSearchId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showMobileNav, setShowMobileNav] = useState(false);
+  
+  useEffect(() => {
+    if (window.innerWidth < 768 && (urlParams.has('id') || urlParams.has('menageId'))) {
+      setIsSidebarOpen(false);
+    }
+  }, []);
+
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [alertType, setAlertType] = useState<'info' | 'error' | 'success'>('info');
@@ -581,6 +590,7 @@ export default function App() {
       setAlertMessage("Reçu enregistré avec succès !");
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
+      setShowMobileNav(false);
     } catch (error: any) { 
       if (error.message === 'TIMEOUT') {
         setAlertType('error');
@@ -598,6 +608,7 @@ export default function App() {
     setFormData(getInitialState());
     setIsReadOnly(false);
     setView('form');
+    setShowMobileNav(false);
   };
 
   const loadReceipt = async (id: string) => {
@@ -620,7 +631,9 @@ export default function App() {
         setFormData(snap.docs[0].data() as ReceiptData);
         setIsReadOnly(true);
         setView('form');
+        setShowMobileNav(false);
         setSearchId(''); // Clear search after success
+        if (window.innerWidth < 768) setIsSidebarOpen(false);
       } else {
         // Try original if it was different
         if (searchId !== id.trim()) {
@@ -630,7 +643,9 @@ export default function App() {
             setFormData(snap2.docs[0].data() as ReceiptData);
             setIsReadOnly(true);
             setView('form');
+            setShowMobileNav(false);
             setSearchId('');
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
             return;
           }
         }
@@ -653,6 +668,7 @@ export default function App() {
       }, { merge: true });
       setFormData(getInitialState()); 
       setIsReadOnly(false); 
+      setShowMobileNav(false);
       setShowCancelConfirm(false);
       setAlertType('success');
       setAlertMessage("Réservation annulée avec succès !");
@@ -868,7 +884,7 @@ export default function App() {
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="sidebar w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-gray-200 h-auto md:h-screen md:sticky md:top-0 flex flex-col z-50 print:hidden"
+            className="sidebar fixed md:sticky top-0 left-0 w-full md:w-80 h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-50 print:hidden shadow-2xl md:shadow-none"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h1 className="text-2xl font-black italic tracking-tighter uppercase">YAMEHOME</h1>
@@ -876,36 +892,65 @@ export default function App() {
             </div>
 
             <div className="px-6 py-4 border-b border-gray-100 space-y-2">
-              <button 
-                onClick={handleNewReceipt}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
-              >
-                <Plus size={16} />
-                Nouveau Reçu
-              </button>
-              <button 
-                onClick={() => setView('history')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
-              >
-                <History size={16} />
-                Historique
-              </button>
-              <button 
-                onClick={() => setView('calendar')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
-              >
-                <CalendarIcon size={16} />
-                Calendrier
-              </button>
-              {(user?.email === 'christian.yamepi@gmail.com' || user?.email === 'cyamepi@gmail.com') && (
+              <div className="flex flex-col gap-2">
                 <button 
-                  onClick={() => setView('users')}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  onClick={handleNewReceipt}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
                 >
-                  <Users size={16} />
-                  Utilisateurs
+                  <Plus size={16} />
+                  Nouveau Reçu
                 </button>
-              )}
+
+                {/* Mobile-only toggle to show/hide other menus when in form view */}
+                {view === 'form' && (
+                  <button 
+                    onClick={() => setShowMobileNav(!showMobileNav)}
+                    className="md:hidden w-full flex items-center justify-between px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-all"
+                  >
+                    <span>{showMobileNav ? 'Masquer le menu' : 'Afficher le menu'}</span>
+                    <ChevronRight size={14} className={`transition-transform ${showMobileNav ? 'rotate-90' : ''}`} />
+                  </button>
+                )}
+              </div>
+              
+              {/* Hide other nav on mobile when editing a receipt to focus on the form, unless toggled */}
+              <div className={`${(view === 'form' && !showMobileNav) ? 'hidden md:block' : 'block'} space-y-2`}>
+                <button 
+                  onClick={() => {
+                    setView('history');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <History size={16} />
+                  Historique
+                </button>
+                <button 
+                  onClick={() => {
+                    setView('calendar');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <CalendarIcon size={16} />
+                  Calendrier
+                </button>
+                {(user?.email === 'christian.yamepi@gmail.com' || user?.email === 'cyamepi@gmail.com') && (
+                  <button 
+                    onClick={() => {
+                      setView('users');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  >
+                    <Users size={16} />
+                    Utilisateurs
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -1147,6 +1192,18 @@ export default function App() {
                     <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
                   </div>
                   <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={2} placeholder="Observations particulières..." className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange}></textarea>
+                  
+                  {/* Mobile-only Preview Button */}
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="md:hidden w-full bg-blue-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                    >
+                      <Eye size={16} />
+                      Voir l'aperçu
+                    </button>
+                  )}
                 </div>
               </form>
             </div>
@@ -1265,7 +1322,13 @@ export default function App() {
               <header className="top-bar h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
               <div className="flex items-center gap-4">
                 {!isSidebarOpen && (
-                  <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsSidebarOpen(true);
+                    }} 
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-all"
+                  >
                     <Menu size={20} />
                   </button>
                 )}
@@ -1275,36 +1338,50 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3">
                 {!isReadOnly ? (
-                  <button 
-                    onClick={saveToFirestore} 
-                    disabled={isSaving || formData.status === 'ANNULE'} 
-                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
-                  >
-                    {isSaving ? <Clock size={14} className="animate-spin"/> : saveStatus === 'success' ? <CheckCircle2 size={14}/> : <Save size={14}/>}
-                    {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
-                  </button>
+                  <div className="flex gap-2">
+                    {/* Mobile-only Edit Button to go back to sidebar */}
+                    <button 
+                      onClick={() => setIsSidebarOpen(true)} 
+                      className="md:hidden flex items-center gap-2 px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all"
+                    >
+                      <Edit size={12}/> Modifier
+                    </button>
+                    <button 
+                      onClick={saveToFirestore} 
+                      disabled={isSaving || formData.status === 'ANNULE'} 
+                      className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
+                    >
+                      {isSaving ? <Clock size={14} className="animate-spin"/> : saveStatus === 'success' ? <CheckCircle2 size={14}/> : <Save size={14}/>}
+                      {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex gap-2">
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setIsReadOnly(false)} 
-                        className="flex items-center gap-2 px-6 py-3 bg-orange-50 text-orange-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-orange-100 transition-all"
+                        className="flex items-center gap-2 px-4 md:px-6 py-3 bg-orange-50 text-orange-600 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-orange-100 transition-all"
                       >
                         <Edit size={14}/> Modifier
                       </button>
                     )}
                     <button 
-                      onClick={() => { setFormData(getInitialState()); setIsReadOnly(false); setSearchId(''); }} 
-                      className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
+                      onClick={() => { 
+                        setFormData(getInitialState()); 
+                        setIsReadOnly(false); 
+                        setSearchId(''); 
+                        setIsSidebarOpen(true);
+                      }} 
+                      className="flex items-center gap-2 px-4 md:px-6 py-3 bg-white border border-gray-200 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
                     >
                       <Plus size={14}/> Nouveau
                     </button>
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setShowCancelConfirm(true)} 
-                        className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-red-100 transition-all"
+                        className="flex items-center gap-2 px-4 md:px-6 py-3 bg-red-50 text-red-600 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-red-100 transition-all"
                       >
                         <Trash2 size={14}/> Annuler
                       </button>
@@ -1313,7 +1390,8 @@ export default function App() {
                 )}
                 <button 
                   onClick={handlePrint} 
-                  className="flex items-center gap-2 px-6 py-3 bg-[#141414] text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-800 transition-all shadow-xl shadow-black/10"
+                  disabled={!isReadOnly}
+                  className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl ${!isReadOnly ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#141414] text-white hover:bg-gray-800 shadow-black/10'}`}
                 >
                   <Printer size={14}/> Exporter PDF
                 </button>

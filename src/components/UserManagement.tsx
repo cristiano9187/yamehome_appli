@@ -88,7 +88,13 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8 flex items-center gap-4">
         {onMenuClick && (
-          <button onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              onMenuClick();
+            }} 
+            className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all"
+          >
             <Menu size={20} />
           </button>
         )}
