@@ -38,7 +38,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [displayLimit, setDisplayLimit] = useState(20);
+  const [displayLimit, setDisplayLimit] = useState(15);
   const [firestoreLimit, setFirestoreLimit] = useState(50);
   const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
 
@@ -81,8 +81,8 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
   const displayedReceipts = filteredReceipts.slice(0, displayLimit);
 
   const handleLoadMore = () => {
-    setDisplayLimit(prev => prev + 20);
-    if (displayLimit + 20 >= firestoreLimit) {
+    setDisplayLimit(prev => prev + 15);
+    if (displayLimit + 15 >= firestoreLimit) {
       setFirestoreLimit(prev => prev + 50);
     }
   };
@@ -184,14 +184,14 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                       <div className="col-span-2">
                         <div className="flex flex-col relative">
                           <span 
-                            onClick={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
                             }}
-                            className={`text-xs font-medium cursor-pointer transition-all duration-300 ${
+                            className={`text-xs font-medium cursor-pointer transition-all duration-300 block ${
                               expandedApartmentId === receipt.id 
-                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-sm z-50 relative whitespace-normal break-words' 
-                                : 'text-gray-700 truncate max-w-[120px] border-b border-dotted border-gray-300'
+                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-md z-50 relative whitespace-normal break-words ring-1 ring-blue-200' 
+                                : 'text-gray-700 truncate max-w-[120px] border-b border-dotted border-gray-400'
                             }`}
                           >
                             {receipt.apartmentName}
@@ -348,14 +348,14 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                     <div className="flex flex-col flex-1 min-w-0 relative">
                       <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Logement</span>
                       <span 
-                        onClick={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation();
                           setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
                         }}
-                        className={`text-xs font-bold cursor-pointer transition-all duration-300 ${
+                        className={`text-xs font-bold cursor-pointer transition-all duration-300 block ${
                           expandedApartmentId === receipt.id 
-                            ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-sm z-50 relative whitespace-normal break-words' 
-                            : 'text-gray-700 truncate border-b border-dotted border-gray-300'
+                            ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-md z-50 relative whitespace-normal break-words ring-1 ring-blue-200' 
+                            : 'text-gray-700 truncate border-b border-dotted border-gray-400'
                         }`}
                       >
                         {receipt.apartmentName}
