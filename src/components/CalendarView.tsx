@@ -416,7 +416,7 @@ export default function CalendarView({
             <table className="w-full border-collapse table-fixed min-w-[1500px]">
             <thead className="sticky top-0 z-30">
               <tr className="bg-zinc-900 text-white">
-                <th className="w-[120px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-4 text-left text-[10px] font-black uppercase tracking-widest text-gray-400">
+                <th className="w-[80px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-2 md:p-4 text-left text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gray-400">
                   Logements
                 </th>
                 {daysInMonth.map(date => {
@@ -444,14 +444,14 @@ export default function CalendarView({
             <tbody>
               {allUnits.map((unit) => (
                 <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
-                  <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-4 group-hover:bg-gray-50 transition-all w-[120px] md:w-64">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-8 rounded-full ${unit.color}`} />
+                  <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-2 md:p-4 group-hover:bg-gray-50 transition-all w-[80px] md:w-64">
+                    <div className="flex items-center gap-2 md:gap-3">
+                      <div className={`w-1 md:w-2 h-6 md:h-8 rounded-full ${unit.color}`} />
                       <div className="flex flex-col overflow-hidden">
-                        <span className="text-[10px] font-black uppercase tracking-tight text-gray-900 truncate w-20 md:w-40">
+                        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-tight text-gray-900 truncate w-14 md:w-40">
                           {unit.slug}
                         </span>
-                        <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                        <span className="text-[7px] md:text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">
                           {unit.category}
                         </span>
                       </div>

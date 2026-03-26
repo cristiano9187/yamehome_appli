@@ -40,6 +40,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
   const [searchTerm, setSearchTerm] = useState('');
   const [displayLimit, setDisplayLimit] = useState(20);
   const [firestoreLimit, setFirestoreLimit] = useState(50);
+  const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
 
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
@@ -95,7 +96,10 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
   }
 
   return (
-    <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
+    <div 
+      className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden"
+      onClick={() => setExpandedApartmentId(null)}
+    >
       {/* Header */}
       <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
         <div className="flex items-center gap-4">
@@ -120,7 +124,8 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
       {/* Content */}
       <div className="flex-1 md:overflow-y-auto p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
             <div className="min-w-[700px]">
               <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">
                 <div className="col-span-1">ID Reçu</div>
@@ -177,8 +182,18 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                       </div>
 
                       <div className="col-span-2">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">
+                        <div className="flex flex-col relative">
+                          <span 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
+                            }}
+                            className={`text-xs font-medium cursor-pointer transition-all duration-300 ${
+                              expandedApartmentId === receipt.id 
+                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-sm z-50 relative whitespace-normal break-words' 
+                                : 'text-gray-700 truncate max-w-[120px] border-b border-dotted border-gray-300'
+                            }`}
+                          >
                             {receipt.apartmentName}
                           </span>
                           <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest">
@@ -286,29 +301,159 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                     </motion.div>
                   );
                 })}
-
-                {filteredReceipts.length > displayLimit && (
-                  <div className="p-6 border-t border-gray-50 flex justify-center">
-                    <button 
-                      onClick={handleLoadMore}
-                      className="px-6 py-3 bg-blue-50 text-blue-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-100 transition-all"
-                    >
-                      Charger plus de reçus
-                    </button>
-                  </div>
-                )}
-
-                {filteredReceipts.length === 0 && (
-                  <div className="p-12 text-center">
-                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-                      <FileText size={32} />
-                    </div>
-                    <p className="text-sm text-gray-400 italic">Aucun reçu trouvé pour cette recherche.</p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4">
+            {displayedReceipts.map((receipt) => {
+              const hasCaution = receipt.totalPaid >= receipt.grandTotal && receipt.cautionAmount && receipt.cautionAmount > 0;
+              const refundDeadline = receipt.endDate ? new Date(receipt.endDate) : null;
+              if (refundDeadline) refundDeadline.setHours(refundDeadline.getHours() + 24);
+              const isRefundOverdue = refundDeadline && new Date() > refundDeadline;
+
+              return (
+                <motion.div 
+                  key={receipt.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-4"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">{receipt.receiptId}</span>
+                      <span className="text-sm font-black uppercase text-gray-900">{receipt.firstName} {receipt.lastName}</span>
+                      <span className="text-[10px] text-gray-400 font-bold">{new Date(receipt.createdAt).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => onEdit(receipt)}
+                        className="p-2 bg-blue-50 text-blue-600 rounded-xl"
+                        title="Editer"
+                      >
+                        <ExternalLink size={16} />
+                      </button>
+                      <button 
+                        onClick={() => onPrint(receipt)}
+                        className="p-2 bg-gray-50 text-gray-900 rounded-xl"
+                        title="Imprimer"
+                      >
+                        <Printer size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
+                    <div className="flex flex-col flex-1 min-w-0 relative">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Logement</span>
+                      <span 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
+                        }}
+                        className={`text-xs font-bold cursor-pointer transition-all duration-300 ${
+                          expandedApartmentId === receipt.id 
+                            ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-sm z-50 relative whitespace-normal break-words' 
+                            : 'text-gray-700 truncate border-b border-dotted border-gray-300'
+                        }`}
+                      >
+                        {receipt.apartmentName}
+                      </span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total</span>
+                      <span className="text-xs font-black text-gray-900">{formatCurrency(receipt.grandTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Commission & Caution Details */}
+                  <div className="space-y-3">
+                    {receipt.agentName && (
+                      <div className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                        <div className="flex flex-col">
+                          <span className="text-[8px] font-black uppercase text-gray-400">Commission</span>
+                          <span className="text-[10px] font-bold text-gray-700">{receipt.agentName}</span>
+                        </div>
+                        <div className={`flex items-center gap-1 ${receipt.isCommissionPaid ? 'text-green-600' : 'text-orange-600'}`}>
+                          <Banknote size={12} />
+                          <span className="text-xs font-black">{formatCurrency(receipt.commissionAmount || 0)}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {hasCaution && (
+                      <div className={`p-2 rounded-lg border ${receipt.isCautionRefunded ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1">
+                            <ShieldCheck size={12} className={receipt.isCautionRefunded ? 'text-green-600' : 'text-blue-600'} />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Caution: {formatCurrency(receipt.cautionAmount || 0)}</span>
+                          </div>
+                          {receipt.isCautionRefunded ? (
+                            <span className="text-[8px] font-black uppercase bg-green-200 text-green-700 px-1.5 py-0.5 rounded">Remboursée</span>
+                          ) : (
+                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${isRefundOverdue ? 'bg-red-200 text-red-700' : 'bg-blue-200 text-blue-700'}`}>
+                              Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {!receipt.isCautionRefunded && userProfile?.role === 'admin' && (
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => handleRefundCaution(receipt, 'Espèces')}
+                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm"
+                            >
+                              Remb. Espèces
+                            </button>
+                            <button 
+                              onClick={() => handleRefundCaution(receipt, 'Mobile')}
+                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm"
+                            >
+                              Remb. Mobile
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${receipt.remaining <= 0 ? 'bg-green-500' : 'bg-orange-500'}`} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        {receipt.remaining <= 0 ? 'Soldé' : `Reste: ${formatCurrency(receipt.remaining)}`}
+                      </span>
+                    </div>
+                    {receipt.status === 'ANNULE' && (
+                      <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-1 rounded uppercase">Annulé</span>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* Load More Button */}
+          {filteredReceipts.length > displayLimit && (
+            <div className="mt-8 flex justify-center">
+              <button 
+                onClick={handleLoadMore}
+                className="px-8 py-4 bg-white border border-gray-200 text-gray-900 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm"
+              >
+                Charger plus de reçus
+              </button>
+            </div>
+          )}
+
+          {filteredReceipts.length === 0 && (
+            <div className="p-12 text-center bg-white rounded-2xl border border-gray-200">
+              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                <FileText size={32} />
+              </div>
+              <p className="text-sm text-gray-400 italic">Aucun reçu trouvé pour cette recherche.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

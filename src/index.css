@@ -74,10 +74,11 @@
   width: 210mm;
   transform: scale(0.42);
   transform-origin: top center;
+  will-change: transform;
 }
 
 .mobile-receipt-container {
-  height: 480px; /* Approx height of scaled A4 */
+  height: 520px; /* Approx height of scaled A4 */
   display: flex;
   justify-content: center;
   width: 100%;
@@ -101,4 +102,8 @@
     height: auto !important;
     overflow: visible !important;
   }
+}
+
+.receipt-viewer-main {
+  contain: content;
 }

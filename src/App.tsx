@@ -56,7 +56,8 @@ import {
   X,
   History,
   Info,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -118,7 +119,20 @@ export default function App() {
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
-  const deferredFormData = useDeferredValue(formData);
+  
+  // Custom Debounce for weak mobile devices
+  const [debouncedFormData, setDebouncedFormData] = useState(formData);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    setIsSyncing(true);
+    const timer = setTimeout(() => {
+      setDebouncedFormData(formData);
+      setIsSyncing(false);
+    }, 500); // 500ms debounce is safe for very weak devices
+    return () => clearTimeout(timer);
+  }, [formData]);
+
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchId, setSearchId] = useState('');
@@ -466,6 +480,14 @@ export default function App() {
     try {
       const docId = formData.id || formData.receiptId;
 
+      // Helper for timeout to prevent hanging on weak networks
+      const withTimeout = async (p: Promise<any>, ms: number = 10000) => {
+        return Promise.race([
+          p,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+        ]);
+      };
+
       // --- OVERLAP CHECK ---
       // Get all apartment names that share this physical unit (slug)
       const relatedApartments = Object.entries(TARIFS)
@@ -478,11 +500,11 @@ export default function App() {
       let snapAptDocs: any[] = [];
       if (relatedApartments.length > 0) {
         const qApt = query(collection(db, 'receipts'), where('apartmentName', 'in', relatedApartments));
-        const snapApt = await getDocs(qApt);
+        const snapApt = await withTimeout(getDocs(qApt)) as any;
         snapAptDocs = snapApt.docs;
       }
       
-      const snapSlug = await getDocs(qSlug);
+      const snapSlug = await withTimeout(getDocs(qSlug)) as any;
       
       // Merge results and remove duplicates
       const allDocs = [...snapSlug.docs, ...snapAptDocs];
@@ -518,8 +540,8 @@ export default function App() {
 
       // --- BLOCKED DATES CHECK ---
       const qBlocked = query(collection(db, 'blocked_dates'), where('calendarSlug', '==', finalSlug));
-      const snapBlocked = await getDocs(qBlocked);
-      const blockedDates = snapBlocked.docs.map(d => d.data() as BlockedDate);
+      const snapBlocked = await withTimeout(getDocs(qBlocked)) as any;
+      const blockedDates = snapBlocked.docs.map((d: any) => d.data() as BlockedDate);
       
       const blocked = blockedDates.find(b => {
         return b.date >= newStart && b.date < newEnd;
@@ -532,22 +554,27 @@ export default function App() {
         return;
       }
 
-      await setDoc(doc(db, 'receipts', docId), {
+      await withTimeout(setDoc(doc(db, 'receipts', docId), {
         ...formData,
         id: docId,
         calendarSlug: finalSlug,
         authorUid: user?.uid,
         createdAt: formData.createdAt || new Date().toISOString(),
         status: formData.status || 'VALIDE'
-      });
+      }));
       setSaveStatus('success'); 
       setAlertType('success');
       setAlertMessage("Reçu enregistré avec succès !");
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
-    } catch (error) { 
-      handleFirestoreError(error, OperationType.WRITE, 'receipts');
-      setSaveStatus('error'); 
+    } catch (error: any) { 
+      if (error.message === 'TIMEOUT') {
+        setAlertType('error');
+        setAlertMessage("DÉLAI DÉPASSÉ : La connexion est trop lente. Vos données sont peut-être enregistrées localement et seront synchronisées dès que possible.");
+      } else {
+        handleFirestoreError(error, OperationType.WRITE, 'receipts');
+        setSaveStatus('error'); 
+      }
     } finally { 
       setIsSaving(false); 
     }
@@ -1288,9 +1315,14 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1 }}
                   className="receipt-motion-wrapper w-full max-w-[210mm] print:m-0 print:p-0 print:max-w-none"
                 >
-                  <div className="mobile-receipt-container w-full flex justify-center overflow-hidden md:overflow-visible">
-                    <div className="mobile-receipt-zoom origin-top transition-transform">
-                      <ReceiptPreview data={deferredFormData} />
+                  <div className="mobile-receipt-container w-full flex flex-col items-center overflow-hidden md:overflow-visible">
+                    {isSyncing && (
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-blue-600 animate-pulse flex items-center gap-2">
+                        <Loader2 size={10} className="animate-spin" /> Mise à jour de l'aperçu...
+                      </div>
+                    )}
+                    <div className="mobile-receipt-zoom origin-top transition-transform will-change-transform">
+                      <ReceiptPreview data={debouncedFormData} />
                     </div>
                   </div>
                 </motion.div>
