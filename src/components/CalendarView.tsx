@@ -491,8 +491,8 @@ export default function CalendarView({
                 <React.Fragment key={group.site}>
                   {group.units.map((unit) => (
                     <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
-                      <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64 overflow-hidden">
-                        <div className="flex h-full items-stretch">
+                      <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64">
+                        <div className="flex h-full items-stretch relative">
                           {/* Site Vertical Bar */}
                           <div className={`w-1 md:w-6 flex items-center justify-center ${group.color} relative`}>
                             <span className="hidden md:block text-[8px] font-black text-white uppercase tracking-widest -rotate-90 whitespace-nowrap origin-center">
@@ -502,23 +502,34 @@ export default function CalendarView({
                           
                           {/* Unit Details */}
                           <div 
-                            className="flex-1 flex flex-col justify-center p-2 md:p-3 overflow-hidden relative"
+                            className="flex-1 flex flex-col justify-center p-2 md:p-3 overflow-hidden cursor-pointer"
                             onPointerDown={(e) => {
                               e.stopPropagation();
                               setExpandedUnitSlug(expandedUnitSlug === unit.slug ? null : unit.slug);
                             }}
                           >
-                            <span className={`text-[9px] md:text-[11px] font-black uppercase tracking-tight transition-all duration-300 ${
-                              expandedUnitSlug === unit.slug 
-                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-xl z-50 fixed left-10 md:left-64 top-1/2 -translate-y-1/2 w-48 md:w-64 whitespace-normal ring-2 ring-blue-300' 
-                                : 'text-gray-900 truncate'
-                            }`}>
+                            <span className="text-[9px] md:text-[11px] font-black uppercase tracking-tight text-gray-900 truncate">
                               {unit.shortName}
                             </span>
                             <span className="text-[7px] md:text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">
                               {unit.slug}
                             </span>
                           </div>
+
+                          {/* Expanded Bubble */}
+                          {expandedUnitSlug === unit.slug && (
+                            <div className="absolute left-[calc(100%-4px)] top-1/2 -translate-y-1/2 w-56 md:w-72 bg-white shadow-2xl rounded-xl p-3 md:p-4 z-[100] border-2 border-blue-500 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[8px] md:text-[10px] font-black text-blue-600 uppercase tracking-widest">{group.site}</span>
+                                <span className="text-[10px] md:text-xs font-black text-gray-900 uppercase leading-tight whitespace-normal">
+                                  {unit.category}
+                                </span>
+                                <span className="text-[8px] md:text-[10px] font-bold text-gray-400 mt-1">{unit.slug}</span>
+                              </div>
+                              {/* Arrow */}
+                              <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-blue-500" />
+                            </div>
+                          )}
                         </div>
                       </td>
                   {daysInMonth.map(date => {

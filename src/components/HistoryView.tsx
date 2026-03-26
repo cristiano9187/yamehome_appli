@@ -354,19 +354,33 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                   <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
                     <div className="flex flex-col flex-1 min-w-0 relative">
                       <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Logement</span>
-                      <span 
+                      <div 
+                        className="relative"
                         onPointerDown={(e) => {
                           e.stopPropagation();
                           setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
                         }}
-                        className={`text-xs font-bold cursor-pointer transition-all duration-300 block ${
-                          expandedApartmentId === receipt.id 
-                            ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-md z-50 relative whitespace-normal break-words ring-1 ring-blue-200' 
-                            : 'text-gray-700 truncate border-b border-dotted border-gray-400'
-                        }`}
                       >
-                        {receipt.apartmentName}
-                      </span>
+                        <span className="text-xs font-bold text-gray-700 truncate border-b border-dotted border-gray-400 block cursor-pointer">
+                          {receipt.apartmentName}
+                        </span>
+                        
+                        {expandedApartmentId === receipt.id && (
+                          <div className="absolute left-0 top-full mt-1 w-full min-w-[200px] bg-white shadow-2xl rounded-xl p-3 z-[100] border-2 border-blue-500 animate-in fade-in zoom-in duration-200 pointer-events-none">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[8px] font-black uppercase text-blue-600 tracking-widest">Logement Complet</span>
+                              <span className="text-xs font-black text-gray-900 uppercase leading-tight whitespace-normal break-words">
+                                {receipt.apartmentName}
+                              </span>
+                              <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest mt-1">
+                                {receipt.calendarSlug || 'Standard'}
+                              </span>
+                            </div>
+                            {/* Arrow */}
+                            <div className="absolute left-4 bottom-full border-8 border-transparent border-b-blue-500" />
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total</span>
