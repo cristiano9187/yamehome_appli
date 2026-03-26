@@ -23,7 +23,8 @@ import {
   orderBy,
   limit,
   Timestamp,
-  deleteDoc
+  deleteDoc,
+  waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
@@ -395,8 +396,13 @@ export default function App() {
   }, [view, isReadOnly, formData, formData.receiptId]);
 
   const handlePrint = useCallback(() => {
+    if (!isReadOnly) {
+      setAlertType('error');
+      setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
+      return;
+    }
     window.print();
-  }, []);
+  }, [isReadOnly]);
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -562,6 +568,14 @@ export default function App() {
         createdAt: formData.createdAt || new Date().toISOString(),
         status: formData.status || 'VALIDE'
       }));
+
+      // Ensure data is synchronized with the server
+      try {
+        await withTimeout(waitForPendingWrites(db), 5000);
+      } catch (e) {
+        console.warn("Server sync timeout, data will sync in background");
+      }
+
       setSaveStatus('success'); 
       setAlertType('success');
       setAlertMessage("Reçu enregistré avec succès !");
@@ -1166,6 +1180,7 @@ export default function App() {
           {view === 'history' ? (
             <HistoryView 
               userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);
@@ -1190,6 +1205,7 @@ export default function App() {
               viewMode={calendarViewMode}
               onViewModeChange={setCalendarViewMode}
               userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);
@@ -1237,6 +1253,7 @@ export default function App() {
             />
           ) : view === 'users' ? (
             <UserManagement 
+              onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);

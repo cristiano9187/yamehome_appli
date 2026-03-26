@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, addDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AuthorizedEmail } from '../types';
-import { Trash2, UserPlus, Shield, User as UserIcon, Loader2 } from 'lucide-react';
+import { Trash2, UserPlus, Shield, User as UserIcon, Loader2, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface UserManagementProps {
   onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
+  onMenuClick?: () => void;
 }
 
-export default function UserManagement({ onAlert }: UserManagementProps) {
+export default function UserManagement({ onAlert, onMenuClick }: UserManagementProps) {
   const [emails, setEmails] = useState<AuthorizedEmail[]>([]);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'agent'>('agent');
@@ -85,11 +86,18 @@ export default function UserManagement({ onAlert }: UserManagementProps) {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <div className="mb-8">
-        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-2">
-          <Shield className="text-blue-600" /> Gestion des Accès
-        </h2>
-        <p className="text-gray-500 text-sm mt-1">Définissez les emails autorisés à se connecter à l'application.</p>
+      <div className="mb-8 flex items-center gap-4">
+        {onMenuClick && (
+          <button onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
+            <Menu size={20} />
+          </button>
+        )}
+        <div>
+          <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-2">
+            <Shield className="text-blue-600" /> Gestion des Accès
+          </h2>
+          <p className="text-gray-500 text-sm mt-1">Définissez les emails autorisés à se connecter à l'application.</p>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">

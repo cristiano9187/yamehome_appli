@@ -18,6 +18,7 @@ import {
   ExternalLink, 
   Printer, 
   Calendar,
+  Menu,
   User as UserIcon,
   CreditCard,
   ChevronRight,
@@ -30,11 +31,12 @@ import { motion } from 'motion/react';
 interface HistoryViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onPrint: (receipt: ReceiptData) => void;
+  onMenuClick?: () => void;
   userProfile: UserProfile | null;
   onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
 }
 
-export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: HistoryViewProps) {
+export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile, onAlert }: HistoryViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -110,6 +112,11 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
       {/* Header */}
       <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
         <div className="flex items-center gap-4">
+          {onMenuClick && (
+            <button onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
+              <Menu size={20} />
+            </button>
+          )}
           <div className="flex flex-col">
             <h2 className="text-sm font-black uppercase tracking-widest">Historique des Reçus</h2>
             <span className="text-[10px] font-mono text-gray-400 font-bold">{filteredReceipts.length} enregistrements</span>
