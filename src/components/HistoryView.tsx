@@ -325,7 +325,7 @@ export default function HistoryView({ onEdit, onPrint, userProfile, onAlert }: H
                   key={receipt.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-4"
+                  className={`bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-4 relative ${expandedApartmentId === receipt.id ? 'z-50' : 'z-0'}`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">

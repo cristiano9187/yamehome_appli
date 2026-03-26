@@ -14,6 +14,7 @@
     padding: 0 !important;
     overflow: visible !important;
     height: auto !important;
+    width: 210mm !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -32,7 +33,7 @@
     padding: 0 !important;
     overflow: visible !important;
     height: auto !important;
-    width: 100% !important;
+    min-width: 210mm !important;
   }
 
   /* Ciblage précis : Masquer uniquement les éléments inutiles */
@@ -47,12 +48,9 @@
   .print-container {
     display: block !important;
     visibility: visible !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
     width: 210mm !important;
     min-height: 297mm !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 10mm !important; /* Marge interne pour éviter les coupures */
     box-sizing: border-box !important;
     background: white !important;
@@ -67,6 +65,12 @@
   .bg-green-50 { background-color: #f0fdf4 !important; }
   .bg-red-50 { background-color: #fef2f2 !important; }
   .bg-gray-50 { background-color: #f9fafb !important; }
+
+  /* Désactiver les transitions et animations pour l'impression */
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* Responsive Zoom for Mobile Preview */
@@ -99,6 +103,9 @@
 @media print {
   .mobile-receipt-zoom {
     transform: scale(1) !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   .mobile-receipt-container {
     height: auto !important;
@@ -107,5 +114,5 @@
 }
 
 .receipt-viewer-main {
-  contain: content;
+  /* Supprimé contain: content pour éviter les coupures à l'impression */
 }

@@ -491,7 +491,7 @@ export default function CalendarView({
                 <React.Fragment key={group.site}>
                   {group.units.map((unit) => (
                     <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
-                      <td className="sticky left-0 z-20 bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64">
+                      <td className={`sticky left-0 ${expandedUnitSlug === unit.slug ? 'z-[30]' : 'z-20'} bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64`}>
                         <div className="flex h-full items-stretch relative">
                           {/* Site Vertical Bar */}
                           <div className={`w-1 md:w-6 flex items-center justify-center ${group.color} relative`}>

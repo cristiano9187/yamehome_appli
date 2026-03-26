@@ -1182,7 +1182,7 @@ export default function App() {
                 // The useEffect will handle the title sync automatically
                 setTimeout(() => {
                   window.print();
-                }, 500);
+                }, 1000);
               }}
             />
           ) : view === 'calendar' ? (
