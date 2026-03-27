@@ -30,6 +30,7 @@ import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
+import DateRangePicker from './components/DateRangePicker';
 const HistoryView = lazy(() => import('./components/HistoryView'));
 const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
@@ -1015,16 +1016,14 @@ export default function App() {
                     </select>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-gray-400 uppercase ml-1">Arrivée</label>
-                      <input disabled={isReadOnly} type="date" name="startDate" value={formData.startDate} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none disabled:opacity-50" onChange={handleChange} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-gray-400 uppercase ml-1">Départ</label>
-                      <input disabled={isReadOnly} type="date" name="endDate" value={formData.endDate} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none disabled:opacity-50" onChange={handleChange} />
-                    </div>
-                  </div>
+                  <DateRangePicker 
+                    startDate={formData.startDate}
+                    endDate={formData.endDate}
+                    disabled={isReadOnly}
+                    onChange={(start, end) => {
+                      setFormData(prev => ({ ...prev, startDate: start, endDate: end }));
+                    }}
+                  />
                 </div>
 
                 {/* Pricing Section */}

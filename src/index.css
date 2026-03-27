@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+/* DateRangePicker Custom Styles */
+.rdp-custom {
+  --rdp-cell-size: 40px;
+  --rdp-accent-color: #2563eb;
+  --rdp-background-color: #eff6ff;
+  margin: 0;
+}
+
+.rdp-custom .rdp-day_selected, 
+.rdp-custom .rdp-day_selected:focus-visible, 
+.rdp-custom .rdp-day_selected:hover {
+  background-color: var(--rdp-accent-color);
+  color: white;
+}
+
+.rdp-custom .rdp-day_range_middle {
+  background-color: var(--rdp-background-color);
+  color: var(--rdp-accent-color);
+}
+
+.rdp-custom .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
+  background-color: #f3f4f6;
+}
+
+@media (max-width: 640px) {
+  .rdp-custom {
+    --rdp-cell-size: 38px;
+  }
+}
+
 @media print {
   /* Supprimer les en-têtes et pieds de page du navigateur */
   @page {
