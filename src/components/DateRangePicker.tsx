@@ -97,7 +97,7 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute z-[100] mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 left-0 right-0 md:left-auto md:w-[320px]"
+            className="absolute z-[100] mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 left-0 right-0 md:right-auto md:left-0 md:w-[320px]"
           >
             <div className="flex justify-between items-center mb-4">
               <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Période de séjour</span>
