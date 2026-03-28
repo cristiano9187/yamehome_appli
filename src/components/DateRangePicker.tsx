@@ -27,16 +27,6 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
     }
   }, [isOpen, startDate, endDate]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const handleSelect = (selectedRange: DateRange | undefined) => {
     setLocalRange(selectedRange);
   };
@@ -97,15 +87,15 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute z-[100] mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 left-0 right-0 md:right-auto md:left-0 md:w-[320px]"
+            className="absolute z-[100] mt-2 bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-gray-100 p-5 left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0 w-[320px]"
           >
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Période de séjour</span>
+            <div className="relative flex justify-center items-center mb-6">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Période de séjour</span>
               <button 
                 onClick={() => setIsOpen(false)}
-                className="p-1 hover:bg-gray-100 rounded-full transition-all"
+                className="absolute right-0 p-2 hover:bg-gray-100 rounded-full transition-all"
               >
-                <X size={14} className="text-gray-400" />
+                <X size={16} className="text-gray-400" />
               </button>
             </div>
 
@@ -116,36 +106,48 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
               locale={fr}
               startMonth={new Date(2024, 0)}
               endMonth={new Date(2030, 11)}
-              className="rdp-custom"
+              className="rdp-custom mx-auto"
               classNames={{
-                months: "flex flex-col space-y-4",
-                month: "space-y-4",
-                month_caption: "flex justify-center pt-1 relative items-center mb-4",
-                caption_label: "text-sm font-black uppercase tracking-widest text-gray-900",
-                nav: "flex items-center",
-                nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 transition-all flex items-center justify-center rounded-lg hover:bg-gray-100",
-                nav_button_previous: "absolute left-1",
-                nav_button_next: "absolute right-1",
-                month_grid: "w-full border-collapse space-y-1",
-                weekdays: "flex",
-                weekday: "text-gray-400 rounded-md w-9 font-black text-[10px] uppercase flex items-center justify-center h-8",
+                months: "flex flex-col",
+                month: "relative",
+                month_caption: "flex justify-center items-center h-14 bg-blue-50/80 rounded-2xl border border-blue-100/50 mb-6",
+                caption_label: "text-sm font-black uppercase tracking-[0.15em] text-blue-800",
+                month_grid: "w-full border-collapse",
+                weekdays: "flex mb-2",
+                weekday: "text-gray-400 w-10 font-black text-[10px] uppercase flex items-center justify-center h-8",
                 week: "flex w-full mt-1",
-                day: "h-9 w-9 p-0 relative flex items-center justify-center",
-                day_button: "h-9 w-9 p-0 font-bold aria-selected:opacity-100 hover:bg-blue-50 rounded-lg transition-all flex items-center justify-center",
+                day: "h-10 w-10 p-0 relative flex items-center justify-center",
+                day_button: "h-9 w-9 p-0 font-bold aria-selected:opacity-100 hover:bg-blue-50 rounded-xl transition-all flex items-center justify-center text-sm",
                 range_start: "bg-blue-600 text-white hover:bg-blue-600 rounded-r-none",
                 range_end: "bg-blue-600 text-white hover:bg-blue-600 rounded-l-none",
-                selected: "bg-blue-100 text-blue-600 rounded-none first:rounded-l-lg last:rounded-r-lg",
-                today: "text-blue-600 font-black underline underline-offset-4",
-                outside: "text-gray-300 opacity-50",
-                disabled: "text-gray-300 opacity-50 cursor-not-allowed",
+                selected: "bg-blue-100 text-blue-600 rounded-none first:rounded-l-xl last:rounded-r-xl",
+                today: "text-blue-600 font-black ring-2 ring-blue-100 ring-offset-2 rounded-xl",
+                outside: "text-gray-300 opacity-30",
+                disabled: "text-gray-300 opacity-30 cursor-not-allowed",
                 range_middle: "bg-blue-50 text-blue-600",
                 hidden: "invisible",
               }}
               components={{
-                Chevron: (props) => {
-                  if (props.orientation === 'left') return <ChevronLeft size={16} />;
-                  return <ChevronRight size={16} />;
-                }
+                Nav: (props) => (
+                  <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-2 h-14 z-10 pointer-events-none">
+                    <button
+                      type="button"
+                      onClick={props.onPreviousClick}
+                      disabled={!props.previousMonth}
+                      className="h-10 w-10 bg-white border-2 border-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all flex items-center justify-center rounded-xl shadow-sm pointer-events-auto disabled:opacity-20 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={props.onNextClick}
+                      disabled={!props.nextMonth}
+                      className="h-10 w-10 bg-white border-2 border-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all flex items-center justify-center rounded-xl shadow-sm pointer-events-auto disabled:opacity-20 disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                )
               }}
             />
 
