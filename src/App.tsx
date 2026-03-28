@@ -584,6 +584,9 @@ export default function App() {
         // Skip current booking if updating
         if (b.id === docId || b.receiptId === docId || b.receiptId === formData.receiptId) return false;
         
+        // If both have slugs, they only conflict if slugs match
+        if (b.calendarSlug && finalSlug && b.calendarSlug !== finalSlug) return false;
+        
         const bStart = b.startDate;
         const bEnd = b.endDate;
         
