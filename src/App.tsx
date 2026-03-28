@@ -894,12 +894,14 @@ export default function App() {
                      >
                        Modifier le Rapport
                      </button>
-                     <button 
-                      onClick={() => setShowDeleteCleaningConfirm(true)} 
-                      className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
-                     >
-                       Effacer le planning
-                     </button>
+                     {cleaningReport.id && (
+                       <button 
+                        onClick={() => setShowDeleteCleaningConfirm(true)} 
+                        className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
+                       >
+                         Effacer le planning
+                       </button>
+                     )}
                      <button 
                       onClick={() => {
                         setIsCleaningMode(false);
@@ -930,12 +932,14 @@ export default function App() {
                         {isSaving ? 'ENVOI...' : cleaningReport.status === 'PRÉVU' ? 'CONFIRMER LA PLANIFICATION' : 'VALIDER LE RAPPORT'}
                       </button>
                     </div>
-                    <button 
-                      onClick={() => setShowDeleteCleaningConfirm(true)} 
-                      className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
-                    >
-                      Effacer le planning
-                    </button>
+                    {cleaningReport.id && (
+                      <button 
+                        onClick={() => setShowDeleteCleaningConfirm(true)} 
+                        className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
+                      >
+                        Effacer le planning
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
