@@ -48,7 +48,7 @@ export interface CleaningReport {
   calendarSlug: string;
   dateIntervention: string;
   agent: string;
-  status: 'EFFECTUÉ' | 'ANOMALIE' | 'REPORTÉ' | 'PRÉVU';
+  status: 'EFFECTUÉ' | 'ANOMALIE' | 'REPORTÉ' | 'PRÉVU' | 'ANNULÉ';
   feedback: string;
   damages: string;
   maintenance: string;

@@ -156,6 +156,7 @@ export default function App() {
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
   const [isCleaningReadOnly, setIsCleaningReadOnly] = useState(false);
   const [showCleaningConfirm, setShowCleaningConfirm] = useState(false);
+  const [showDeleteCleaningConfirm, setShowDeleteCleaningConfirm] = useState(false);
   const [lastCalendarScroll, setLastCalendarScroll] = useState(0);
   const [pendingCleaningData, setPendingCleaningData] = useState<{
     menageId: string;
@@ -443,7 +444,7 @@ export default function App() {
   };
 
   const submitCleaningReport = async () => {
-    if (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent) {
+    if (cleaningReport.status !== 'PRÉVU' && cleaningReport.status !== 'ANNULÉ' && !cleaningReport.agent) {
       setAlertType('error');
       setAlertMessage("Nom agent requis");
       return;
@@ -457,16 +458,62 @@ export default function App() {
         id: reportId,
         createdAt: new Date().toISOString()
       });
-      setAlertType('success');
-      setAlertMessage("Rapport enregistré !");
+
+      // Close modals first
       setIsCleaningMode(false);
       setView('calendar');
+
+      // Then show alert
+      setTimeout(() => {
+        setAlertType('success');
+        setAlertMessage(cleaningReport.status === 'ANNULÉ' ? "Planning effacé !" : "Rapport enregistré !");
+      }, 100);
     } catch (e) { 
       handleFirestoreError(e, OperationType.WRITE, 'cleaning_reports');
       setAlertType('error');
       setAlertMessage("Erreur d'enregistrement");
     } finally { 
       setIsSaving(false); 
+    }
+  };
+
+  const deleteCleaningReport = async () => {
+    setIsSaving(true);
+    try {
+      // Use pending data if available to avoid stale state issues
+      const dataToUse = pendingCleaningData?.report || cleaningReport;
+      const reportId = dataToUse.id || `CR-${dataToUse.menageId || pendingCleaningData?.menageId || 'MANUAL'}-${dataToUse.calendarSlug || pendingCleaningData?.slug}-${dataToUse.dateIntervention || pendingCleaningData?.date}`;
+      
+      const finalData = {
+        ...dataToUse,
+        menageId: dataToUse.menageId || pendingCleaningData?.menageId || 'MANUAL',
+        calendarSlug: dataToUse.calendarSlug || pendingCleaningData?.slug || '',
+        dateIntervention: dataToUse.dateIntervention || pendingCleaningData?.date || '',
+        id: reportId,
+        status: 'ANNULÉ' as const,
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'cleaning_reports', reportId), finalData);
+
+      // Close modals first
+      setIsCleaningMode(false);
+      setShowCleaningConfirm(false);
+      setShowDeleteCleaningConfirm(false);
+      setPendingCleaningData(null);
+      setView('calendar');
+
+      // Then show alert
+      setTimeout(() => {
+        setAlertType('success');
+        setAlertMessage("Planning effacé avec succès !");
+      }, 100);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, 'cleaning_reports');
+      setAlertType('error');
+      setAlertMessage("Erreur lors de la suppression");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -681,138 +728,6 @@ export default function App() {
   };
 
   // --- RENDER CLEANING ---
-  if (isCleaningMode) {
-    return (
-      <div className="min-h-screen bg-[#E4E3E0] text-[#141414] p-6 font-sans flex flex-col items-center">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white p-8 rounded-2xl border border-[#141414]/10 shadow-2xl"
-        >
-          <div className="flex items-center gap-2 mb-6">
-            <ClipboardCheck className="text-blue-600" size={24} />
-            <h1 className="text-2xl font-black italic tracking-tighter uppercase">MÉNAGE YAMEHOME</h1>
-          </div>
-          
-          <div className="bg-gray-50 p-4 rounded-xl mb-6 border border-gray-100">
-            <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest mb-1">Détails Intervention</p>
-            <p className="text-sm font-bold">{cleaningReport.calendarSlug || 'N/A'} — {cleaningReport.dateIntervention}</p>
-          </div>
-          
-          <div className="space-y-6">
-            <div>
-              <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Agent Responsable</label>
-              <input 
-                disabled={isCleaningReadOnly} 
-                type="text" 
-                name="agent" 
-                className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
-                placeholder="Nom de l'agent" 
-                value={cleaningReport.agent} 
-                onChange={handleCleaningChange} 
-              />
-            </div>
-            
-            <div>
-              <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Statut de l'Intervention</label>
-              <select 
-                disabled={isCleaningReadOnly} 
-                name="status" 
-                className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50 appearance-none" 
-                value={cleaningReport.status} 
-                onChange={handleCleaningChange}
-              >
-                <option value="PRÉVU">📅 PRÉVU / PROGRAMMÉ</option>
-                <option value="EFFECTUÉ">✅ EFFECTUÉ</option>
-                <option value="ANOMALIE">⚠️ ANOMALIE SIGNALÉE</option>
-                <option value="REPORTÉ">⏳ REPORTÉ</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Feedback & Observations</label>
-              <textarea 
-                disabled={isCleaningReadOnly} 
-                name="feedback" 
-                rows={3} 
-                className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
-                placeholder="Commentaire sur l'état général..." 
-                value={cleaningReport.feedback} 
-                onChange={handleCleaningChange}
-              ></textarea>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-2 block">Casse / Dommages</label>
-                <textarea 
-                  disabled={isCleaningReadOnly} 
-                  name="damages" 
-                  rows={2} 
-                  className="w-full bg-white border border-red-100 rounded-xl p-3 text-xs outline-none focus:border-red-500 transition-all disabled:bg-gray-50" 
-                  placeholder="Signaler une casse..." 
-                  value={cleaningReport.damages} 
-                  onChange={handleCleaningChange}
-                ></textarea>
-              </div>
-              <div>
-                <label className="text-[10px] text-orange-400 font-black uppercase tracking-widest mb-2 block">Maintenance</label>
-                <textarea 
-                  disabled={isCleaningReadOnly} 
-                  name="maintenance" 
-                  rows={2} 
-                  className="w-full bg-white border border-orange-100 rounded-xl p-3 text-xs outline-none focus:border-orange-500 transition-all disabled:bg-gray-50" 
-                  placeholder="Besoin technique ?" 
-                  value={cleaningReport.maintenance} 
-                  onChange={handleCleaningChange}
-                ></textarea>
-              </div>
-            </div>
-
-            {isCleaningReadOnly ? (
-               <div className="flex flex-col gap-3 mt-8">
-                 <button 
-                  onClick={() => setIsCleaningReadOnly(false)} 
-                  className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all shadow-lg shadow-orange-600/20"
-                 >
-                   Modifier le Rapport
-                 </button>
-                 <button 
-                  onClick={() => {
-                    setIsCleaningMode(false);
-                    setView('calendar');
-                  }} 
-                  className="w-full text-gray-400 hover:text-gray-600 text-center text-[10px] uppercase font-black tracking-widest"
-                 >
-                   Retour au planning
-                 </button>
-               </div>
-            ) : (
-              <div className="flex gap-4 mt-8">
-                <button 
-                  onClick={() => {
-                    setIsCleaningMode(false);
-                    setView('calendar');
-                  }} 
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-black py-4 rounded-xl text-xs uppercase tracking-widest transition-all"
-                >
-                  Annuler
-                </button>
-                <button 
-                  onClick={submitCleaningReport} 
-                  disabled={isSaving || (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent)} 
-                  className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-600/20 uppercase text-xs tracking-widest transition-all disabled:opacity-50"
-                >
-                  {isSaving ? 'ENVOI...' : cleaningReport.status === 'PRÉVU' ? 'CONFIRMER LA PLANIFICATION' : 'VALIDER LE RAPPORT'}
-                </button>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   // --- RENDER LOGIN ---
   if (!user && isAuthReady) {
     return (
@@ -877,6 +792,157 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100 print:bg-white">
+      {/* Cleaning Mode Overlay */}
+      <AnimatePresence>
+        {isCleaningMode && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-[#E4E3E0] text-[#141414] p-6 font-sans flex flex-col items-center overflow-y-auto"
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-md bg-white p-8 rounded-2xl border border-[#141414]/10 shadow-2xl my-auto"
+            >
+              <div className="flex items-center gap-2 mb-6">
+                <ClipboardCheck className="text-blue-600" size={24} />
+                <h1 className="text-2xl font-black italic tracking-tighter uppercase">MÉNAGE YAMEHOME</h1>
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-xl mb-6 border border-gray-100">
+                <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest mb-1">Détails Intervention</p>
+                <p className="text-sm font-bold">{cleaningReport.calendarSlug || 'N/A'} — {cleaningReport.dateIntervention}</p>
+              </div>
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Agent Responsable</label>
+                  <input 
+                    disabled={isCleaningReadOnly} 
+                    type="text" 
+                    name="agent" 
+                    className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
+                    placeholder="Nom de l'agent" 
+                    value={cleaningReport.agent} 
+                    onChange={handleCleaningChange} 
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Statut de l'Intervention</label>
+                  <select 
+                    disabled={isCleaningReadOnly} 
+                    name="status" 
+                    className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50 appearance-none" 
+                    value={cleaningReport.status} 
+                    onChange={handleCleaningChange}
+                  >
+                    <option value="PRÉVU">📅 PRÉVU / PROGRAMMÉ</option>
+                    <option value="EFFECTUÉ">✅ EFFECTUÉ</option>
+                    <option value="ANOMALIE">⚠️ ANOMALIE SIGNALÉE</option>
+                    <option value="REPORTÉ">⏳ REPORTÉ</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Feedback & Observations</label>
+                  <textarea 
+                    disabled={isCleaningReadOnly} 
+                    name="feedback" 
+                    rows={3} 
+                    className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
+                    placeholder="Commentaire sur l'état général..." 
+                    value={cleaningReport.feedback} 
+                    onChange={handleCleaningChange}
+                  ></textarea>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-2 block">Casse / Dommages</label>
+                    <textarea 
+                      disabled={isCleaningReadOnly} 
+                      name="damages" 
+                      rows={2} 
+                      className="w-full bg-white border border-red-100 rounded-xl p-3 text-xs outline-none focus:border-red-500 transition-all disabled:bg-gray-50" 
+                      placeholder="Signaler une casse..." 
+                      value={cleaningReport.damages} 
+                      onChange={handleCleaningChange}
+                    ></textarea>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-orange-400 font-black uppercase tracking-widest mb-2 block">Maintenance</label>
+                    <textarea 
+                      disabled={isCleaningReadOnly} 
+                      name="maintenance" 
+                      rows={2} 
+                      className="w-full bg-white border border-orange-100 rounded-xl p-3 text-xs outline-none focus:border-orange-500 transition-all disabled:bg-gray-50" 
+                      placeholder="Besoin technique ?" 
+                      value={cleaningReport.maintenance} 
+                      onChange={handleCleaningChange}
+                    ></textarea>
+                  </div>
+                </div>
+                
+                {isCleaningReadOnly ? (
+                   <div className="flex flex-col gap-3 mt-8">
+                     <button 
+                      onClick={() => setIsCleaningReadOnly(false)} 
+                      className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all shadow-lg shadow-orange-600/20"
+                     >
+                       Modifier le Rapport
+                     </button>
+                     <button 
+                      onClick={() => setShowDeleteCleaningConfirm(true)} 
+                      className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
+                     >
+                       Effacer le planning
+                     </button>
+                     <button 
+                      onClick={() => {
+                        setIsCleaningMode(false);
+                        setView('calendar');
+                      }} 
+                      className="w-full text-gray-400 hover:text-gray-600 text-center text-[10px] uppercase font-black tracking-widest"
+                     >
+                       Retour au planning
+                     </button>
+                   </div>
+                ) : (
+                  <div className="flex flex-col gap-3 mt-8">
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={() => {
+                          setIsCleaningMode(false);
+                          setView('calendar');
+                        }} 
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-black py-4 rounded-xl text-xs uppercase tracking-widest transition-all"
+                      >
+                        Annuler
+                      </button>
+                      <button 
+                        onClick={submitCleaningReport} 
+                        disabled={isSaving || (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent)} 
+                        className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-600/20 uppercase text-xs tracking-widest transition-all disabled:opacity-50"
+                      >
+                        {isSaving ? 'ENVOI...' : cleaningReport.status === 'PRÉVU' ? 'CONFIRMER LA PLANIFICATION' : 'VALIDER LE RAPPORT'}
+                      </button>
+                    </div>
+                    <button 
+                      onClick={() => setShowDeleteCleaningConfirm(true)} 
+                      className="w-full bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 rounded-xl uppercase text-xs tracking-widest transition-all"
+                    >
+                      Effacer le planning
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Sidebar */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -1284,13 +1350,21 @@ export default function App() {
                   limit(1)
                 );
                 const snap = await getDocs(q);
+                const existing = !snap.empty ? snap.docs[0].data() as CleaningReport : null;
                 
-                if (!snap.empty) {
-                  const existing = snap.docs[0].data() as CleaningReport;
-                  // Store pending data and show confirmation instead of opening directly
-                  setPendingCleaningData({ menageId, slug, date, report: existing });
-                  setShowCleaningConfirm(true);
+                if (existing && existing.status !== 'ANNULÉ') {
+                  // If it's just planned (PRÉVU), open it directly without confirmation
+                  if (existing.status === 'PRÉVU') {
+                    setCleaningReport(existing);
+                    setIsCleaningReadOnly(false);
+                    setIsCleaningMode(true);
+                  } else {
+                    // Store pending data and show confirmation instead of opening directly
+                    setPendingCleaningData({ menageId, slug, date, report: existing });
+                    setShowCleaningConfirm(true);
+                  }
                 } else {
+                  // No report or cancelled report -> New report
                   setCleaningReport({
                     menageId: menageId || 'MANUAL',
                     calendarSlug: slug,
@@ -1461,12 +1535,69 @@ export default function App() {
                 </button>
                 <button 
                   onClick={() => {
+                    if (pendingCleaningData.report) {
+                      setCleaningReport(pendingCleaningData.report);
+                    } else {
+                      setCleaningReport({
+                        menageId: pendingCleaningData.menageId || 'MANUAL',
+                        calendarSlug: pendingCleaningData.slug,
+                        dateIntervention: pendingCleaningData.date,
+                        agent: '',
+                        status: 'PRÉVU',
+                        feedback: '',
+                        damages: '',
+                        maintenance: '',
+                        createdAt: new Date().toISOString()
+                      });
+                    }
+                    setShowDeleteCleaningConfirm(true);
+                  }}
+                  className="w-full bg-red-50 text-red-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-red-100 transition-all"
+                >
+                  Effacer le planning
+                </button>
+                <button 
+                  onClick={() => {
                     setShowCleaningConfirm(false);
                     setPendingCleaningData(null);
                   }}
                   className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
                 >
                   Annuler
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+         {showDeleteCleaningConfirm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Effacer le planning ?</h3>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                Le ménage prévu pour <span className="font-bold text-gray-900">{cleaningReport.calendarSlug}</span> le <span className="font-bold text-gray-900">{cleaningReport.dateIntervention}</span> sera retiré du calendrier.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={deleteCleaningReport}
+                  disabled={isSaving}
+                  className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all disabled:opacity-50"
+                >
+                  {isSaving ? 'Suppression...' : 'Confirmer la suppression'}
+                </button>
+                <button 
+                  onClick={() => setShowDeleteCleaningConfirm(false)}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                >
+                  Retour
                 </button>
               </div>
             </motion.div>

@@ -94,8 +94,8 @@ service cloud.firestore {
 
     function isValidCleaningReport(data) {
       return hasRequiredFields(['menageId', 'calendarSlug', 'dateIntervention', 'status', 'agent']) &&
-             (data.status == 'PRÉVU' || data.agent.size() > 0) &&
-             data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU'];
+             (data.status == 'PRÉVU' || data.status == 'ANNULÉ' || data.agent.size() > 0) &&
+             data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU', 'ANNULÉ'];
     }
 
     function isValidEmployee(data) {

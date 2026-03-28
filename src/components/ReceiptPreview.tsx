@@ -1,4 +1,5 @@
 import React from 'react';
+import { Mail, Globe, Phone } from 'lucide-react';
 import { ReceiptData } from '../types';
 import { getRateForApartment, LOGO_BASE64, formatCurrency } from '../constants';
 
@@ -75,9 +76,35 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
             </div>
           )}
         </div>
-        <h1 className="text-2xl font-bold text-[#2B4B8C] uppercase">YAMEHOME : REÇU DE PAIEMENT</h1>
+        <p className="text-2xl font-bold text-[#2B4B8C] uppercase">YAMEHOME : REÇU DE PAIEMENT</p>
         <p className="text-sm text-gray-600 mt-1">Location d'appartements, chambres et studios meublés</p>
-        <p className="text-xs text-gray-500 mt-1">+237 656 751 310 | christian@yamehome.com | www.yamehome.com</p>
+        <div className="text-[10px] text-gray-500 mt-2 flex items-center justify-center gap-4 flex-wrap">
+          <a 
+            href="https://wa.me/237657507671" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1.5 hover:text-green-600 transition-colors group"
+          >
+            <Phone size={11} className="text-green-600" />
+            <span className="font-semibold">+237 6 57 50 76 71</span>
+            <span className="text-[9px] opacity-80">(WhatsApp - Agent IA 24h/24)</span>
+          </a>
+          <span className="text-gray-300">|</span>
+          <div className="flex items-center gap-1.5">
+            <Mail size={11} className="text-[#2B4B8C]" />
+            <span>christian@yamehome.com</span>
+          </div>
+          <span className="text-gray-300">|</span>
+          <a 
+            href="https://www.yamehome.com" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
+          >
+            <Globe size={11} className="text-[#2B4B8C]" />
+            <span>www.yamehome.com</span>
+          </a>
+        </div>
         <div className="mt-2 text-xs font-semibold text-gray-700">
           Date d'émission: {new Date(data.createdAt).toLocaleDateString('fr-FR')} | N°: {data.receiptId}
         </div>

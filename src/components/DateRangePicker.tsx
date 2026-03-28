@@ -114,6 +114,8 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
               selected={localRange}
               onSelect={handleSelect}
               locale={fr}
+              startMonth={new Date(2024, 0)}
+              endMonth={new Date(2030, 11)}
               className="rdp-custom"
               classNames={{
                 months: "flex flex-col space-y-4",
@@ -121,8 +123,9 @@ export default function DateRangePicker({ startDate, endDate, onChange, disabled
                 month_caption: "flex justify-center pt-1 relative items-center mb-4",
                 caption_label: "text-sm font-black uppercase tracking-widest text-gray-900",
                 nav: "flex items-center",
-                button_previous: "absolute left-1 h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 transition-all flex items-center justify-center rounded-lg hover:bg-gray-100",
-                button_next: "absolute right-1 h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 transition-all flex items-center justify-center rounded-lg hover:bg-gray-100",
+                nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 transition-all flex items-center justify-center rounded-lg hover:bg-gray-100",
+                nav_button_previous: "absolute left-1",
+                nav_button_next: "absolute right-1",
                 month_grid: "w-full border-collapse space-y-1",
                 weekdays: "flex",
                 weekday: "text-gray-400 rounded-md w-9 font-black text-[10px] uppercase flex items-center justify-center h-8",

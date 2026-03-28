@@ -561,8 +561,8 @@ export default function CalendarView({
                     const report = getCleaningReport(unit.slug, dateStr);
                     // Only show report if it's MANUAL or associated with a VALID receipt
                     const isValidReport = report && (report.menageId === 'MANUAL' || receipts.some(r => r.receiptId === report.menageId));
-                    const currentReport = isValidReport ? report : null;
-                    const isCleaningDay = isCalculatedCleaningDay || !!currentReport;
+                    const currentReport = (isValidReport && report?.status !== 'ANNULÉ') ? report : null;
+                    const isCleaningDay = isCalculatedCleaningDay && (!report || report.status !== 'ANNULÉ') || !!currentReport;
 
                     return (
                       <td 
@@ -570,6 +570,8 @@ export default function CalendarView({
                         onClick={() => {
                           if (viewMode === 'reservations' && !booking) {
                             setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                          } else if (viewMode === 'cleaning') {
+                            onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr);
                           }
                         }}
                         className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
@@ -583,7 +585,10 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            onClick={() => setSelectedBooking(booking)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedBooking(booking);
+                            }}
                             className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${unit.color} text-white`}
                           >
                             <span className="text-[9px] font-black uppercase tracking-tighter truncate px-1">
@@ -592,9 +597,12 @@ export default function CalendarView({
                           </div>
                         )}
 
-                        {viewMode === 'cleaning' && (
+                        {viewMode === 'cleaning' && isCleaningDay && (
                           <div 
-                            onClick={() => onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr);
+                            }}
                             className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 shadow-sm border ${
                               currentReport 
                                 ? currentReport.status === 'EFFECTUÉ' ? 'bg-green-100 border-green-500 text-green-600 shadow-md border-2' : 
