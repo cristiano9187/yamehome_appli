@@ -629,6 +629,23 @@ export default function App() {
         status: formData.status || 'VALIDE'
       }));
 
+      // --- AUTOMATIC CLEANING GENERATION ---
+      // Generate a cleaning report for the checkout date (endDate)
+      if (formData.status !== 'ANNULE') {
+        const cleaningReportId = `CR-${formData.receiptId}-${finalSlug}-${formData.endDate}`;
+        await withTimeout(setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
+          menageId: formData.receiptId,
+          calendarSlug: finalSlug,
+          dateIntervention: formData.endDate,
+          agent: '',
+          status: 'PRÉVU',
+          feedback: '',
+          damages: '',
+          maintenance: '',
+          createdAt: new Date().toISOString()
+        }, { merge: true }));
+      }
+
       // Ensure data is synchronized with the server
       try {
         await withTimeout(waitForPendingWrites(db), 5000);
@@ -716,6 +733,12 @@ export default function App() {
       await setDoc(doc(db, 'receipts', formData.id || formData.receiptId), {
         ...formData,
         status: 'ANNULE'
+      }, { merge: true });
+
+      // --- CANCEL ASSOCIATED CLEANING ---
+      const cleaningReportId = `CR-${formData.receiptId}-${formData.calendarSlug}-${formData.endDate}`;
+      await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
+        status: 'ANNULÉ'
       }, { merge: true });
       setFormData(getInitialState()); 
       setIsReadOnly(false); 
