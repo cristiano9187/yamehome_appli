@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { db } from '../firebase';
 import { ReceiptData, CleaningReport, UserProfile, BlockedDate } from '../types';
-import { TARIFS, SITES } from '../constants';
+import { TARIFS, SITES, SITE_MAPPING } from '../constants';
 const AttendanceView = lazy(() => import('./AttendanceView'));
 import { 
   ChevronLeft, 
@@ -196,6 +196,19 @@ export default function CalendarView({
     };
 
     Object.entries(TARIFS).forEach(([category, data]) => {
+      // Filter by allowed sites
+      const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+      const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+
+      const allowedSites = userProfile?.allowedSites || [];
+      const allowedApartments = isAdmin ? [] : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+
+      const isAllowed = isAdmin || allowedApartments.includes(category);
+      
+      if (!isAllowed) {
+        return;
+      }
+
       const upperCategory = category.toUpperCase();
       let siteKey = 'DEFAULT';
       
@@ -262,7 +275,7 @@ export default function CalendarView({
       if (pA !== pB) return pA - pB;
       return a.shortName.localeCompare(b.shortName);
     });
-  }, []);
+  }, [userProfile]);
 
   const groupedUnits = useMemo(() => {
     const groups: { site: string, color: string, units: typeof allUnits }[] = [];
@@ -335,8 +348,20 @@ export default function CalendarView({
   const monthName = currentDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
   const handleBlockDate = async (unitSlug: string, date: string) => {
-    if (userProfile?.role !== 'admin') {
-      onAlert("Seul l'administrateur peut bloquer des dates", "error");
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    if (userProfile?.role !== 'admin' && !isMainAdmin) {
+      onAlert("Seuls les administrateurs peuvent bloquer des dates.", "error");
+      return;
+    }
+
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+    
+    const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(unitSlug));
+    if (!isAllowed) {
+      onAlert("Vous n'êtes pas autorisé à bloquer des dates pour ce logement.", "error");
       return;
     }
 
@@ -356,7 +381,7 @@ export default function CalendarView({
         date,
         calendarSlug: unitSlug,
         createdAt: new Date().toISOString(),
-        authorUid: userProfile.uid,
+        authorUid: userProfile?.uid || '',
         reason: 'Travaux / Maintenance'
       });
       onAlert("Date bloquée avec succès", "success");
@@ -371,10 +396,26 @@ export default function CalendarView({
   };
 
   const handleUnblockDate = async (blockedId: string) => {
-    if (userProfile?.role !== 'admin') {
-      onAlert("Seul l'administrateur peut débloquer des dates", "error");
+    const isMainAdminLocal = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    if (userProfile?.role !== 'admin' && !isMainAdminLocal) {
+      onAlert("Seuls les administrateurs peuvent débloquer des dates.", "error");
       return;
     }
+
+    const blocked = blockedDates.find(b => b.id === blockedId);
+    if (blocked) {
+      const isAdminLocal = userProfile?.role === 'admin' || isMainAdminLocal;
+      
+      const allowedSites = userProfile?.allowedSites || [];
+      const allowedApartments = isAdminLocal ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+      
+      const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(blocked.calendarSlug));
+      if (!isAllowed) {
+        onAlert("Vous n'êtes pas autorisé à débloquer des dates pour ce logement.", "error");
+        return;
+      }
+    }
+
     try {
       await deleteDoc(doc(db, 'blocked_dates', blockedId));
       onAlert("Date débloquée avec succès", "success");
@@ -667,7 +708,7 @@ export default function CalendarView({
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">
-                  {userProfile?.role === 'admin' ? (
+                  { (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) ? (
                     blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date) ? (
                       <button 
                         onClick={() => {

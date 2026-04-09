@@ -27,7 +27,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
 import DateRangePicker from './components/DateRangePicker';
@@ -76,15 +76,27 @@ const OperationType = {
 function handleFirestoreError(error: unknown, operationType: string, path: string | null) {
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
+    operationType,
+    path,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
-    },
-    operationType,
-    path
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    }
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  if (errInfo.error.toLowerCase().includes('permission') || errInfo.error.toLowerCase().includes('insufficient')) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 const getLocalDateString = (date: Date = new Date()) => {
@@ -180,67 +192,92 @@ export default function App() {
   // --- AUTH ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      console.log("Auth state changed:", u?.email);
       setUser(u);
       if (u) {
         try {
-          const docRef = doc(db, 'users', u.uid);
-          const snap = await getDoc(docRef);
-          const isMainAdmin = u.email === 'christian.yamepi@gmail.com' || u.email === 'cyamepi@gmail.com';
+          const userEmail = u.email?.toLowerCase();
+          const isMainAdmin = userEmail === 'christian.yamepi@gmail.com' || userEmail === 'cyamepi@gmail.com';
+          console.log("Is main admin?", isMainAdmin, userEmail);
           
-          if (snap.exists()) {
-            const profile = snap.data() as UserProfile;
-            // If profile exists and is already admin or approved, set it
-            if (profile.isApproved || profile.role === 'admin' || isMainAdmin) {
-              const updatedProfile = { 
-                ...profile, 
-                isApproved: true,
-                role: (isMainAdmin || profile.role === 'admin') ? 'admin' : profile.role
-              };
-              // Sync to Firestore if needed (e.g. adding isApproved)
-              if (!profile.isApproved || (isMainAdmin && profile.role !== 'admin')) {
-                await setDoc(docRef, updatedProfile);
-              }
-              setUserProfile(updatedProfile);
-            } else {
-              // Check whitelist if not approved yet
-              const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
+          const docRef = doc(db, 'users', u.uid);
+          let snap;
+          try {
+            snap = await getDoc(docRef);
+          } catch (e) {
+            console.error("Error fetching user doc:", e);
+            handleFirestoreError(e, OperationType.GET, `users/${u.uid}`);
+            return;
+          }
+          
+          let whiteData: AuthorizedEmail | null = null;
+          if (userEmail) {
+            try {
+              const q = query(collection(db, 'authorized_emails'), where('email', '==', userEmail));
               const whiteSnap = await getDocs(q);
-              if (!whiteSnap.empty) {
-                const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
-                const updatedProfile = { 
-                  ...profile, 
-                  isApproved: true, 
-                  role: whiteData?.role || 'agent'
-                };
-                await setDoc(docRef, updatedProfile);
-                setUserProfile(updatedProfile);
-              } else {
-                setUserProfile(profile);
-              }
+              whiteData = !whiteSnap.empty ? whiteSnap.docs[0]?.data() as AuthorizedEmail : null;
+            } catch (e) {
+              console.error("Error fetching whitelist:", e);
+              // Don't block the whole app if whitelist fetch fails, just log it
+              // handleFirestoreError(e, OperationType.GET, 'authorized_emails');
             }
+          }
+
+          if (snap && snap.exists()) {
+            const profile = snap.data() as UserProfile;
+            console.log("Existing profile found:", profile);
+            
+            const shouldBeApproved = profile.isApproved || isMainAdmin || !!whiteData;
+            const finalRole = isMainAdmin ? 'admin' : (whiteData?.role || profile.role || 'agent');
+            const finalSites = isMainAdmin ? SITES : (whiteData?.allowedSites || profile.allowedSites || []);
+
+            const { allowedApartments, ...restProfile } = profile as any;
+            const updatedProfile: UserProfile = { 
+              ...restProfile, 
+              isApproved: shouldBeApproved,
+              role: finalRole,
+              allowedSites: finalSites
+            };
+            
+            console.log("Setting user profile (existing):", updatedProfile);
+            try {
+              await setDoc(docRef, updatedProfile);
+            } catch (e) {
+              console.error("Error updating user profile:", e);
+              // We still set the profile locally so the app works
+            }
+            setUserProfile(updatedProfile);
           } else {
-            const q = query(collection(db, 'authorized_emails'), where('email', '==', u.email?.toLowerCase()));
-            const whiteSnap = await getDocs(q);
-            const isApproved = !whiteSnap.empty || isMainAdmin;
-            const whiteData = whiteSnap.docs[0]?.data() as AuthorizedEmail;
+            console.log("No profile found, creating new one");
+            const isApproved = !!whiteData || isMainAdmin;
             
             const newProfile: UserProfile = {
               uid: u.uid,
               email: u.email || '',
               displayName: u.displayName || 'Utilisateur',
               role: isMainAdmin ? 'admin' : (whiteData?.role || 'agent'),
-              isApproved: isApproved
+              isApproved: isApproved,
+              allowedSites: isMainAdmin ? SITES : (whiteData?.allowedSites || [])
             };
-            await setDoc(docRef, newProfile);
+            console.log("Setting user profile (new):", newProfile);
+            try {
+              await setDoc(docRef, newProfile);
+            } catch (e) {
+              console.error("Error creating user profile:", e);
+              handleFirestoreError(e, OperationType.WRITE, `users/${u.uid}`);
+            }
             setUserProfile(newProfile);
           }
         } catch (error) {
-          handleFirestoreError(error, OperationType.GET, 'users');
+          console.error("Auth profile general error:", error);
+        } finally {
+          setIsAuthReady(true);
+          console.log("Auth ready set to true in finally");
         }
       } else {
         setUserProfile(null);
+        setIsAuthReady(true);
       }
-      setIsAuthReady(true);
     });
     return unsubscribe;
   }, []);
@@ -308,9 +345,17 @@ export default function App() {
   // --- CALCULATIONS ---
   const totals = useMemo(() => {
     if (!formData.startDate || !formData.endDate || !formData.apartmentName) {
-      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0 };
+      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0, cautionAmount: 0 };
     }
-    const diffTime = new Date(formData.endDate).getTime() - new Date(formData.startDate).getTime();
+    
+    const start = new Date(formData.startDate);
+    const end = new Date(formData.endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0, cautionAmount: 0 };
+    }
+
+    const diffTime = end.getTime() - start.getTime();
     const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
     const rates = getRateForApartment(formData.apartmentName, nights);
     const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
@@ -352,13 +397,14 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (
-      formData.grandTotal !== totals.grandTotal ||
-      formData.totalPaid !== totals.totalPaid ||
-      formData.remaining !== totals.remaining ||
-      formData.commissionAmount !== totals.commissionAmount ||
-      formData.cautionAmount !== totals.cautionAmount
-    ) {
+    const hasChanged = 
+      (formData.grandTotal !== totals.grandTotal && !(Number.isNaN(formData.grandTotal) && Number.isNaN(totals.grandTotal))) ||
+      (formData.totalPaid !== totals.totalPaid && !(Number.isNaN(formData.totalPaid) && Number.isNaN(totals.totalPaid))) ||
+      (formData.remaining !== totals.remaining && !(Number.isNaN(formData.remaining) && Number.isNaN(totals.remaining))) ||
+      (formData.commissionAmount !== totals.commissionAmount && !(Number.isNaN(formData.commissionAmount) && Number.isNaN(totals.commissionAmount))) ||
+      (formData.cautionAmount !== totals.cautionAmount && !(Number.isNaN(formData.cautionAmount) && Number.isNaN(totals.cautionAmount)));
+
+    if (hasChanged) {
       setFormData(prev => ({
         ...prev,
         grandTotal: totals.grandTotal,
@@ -368,7 +414,7 @@ export default function App() {
         cautionAmount: totals.cautionAmount
       }));
     }
-  }, [totals, formData.grandTotal, formData.totalPaid, formData.remaining, formData.commissionAmount]);
+  }, [totals, formData.grandTotal, formData.totalPaid, formData.remaining, formData.commissionAmount, formData.cautionAmount]);
 
   // --- TITLE SYNC FOR PDF FILENAME ---
   useEffect(() => {
@@ -444,6 +490,21 @@ export default function App() {
   };
 
   const submitCleaningReport = async () => {
+    const allowedSites = userProfile?.allowedSites || [];
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    
+    const allowedApartments = userProfile?.role === 'admin' || isMainAdmin 
+      ? Object.keys(TARIFS) 
+      : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+
+    const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(cleaningReport.calendarSlug));
+
+    if (!isAllowed) {
+      setAlertType('error');
+      setAlertMessage("Vous n'êtes pas autorisé à gérer le ménage pour ce logement.");
+      return;
+    }
+
     if (cleaningReport.status !== 'PRÉVU' && cleaningReport.status !== 'ANNULÉ' && !cleaningReport.agent) {
       setAlertType('error');
       setAlertMessage("Nom agent requis");
@@ -478,6 +539,23 @@ export default function App() {
   };
 
   const deleteCleaningReport = async () => {
+    const dataToUse = pendingCleaningData?.report || cleaningReport;
+    const slug = dataToUse.calendarSlug || pendingCleaningData?.slug || '';
+    
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+    
+    const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(slug));
+
+    if (!isAllowed) {
+      setAlertType('error');
+      setAlertMessage("Vous n'êtes pas autorisé à effacer ce planning.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       // Use pending data if available to avoid stale state issues
@@ -536,6 +614,20 @@ export default function App() {
     if (units.length > 1 && !finalSlug) {
       setAlertType('error');
       setAlertMessage("Précisez l'unité");
+      return;
+    }
+
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+    
+    const isAllowed = allowedApartments.includes(formData.apartmentName);
+    
+    if (!isAllowed) {
+      setAlertType('error');
+      setAlertMessage("Vous n'êtes pas autorisé à gérer cet appartement.");
       return;
     }
 
@@ -728,6 +820,20 @@ export default function App() {
   };
 
   const softDeleteBooking = async () => {
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+    
+    const isAllowed = allowedApartments.includes(formData.apartmentName);
+    
+    if (!isAllowed) {
+      setAlertType('error');
+      setAlertMessage("Vous n'êtes pas autorisé à annuler cette réservation.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       await setDoc(doc(db, 'receipts', formData.id || formData.receiptId), {
@@ -780,7 +886,9 @@ export default function App() {
     );
   }
 
-  if (user && userProfile && !userProfile.isApproved) {
+  const isMainAdmin = user?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || user?.email?.toLowerCase() === 'cyamepi@gmail.com';
+
+  if (user && !isMainAdmin && (!userProfile || !userProfile.isApproved)) {
     return (
       <div className="min-h-screen bg-[#141414] flex items-center justify-center p-4">
         <motion.div 
@@ -1034,7 +1142,7 @@ export default function App() {
                   <CalendarIcon size={16} />
                   Calendrier
                 </button>
-                {(user?.email === 'christian.yamepi@gmail.com' || user?.email === 'cyamepi@gmail.com') && (
+                {(userProfile?.role === 'admin' || isMainAdmin) && (
                   <button 
                     onClick={() => {
                       setView('users');
@@ -1102,7 +1210,15 @@ export default function App() {
                   </div>
                   <select disabled={isReadOnly} name="apartmentName" value={formData.apartmentName} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50 appearance-none" onChange={handleChange}>
                     <option value="">-- Choisir Appartement --</option>
-                    {Object.keys(TARIFS).map(key => <option key={key} value={key}>{key}</option>)}
+                    {Object.keys(TARIFS)
+                      .filter(key => {
+                        if (!userProfile) return false;
+                        if (userProfile.role === 'admin') return true;
+                        const allowedSites = userProfile.allowedSites || [];
+                        const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+                        return allowedApartments.includes(key);
+                      })
+                      .map(key => <option key={key} value={key}>{key}</option>)}
                   </select>
                   
                   {TARIFS[formData.apartmentName]?.units && TARIFS[formData.apartmentName].units!.length > 1 && (
@@ -1372,6 +1488,20 @@ export default function App() {
                 setView('form');
               }}
               onOpenCleaning={async (menageId, slug, date) => {
+                const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+                const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+                
+                const allowedSites = userProfile?.allowedSites || [];
+                const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+                
+                const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(slug));
+                
+                if (!isAllowed) {
+                  setAlertType('error');
+                  setAlertMessage("Vous n'êtes pas autorisé à gérer le ménage pour ce logement.");
+                  return;
+                }
+
                 // Check if report exists for this unit and date (regardless of menageId)
                 const q = query(
                   collection(db, 'cleaning_reports'), 

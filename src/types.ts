@@ -70,6 +70,7 @@ export interface UserProfile {
   role: 'admin' | 'agent';
   displayName: string;
   isApproved?: boolean;
+  allowedSites?: string[];
 }
 
 export interface AuthorizedEmail {
@@ -77,6 +78,7 @@ export interface AuthorizedEmail {
   email: string;
   role: 'admin' | 'agent';
   addedAt: string;
+  allowedSites?: string[];
 }
 
 export interface Employee {

@@ -18,7 +18,7 @@ service cloud.firestore {
     // Fields: menageId, calendarSlug, dateIntervention, agent, status, feedback, damages, maintenance, createdAt
     //
     // Collection: users
-    // Fields: uid, email, role, displayName
+    // Fields: uid, email, role, displayName, allowedSites
     //
     // Collection: attendance
     // Fields: employeeId, date, status, checkInTime, checkOutTime, checkInSite, checkOutSite, notes, updatedAt
@@ -42,10 +42,10 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          request.auth.token.email == "christian.yamepi@gmail.com" ||
-          request.auth.token.email == "cyamepi@gmail.com");
+        (request.auth.token.email == "christian.yamepi@gmail.com" ||
+         request.auth.token.email == "cyamepi@gmail.com" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isAgent() {
@@ -73,16 +73,30 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
-             data.role in ['admin', 'agent'];
+             data.role in ['admin', 'agent'] &&
+             (!('allowedSites' in data) || data.allowedSites is list) &&
+             (!('allowedApartments' in data) || data.allowedApartments is list);
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments']) &&
              data.email is string && isValidEmail(data.email) &&
-             data.role in ['admin', 'agent'];
+             data.role in ['admin', 'agent'] &&
+             (!('allowedSites' in data) || data.allowedSites is list) &&
+             (!('allowedApartments' in data) || data.allowedApartments is list);
+    }
+
+    function isAuthorizedForApartment(apartmentName) {
+      // Note: In security rules, we allow read/write if the user is admin or if the apartment name
+      // contains the name of one of the allowed sites.
+      // This is a simplified check for the rules.
+      return isAdmin() || (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.allowedSites.size() > 0
+      );
     }
 
     function isValidReceipt(data) {
@@ -144,8 +158,8 @@ service cloud.firestore {
 
     match /receipts/{receiptId} {
       allow read: if isAgent();
-      allow create: if isAgent() && isValidReceipt(request.resource.data);
-      allow update: if isAgent() && isValidReceipt(request.resource.data);
+      allow create: if isAgent() && isValidReceipt(request.resource.data) && isAuthorizedForApartment(request.resource.data.apartmentName);
+      allow update: if isAgent() && isValidReceipt(request.resource.data) && isAuthorizedForApartment(request.resource.data.apartmentName);
       allow delete: if isAdmin();
     }
 

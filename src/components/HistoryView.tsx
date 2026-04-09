@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ReceiptData, UserProfile } from '../types';
-import { formatCurrency } from '../constants';
+import { formatCurrency, SITE_MAPPING } from '../constants';
 import { 
   Search, 
   FileText, 
@@ -53,6 +53,11 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
 
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    if (userProfile?.role !== 'admin' && !isMainAdmin) {
+      onAlert("Seuls les administrateurs peuvent rembourser les cautions.", "error");
+      return;
+    }
     try {
       const docRef = doc(db, 'receipts', receipt.id);
       await updateDoc(docRef, {
@@ -80,12 +85,22 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     return unsubscribe;
   }, [firestoreLimit]);
 
-  const filteredReceipts = receipts.filter(r => 
-    r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    `${r.firstName} ${r.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.apartmentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.agentName && r.agentName.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredReceipts = receipts.filter(r => {
+    const matchesSearch = r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      `${r.firstName} ${r.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.apartmentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.agentName && r.agentName.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? [] : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+
+    const isAllowed = isAdmin || allowedApartments.includes(r.apartmentName);
+    
+    return matchesSearch && isAllowed;
+  });
 
   const displayedReceipts = filteredReceipts.slice(0, displayLimit);
 
@@ -278,7 +293,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                                 <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded w-fit ${isRefundOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                                   Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
                                 </div>
-                                {userProfile?.role === 'admin' && (
+                                { (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) && (
                                   <div className="flex gap-1">
                                     <button 
                                       onClick={() => handleRefundCaution(receipt, 'Espèces')}
@@ -432,7 +447,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                           )}
                         </div>
                         
-                        {!receipt.isCautionRefunded && userProfile?.role === 'admin' && (
+                        {!receipt.isCautionRefunded && (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) && (
                           <div className="flex gap-2">
                             <button 
                               onClick={() => handleRefundCaution(receipt, 'Espèces')}

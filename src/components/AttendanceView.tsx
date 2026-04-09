@@ -52,7 +52,8 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [newEmployee, setNewEmployee] = useState({ name: '', role: '' });
   const planningScrollRef = useRef<HTMLDivElement>(null);
 
-  const isAdmin = userProfile?.role === 'admin';
+  const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+  const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
 
   // Auto-scroll to current day in planning mode
   useEffect(() => {
@@ -84,6 +85,24 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
       }
     }
   }, [mode, currentDate.getTime()]);
+
+  const filteredSites = useMemo(() => {
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    if (isAdmin) return SITES;
+
+    const allowedSites = userProfile?.allowedSites || [];
+    if (allowedSites.length === 0) return SITES;
+
+    return SITES.filter(site => {
+      const upperSite = site.toUpperCase();
+      return allowedSites.some(s => {
+        const upperS = s.toUpperCase();
+        if (upperSite === 'BGT') return upperS.includes('GALLAGHERS') || upperS.includes('CITY');
+        return upperS.includes(upperSite);
+      });
+    });
+  }, [userProfile?.allowedSites, userProfile?.role, userProfile?.email]);
 
   // Fetch Employees
   useEffect(() => {
@@ -133,6 +152,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   }, [mode, currentDate.getTime()]);
 
   const handleAddEmployee = async () => {
+    if (!isAdmin) {
+      onAlert("Seuls les administrateurs peuvent ajouter des employés.", "error");
+      return;
+    }
     if (!newEmployee.name || !newEmployee.role) return;
     try {
       const id = `emp-${Date.now()}`;
@@ -150,6 +173,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   };
 
   const handleUpdateEmployee = async () => {
+    if (!isAdmin) {
+      onAlert("Seuls les administrateurs peuvent modifier des employés.", "error");
+      return;
+    }
     if (!editingEmployee || !editingEmployee.name || !editingEmployee.role) return;
     try {
       setLoading(true);
@@ -167,7 +194,11 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   };
 
   const handleDeleteEmployee = async (id: string) => {
-    if (!window.confirm("Supprimer cet employé ?")) return;
+    if (!isAdmin) {
+      onAlert("Seuls les administrateurs peuvent supprimer des employés.", "error");
+      return;
+    }
+    // Using a simple check instead of window.confirm for better iframe compatibility
     try {
       await deleteDoc(doc(db, 'employees', id));
       onAlert("Employé supprimé", "success");
@@ -405,7 +436,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                           className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
                         >
                           <option value="">Site Entrée</option>
-                          {SITES.map(s => <option key={s} value={s}>{s}</option>)}
+                          {filteredSites.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
 
@@ -419,7 +450,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                           className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
                         >
                           <option value="">Site Sortie</option>
-                          {SITES.map(s => <option key={s} value={s}>{s}</option>)}
+                          {filteredSites.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                     </div>

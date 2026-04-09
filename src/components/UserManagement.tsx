@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, addDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AuthorizedEmail } from '../types';
-import { Trash2, UserPlus, Shield, User as UserIcon, Loader2, Menu } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Trash2, UserPlus, Shield, User as UserIcon, Loader2, Menu, CheckSquare, Square } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { SITES } from '../constants';
 
 interface UserManagementProps {
   onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
@@ -14,6 +15,7 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
   const [emails, setEmails] = useState<AuthorizedEmail[]>([]);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'agent'>('agent');
+  const [newAllowedSites, setNewAllowedSites] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -37,9 +39,11 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
       await addDoc(collection(db, 'authorized_emails'), {
         email: newEmail.toLowerCase().trim(),
         role: newRole,
+        allowedSites: newAllowedSites,
         addedAt: new Date().toISOString()
       });
       setNewEmail('');
+      setNewAllowedSites([]);
     } catch (error) {
       console.error("Error adding email:", error);
       onAlert("Erreur lors de l'ajout de l'email", 'error');
@@ -71,6 +75,24 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     } catch (error) {
       console.error("Error updating role:", error);
       onAlert("Erreur lors de la mise à jour du rôle", 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleToggleSite = async (id: string, current: string[], site: string) => {
+    setIsUpdating(id);
+    try {
+      const next = current.includes(site)
+        ? current.filter(s => s !== site)
+        : [...current, site];
+      
+      await setDoc(doc(db, 'authorized_emails', id), {
+        allowedSites: next
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error updating sites:", error);
+      onAlert("Erreur lors de la mise à jour des accès", 'error');
     } finally {
       setIsUpdating(null);
     }
@@ -130,6 +152,30 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
               <option value="admin">Administrateur</option>
             </select>
           </div>
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Sites Autorisés</label>
+            <div className="flex flex-wrap gap-2">
+              {SITES.map(site => (
+                <button
+                  key={site}
+                  type="button"
+                  onClick={() => {
+                    setNewAllowedSites(prev => 
+                      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
+                    );
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all flex items-center gap-1 ${
+                    newAllowedSites.includes(site) 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                >
+                  {newAllowedSites.includes(site) ? <CheckSquare size={12} /> : <Square size={12} />}
+                  {site}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-end">
             <button
               type="submit"
@@ -169,16 +215,34 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                   {isUpdating === item.id ? (
                     <Loader2 className="animate-spin text-blue-600" size={14} />
                   ) : (
-                    <select
-                      value={item.role}
-                      onChange={(e) => handleUpdateRole(item.id!, e.target.value as 'admin' | 'agent')}
-                      className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter border-none bg-transparent cursor-pointer focus:ring-1 focus:ring-blue-500 transition-all ${
-                        item.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                      }`}
-                    >
-                      <option value="agent">Agent</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                    <div className="space-y-2">
+                      <select
+                        value={item.role}
+                        onChange={(e) => handleUpdateRole(item.id!, e.target.value as 'admin' | 'agent')}
+                        className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter border-none bg-transparent cursor-pointer focus:ring-1 focus:ring-blue-500 transition-all ${
+                          item.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                        }`}
+                      >
+                        <option value="agent">Agent</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <div className="flex flex-wrap gap-1">
+                        {SITES.map(site => {
+                          const isAllowed = (item.allowedSites || []).includes(site);
+                          return (
+                            <button
+                              key={site}
+                              onClick={() => handleToggleSite(item.id!, item.allowedSites || [], site)}
+                              className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${
+                                isAllowed ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-300'
+                              }`}
+                            >
+                              {site}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="col-span-2 text-right">
