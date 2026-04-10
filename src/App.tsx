@@ -15,6 +15,7 @@ import {
   collection, 
   doc, 
   setDoc, 
+  updateDoc,
   getDoc, 
   getDocs, 
   query, 
@@ -28,12 +29,13 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
-import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate } from './types';
+import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
 import DateRangePicker from './components/DateRangePicker';
 const HistoryView = lazy(() => import('./components/HistoryView'));
 const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
+const ProspectsView = lazy(() => import('./components/ProspectsView'));
 import { 
   LogOut, 
   Plus, 
@@ -130,7 +132,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users'>('form');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects'>('form');
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
@@ -149,6 +151,7 @@ export default function App() {
   }, [formData]);
 
   const [isSaving, setIsSaving] = useState(false);
+  const [sourceProspectId, setSourceProspectId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchId, setSearchId] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -745,6 +748,14 @@ export default function App() {
         }, { merge: true }));
       }
 
+      if (sourceProspectId) {
+        await withTimeout(updateDoc(doc(db, 'prospects', sourceProspectId), {
+          status: 'CONVERTI',
+          convertedReceiptId: formData.receiptId,
+          updatedAt: new Date().toISOString()
+        }));
+      }
+
       // Ensure data is synchronized with the server
       try {
         await withTimeout(waitForPendingWrites(db), 5000);
@@ -757,6 +768,7 @@ export default function App() {
       setAlertMessage("Reçu enregistré avec succès !");
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
+      setSourceProspectId(null);
       setShowMobileNav(false);
     } catch (error: any) { 
       if (error.message === 'TIMEOUT') {
@@ -773,9 +785,39 @@ export default function App() {
 
   const handleNewReceipt = () => {
     setFormData(getInitialState());
+    setSourceProspectId(null);
     setIsReadOnly(false);
     setView('form');
     setShowMobileNav(false);
+  };
+
+  const handleConvertProspect = (prospect: Prospect) => {
+    const apartmentData = prospect.apartmentName ? TARIFS[prospect.apartmentName] : undefined;
+    const finalSlug = prospect.calendarSlug || (apartmentData?.units?.length === 1 ? apartmentData.units[0] : '');
+    const hasTotalStayPrice = !!prospect.totalStayPrice && prospect.totalStayPrice > 0;
+
+    setFormData({
+      ...getInitialState(),
+      receiptId: generateNewId(),
+      firstName: prospect.firstName || '',
+      lastName: prospect.lastName || '',
+      phone: prospect.phone || '',
+      email: prospect.email || '',
+      apartmentName: prospect.apartmentName || '',
+      calendarSlug: finalSlug,
+      startDate: prospect.startDate || '',
+      endDate: prospect.endDate || '',
+      isCustomRate: hasTotalStayPrice,
+      customLodgingTotal: hasTotalStayPrice ? (prospect.totalStayPrice || 0) : 0,
+      observations: prospect.notes || ''
+    });
+    setSourceProspectId(prospect.id || null);
+    setIsReadOnly(false);
+    setView('form');
+    setShowMobileNav(false);
+    if (window.innerWidth < 768) setIsSidebarOpen(true);
+    setAlertType('info');
+    setAlertMessage("Prospect charge. Completez puis sauvegardez pour creer le recu.");
   };
 
   const loadReceipt = async (id: string) => {
@@ -1148,6 +1190,17 @@ export default function App() {
                 >
                   <CalendarIcon size={16} />
                   Calendrier
+                </button>
+                <button
+                  onClick={() => {
+                    setView('prospects');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prospects' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <Search size={16} />
+                  Prospects
                 </button>
                 {(userProfile?.role === 'admin' || isMainAdmin) && (
                   <button 
@@ -1556,6 +1609,16 @@ export default function App() {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);
               }} 
+            />
+          ) : view === 'prospects' ? (
+            <ProspectsView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+              onConvert={handleConvertProspect}
             />
           ) : (
             <>

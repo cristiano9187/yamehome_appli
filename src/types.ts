@@ -125,3 +125,31 @@ export interface BlockedDate {
   createdAt: string;
   authorUid: string;
 }
+
+export type ProspectStatus = 'NOUVEAU' | 'A_RELANCER' | 'EN_NEGOCIATION' | 'CONVERTI' | 'PERDU' | 'ANNULE';
+
+export type ProspectSource = 'FACEBOOK' | 'AIRBNB' | 'BOOKING' | 'TELEPHONE' | 'WHATSAPP' | 'AUTRE';
+
+export interface Prospect {
+  id?: string;
+  source: ProspectSource;
+  status: ProspectStatus;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  apartmentName?: string;
+  calendarSlug?: string;
+  startDate?: string;
+  endDate?: string;
+  totalStayPrice?: number;
+  guestCount?: number;
+  budget?: number;
+  assignedTo?: string;
+  nextFollowUpDate?: string;
+  notes?: string;
+  convertedReceiptId?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
