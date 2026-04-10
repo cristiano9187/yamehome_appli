@@ -92,7 +92,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     if (isAdmin) return SITES;
 
     const allowedSites = userProfile?.allowedSites || [];
-    if (allowedSites.length === 0) return SITES;
+    if (allowedSites.length === 0) return [];
 
     return SITES.filter(site => {
       const upperSite = site.toUpperCase();

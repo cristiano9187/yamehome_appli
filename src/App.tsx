@@ -239,12 +239,19 @@ export default function App() {
               allowedSites: finalSites
             };
             
-            console.log("Setting user profile (existing):", updatedProfile);
-            try {
-              await setDoc(docRef, updatedProfile);
-            } catch (e) {
-              console.error("Error updating user profile:", e);
-              // We still set the profile locally so the app works
+            // Only update if something actually changed to avoid unnecessary permission checks
+            const hasChanged = profile.role !== finalRole || 
+                              profile.isApproved !== shouldBeApproved || 
+                              JSON.stringify(profile.allowedSites) !== JSON.stringify(finalSites) ||
+                              'allowedApartments' in profile;
+
+            if (hasChanged) {
+              console.log("Updating user profile in Firestore:", updatedProfile);
+              try {
+                await setDoc(docRef, updatedProfile);
+              } catch (e) {
+                console.warn("Could not update user profile in Firestore (likely permission denied for non-admin):", e);
+              }
             }
             setUserProfile(updatedProfile);
           } else {
@@ -1213,7 +1220,8 @@ export default function App() {
                     {Object.keys(TARIFS)
                       .filter(key => {
                         if (!userProfile) return false;
-                        if (userProfile.role === 'admin') return true;
+                        const isMainAdmin = userProfile.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile.email?.toLowerCase() === 'cyamepi@gmail.com';
+                        if (userProfile.role === 'admin' || isMainAdmin) return true;
                         const allowedSites = userProfile.allowedSites || [];
                         const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
                         return allowedApartments.includes(key);

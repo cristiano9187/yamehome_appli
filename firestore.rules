@@ -45,15 +45,17 @@ service cloud.firestore {
         (request.auth.token.email == "christian.yamepi@gmail.com" ||
          request.auth.token.email == "cyamepi@gmail.com" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+         (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.role == 'admin'));
     }
 
     function isAgent() {
       return isAuthenticated() && 
-        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'agent' || 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')) || 
-          isAdmin());
+        (isAdmin() || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true) ||
+         exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)));
     }
 
     function hasRequiredFields(fields) {
@@ -90,13 +92,14 @@ service cloud.firestore {
     }
 
     function isAuthorizedForApartment(apartmentName) {
-      // Note: In security rules, we allow read/write if the user is admin or if the apartment name
-      // contains the name of one of the allowed sites.
-      // This is a simplified check for the rules.
-      return isAdmin() || (
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.allowedSites.size() > 0
-      );
+      return isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true && 
+         (('allowedSites' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.allowedSites.size() > 0) || 
+          ('allowedApartments' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.allowedApartments.size() > 0))) ||
+        (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) && 
+         (('allowedSites' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data && get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.allowedSites.size() > 0) || 
+          ('allowedApartments' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data && get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.allowedApartments.size() > 0)));
     }
 
     function isValidReceipt(data) {
@@ -141,9 +144,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ((isOwner(userId) && (request.resource.data.role == 'agent' || !('isApproved' in request.resource.data) || request.resource.data.isApproved == false)) || isAdmin());
+                    ((isOwner(userId) && (request.resource.data.role == 'agent' || !('isApproved' in request.resource.data) || request.resource.data.isApproved == false || exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)))) || isAdmin());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ((isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.isApproved == resource.data.isApproved) || isAdmin());
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role && (request.resource.data.isApproved == resource.data.isApproved || (resource.data.isApproved == false && request.resource.data.isApproved == true && exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email))))) || isAdmin());
     }
 
     match /authorized_emails/{emailId} {

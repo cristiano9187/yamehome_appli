@@ -36,8 +36,9 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     if (!newEmail) return;
     setIsAdding(true);
     try {
-      await addDoc(collection(db, 'authorized_emails'), {
-        email: newEmail.toLowerCase().trim(),
+      const emailId = newEmail.toLowerCase().trim();
+      await setDoc(doc(db, 'authorized_emails', emailId), {
+        email: emailId,
         role: newRole,
         allowedSites: newAllowedSites,
         addedAt: new Date().toISOString()
