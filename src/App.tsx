@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useDeferredValue } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -16,6 +16,7 @@ import {
   doc, 
   setDoc, 
   updateDoc,
+  addDoc,
   getDoc, 
   getDocs, 
   query, 
@@ -29,7 +30,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
-import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect } from './types';
+import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import ReceiptPreview from './components/ReceiptPreview';
 import DateRangePicker from './components/DateRangePicker';
 const HistoryView = lazy(() => import('./components/HistoryView'));
@@ -108,6 +109,10 @@ const getLocalDateString = (date: Date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+const MAIN_ADMIN_EMAILS = new Set(['christian.yamepi@gmail.com', 'cyamepi@gmail.com']);
+const isMainAdminEmail = (email?: string | null) => MAIN_ADMIN_EMAILS.has((email || '').toLowerCase());
+const normalizeString = (value: string) => value.trim().toLowerCase();
+
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -128,7 +133,7 @@ export default function App() {
   });
 
   // --- STATES ---
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -153,7 +158,12 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [sourceProspectId, setSourceProspectId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [searchId, setSearchId] = useState('');
+  const [clientSearch, setClientSearch] = useState('');
+  const [agentSearch, setAgentSearch] = useState('');
+  const [clients, setClients] = useState<ClientProfile[]>([]);
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [agentPaymentMethodInput, setAgentPaymentMethodInput] = useState('');
+  const [agentPaymentReferenceInput, setAgentPaymentReferenceInput] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showMobileNav, setShowMobileNav] = useState(false);
   
@@ -200,7 +210,7 @@ export default function App() {
       if (u) {
         try {
           const userEmail = u.email?.toLowerCase();
-          const isMainAdmin = userEmail === 'christian.yamepi@gmail.com' || userEmail === 'cyamepi@gmail.com';
+          const isMainAdmin = isMainAdminEmail(userEmail);
           console.log("Is main admin?", isMainAdmin, userEmail);
           
           const docRef = doc(db, 'users', u.uid);
@@ -352,6 +362,116 @@ export default function App() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+    const loadDirectoryData = async () => {
+      try {
+        const [clientsSnap, agentsSnap, receiptsSnap] = await Promise.all([
+          getDocs(query(collection(db, 'clients'), orderBy('lastName'))),
+          getDocs(query(collection(db, 'agents'), orderBy('name'))),
+          getDocs(query(collection(db, 'receipts'), orderBy('createdAt', 'desc'), limit(500)))
+        ]);
+
+        const directoryClients = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClientProfile));
+        const directoryAgents = agentsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AgentProfile));
+        const receipts = receiptsSnap.docs.map(d => d.data() as ReceiptData);
+
+        const clientsMap = new Map<string, ClientProfile>();
+        directoryClients.forEach(client => {
+          const key = normalizeString(`${client.firstName}|${client.lastName}|${client.phone}|${client.email}`);
+          clientsMap.set(key, client);
+        });
+        receipts.forEach(receipt => {
+          if (!receipt.lastName) return;
+          const syntheticClient: ClientProfile = {
+            firstName: receipt.firstName || '',
+            lastName: receipt.lastName || '',
+            phone: receipt.phone || '',
+            email: receipt.email || '',
+            createdAt: receipt.createdAt || new Date().toISOString(),
+            updatedAt: receipt.createdAt || new Date().toISOString(),
+            authorUid: receipt.authorUid || user.uid
+          };
+          const key = normalizeString(`${syntheticClient.firstName}|${syntheticClient.lastName}|${syntheticClient.phone}|${syntheticClient.email}`);
+          if (!clientsMap.has(key)) clientsMap.set(key, syntheticClient);
+        });
+
+        const agentsMap = new Map<string, AgentProfile>();
+        directoryAgents.forEach(agent => {
+          agentsMap.set(normalizeString(agent.name), agent);
+        });
+        receipts.forEach(receipt => {
+          const agentName = (receipt.agentName || '').trim();
+          if (!agentName) return;
+          const key = normalizeString(agentName);
+          if (!agentsMap.has(key)) {
+            agentsMap.set(key, {
+              name: agentName,
+              preferredPaymentMethod: '',
+              paymentReference: '',
+              createdAt: receipt.createdAt || new Date().toISOString(),
+              updatedAt: receipt.createdAt || new Date().toISOString(),
+              authorUid: receipt.authorUid || user.uid
+            });
+          }
+        });
+
+        setClients(Array.from(clientsMap.values()));
+        setAgents(Array.from(agentsMap.values()));
+      } catch (error) {
+        console.warn('Could not load clients/agents directory:', error);
+      }
+    };
+    loadDirectoryData();
+  }, [isAuthReady, user]);
+
+  const upsertClientFromReceipt = useCallback(async (receipt: ReceiptData) => {
+    if (!user?.uid || !receipt.lastName) return;
+    const normalizedPhone = normalizeString(receipt.phone || '');
+    const normalizedEmail = normalizeString(receipt.email || '');
+    const existing = clients.find(c =>
+      (normalizedEmail && normalizeString(c.email || '') === normalizedEmail) ||
+      (normalizedPhone && normalizeString(c.phone || '') === normalizedPhone) ||
+      normalizeString(`${c.firstName} ${c.lastName}`) === normalizeString(`${receipt.firstName} ${receipt.lastName}`)
+    );
+
+    const payload: Omit<ClientProfile, 'id'> = {
+      firstName: receipt.firstName || '',
+      lastName: receipt.lastName || '',
+      phone: receipt.phone || '',
+      email: receipt.email || '',
+      updatedAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      authorUid: existing?.id ? (existing.authorUid || user.uid) : user.uid
+    };
+
+    if (existing?.id) {
+      await setDoc(doc(db, 'clients', existing.id), payload, { merge: true });
+    } else {
+      await addDoc(collection(db, 'clients'), payload);
+    }
+  }, [clients, user?.uid]);
+
+  const upsertAgentFromReceipt = useCallback(async (receipt: ReceiptData) => {
+    if (!user?.uid || !receipt.agentName?.trim()) return;
+    const existing = agents.find(a => normalizeString(a.name) === normalizeString(receipt.agentName || ''));
+    const payload: Omit<AgentProfile, 'id'> = {
+      name: receipt.agentName || '',
+      preferredPaymentMethod: existing?.preferredPaymentMethod || '',
+      paymentReference: existing?.paymentReference || '',
+      notes: existing?.notes || '',
+      updatedAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      authorUid: existing?.id ? (existing.authorUid || user.uid) : user.uid
+    };
+
+    if (existing?.id) {
+      await setDoc(doc(db, 'agents', existing.id), payload, { merge: true });
+    } else {
+      await addDoc(collection(db, 'agents'), payload);
+    }
+  }, [agents, user?.uid]);
+
   // --- CALCULATIONS ---
   const totals = useMemo(() => {
     if (!formData.startDate || !formData.endDate || !formData.apartmentName) {
@@ -460,7 +580,7 @@ export default function App() {
         window.removeEventListener('beforeprint', handleBeforePrint);
       };
     }
-  }, [view, isReadOnly, formData, formData.receiptId]);
+  }, [view, isReadOnly, formData.receiptId, formData.createdAt, formData.firstName, formData.lastName, formData.apartmentName]);
 
   const handlePrint = useCallback(() => {
     if (!isReadOnly) {
@@ -501,7 +621,7 @@ export default function App() {
 
   const submitCleaningReport = async () => {
     const allowedSites = userProfile?.allowedSites || [];
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isMainAdmin = isMainAdminEmail(userProfile?.email);
     
     const allowedApartments = userProfile?.role === 'admin' || isMainAdmin 
       ? Object.keys(TARIFS) 
@@ -552,7 +672,7 @@ export default function App() {
     const dataToUse = pendingCleaningData?.report || cleaningReport;
     const slug = dataToUse.calendarSlug || pendingCleaningData?.slug || '';
     
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isMainAdmin = isMainAdminEmail(userProfile?.email);
     const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
     
     const allowedSites = userProfile?.allowedSites || [];
@@ -627,7 +747,7 @@ export default function App() {
       return;
     }
 
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isMainAdmin = isMainAdminEmail(userProfile?.email);
     const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
     
     const allowedSites = userProfile?.allowedSites || [];
@@ -731,6 +851,12 @@ export default function App() {
         status: formData.status || 'VALIDE'
       }));
 
+      // Keep client and agent directories in sync with new/updated receipts.
+      await Promise.all([
+        upsertClientFromReceipt(formData),
+        upsertAgentFromReceipt(formData)
+      ]);
+
       // --- AUTOMATIC CLEANING GENERATION ---
       // Generate a cleaning report for the checkout date (endDate)
       if (formData.status !== 'ANNULE') {
@@ -820,56 +946,160 @@ export default function App() {
     setAlertMessage("Prospect charge. Completez puis sauvegardez pour creer le recu.");
   };
 
-  const loadReceipt = async (id: string) => {
-    if (!id) return;
-    setIsSaving(true);
+  const applyClientSuggestion = (matchedClient: ClientProfile) => {
+    setFormData(prev => ({
+      ...prev,
+      firstName: matchedClient.firstName || '',
+      lastName: matchedClient.lastName || '',
+      phone: matchedClient.phone || '',
+      email: matchedClient.email || ''
+    }));
+    setClientSearch(`${matchedClient.firstName} ${matchedClient.lastName}`.trim());
+  };
+
+  const filteredClients = useMemo(() => {
+    const term = normalizeString(clientSearch);
+    if (term.length < 2) return [];
+    return clients
+      .filter(c => {
+        const fullName = normalizeString(`${c.firstName} ${c.lastName}`);
+        return fullName.includes(term) ||
+          normalizeString(c.phone || '').includes(term) ||
+          normalizeString(c.email || '').includes(term);
+      })
+      .slice(0, 8);
+  }, [clientSearch, clients]);
+
+  const filteredAgents = useMemo(() => {
+    const term = normalizeString(agentSearch);
+    if (term.length < 2) return [];
+    return agents
+      .filter(a => {
+        const label = normalizeString(`${a.name} ${a.preferredPaymentMethod} ${a.paymentReference}`);
+        return label.includes(term);
+      })
+      .slice(0, 8);
+  }, [agentSearch, agents]);
+
+  const getSelectedAgent = useMemo(
+    () => agents.find(a => normalizeString(a.name) === normalizeString(formData.agentName || '')),
+    [agents, formData.agentName]
+  );
+
+  const getSelectedClient = useMemo(
+    () => clients.find(c =>
+      normalizeString(c.firstName) === normalizeString(formData.firstName || '') &&
+      normalizeString(c.lastName) === normalizeString(formData.lastName || '')
+    ),
+    [clients, formData.firstName, formData.lastName]
+  );
+
+  const hasClientDirectoryChanges = useMemo(() => {
+    const firstName = (formData.firstName || '').trim();
+    const lastName = (formData.lastName || '').trim();
+    const phone = (formData.phone || '').trim();
+    const email = (formData.email || '').trim();
+
+    if (!lastName) return false;
+    if (!getSelectedClient) return true;
+
+    return firstName !== (getSelectedClient.firstName || '').trim() ||
+      lastName !== (getSelectedClient.lastName || '').trim() ||
+      phone !== (getSelectedClient.phone || '').trim() ||
+      email !== (getSelectedClient.email || '').trim();
+  }, [formData.firstName, formData.lastName, formData.phone, formData.email, getSelectedClient]);
+
+  const hasAgentDirectoryChanges = useMemo(() => {
+    const name = (formData.agentName || '').trim();
+    if (!name) return false;
+
+    const method = agentPaymentMethodInput.trim();
+    const reference = agentPaymentReferenceInput.trim();
+    if (!getSelectedAgent) return true;
+
+    return name !== (getSelectedAgent.name || '').trim() ||
+      method !== (getSelectedAgent.preferredPaymentMethod || '').trim() ||
+      reference !== (getSelectedAgent.paymentReference || '').trim();
+  }, [formData.agentName, agentPaymentMethodInput, agentPaymentReferenceInput, getSelectedAgent]);
+
+  useEffect(() => {
+    setAgentPaymentMethodInput(getSelectedAgent?.preferredPaymentMethod || '');
+    setAgentPaymentReferenceInput(getSelectedAgent?.paymentReference || '');
+  }, [getSelectedAgent]);
+
+  useEffect(() => {
+    setAgentSearch(formData.agentName || '');
+  }, [formData.agentName]);
+
+  const saveAgentDirectoryDetails = async () => {
+    const name = (formData.agentName || '').trim();
+    if (!name || !user?.uid || !hasAgentDirectoryChanges) return;
     try {
-      let searchId = id.trim();
-      // If it's just numbers, prepend RC-
-      if (/^\d+$/.test(searchId)) {
-        searchId = `RC-${searchId}`;
-      } else if (searchId.toLowerCase().startsWith('rc-')) {
-        // Normalize rc- to RC-
-        searchId = `RC-${searchId.slice(3)}`;
-      }
-      
-      const q = query(collection(db, 'receipts'), where('receiptId', '==', searchId), limit(1));
-      const snap = await getDocs(q);
-      
-      if (!snap.empty) {
-        setFormData(snap.docs[0].data() as ReceiptData);
-        setIsReadOnly(true);
-        setView('form');
-        setShowMobileNav(false);
-        setSearchId(''); // Clear search after success
-        if (window.innerWidth < 768) setIsSidebarOpen(false);
+      const existing = agents.find(a => normalizeString(a.name) === normalizeString(name));
+      const payload: Omit<AgentProfile, 'id'> = {
+        name,
+        preferredPaymentMethod: agentPaymentMethodInput.trim(),
+        paymentReference: agentPaymentReferenceInput.trim(),
+        notes: existing?.notes || '',
+        updatedAt: new Date().toISOString(),
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        authorUid: existing?.id ? (existing.authorUid || user.uid) : user.uid
+      };
+      if (existing?.id) {
+        await setDoc(doc(db, 'agents', existing.id), payload, { merge: true });
       } else {
-        // Try original if it was different
-        if (searchId !== id.trim()) {
-          const q2 = query(collection(db, 'receipts'), where('receiptId', '==', id.trim()), limit(1));
-          const snap2 = await getDocs(q2);
-          if (!snap2.empty) {
-            setFormData(snap2.docs[0].data() as ReceiptData);
-            setIsReadOnly(true);
-            setView('form');
-            setShowMobileNav(false);
-            setSearchId('');
-            if (window.innerWidth < 768) setIsSidebarOpen(false);
-            return;
-          }
-        }
-        setAlertType('error');
-        setAlertMessage("Reçu non trouvé");
+        await addDoc(collection(db, 'agents'), payload);
       }
-    } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'receipts');
-    } finally {
-      setIsSaving(false);
+      setAgents(prev => {
+        const next = prev.filter(a => normalizeString(a.name) !== normalizeString(name));
+        return [...next, { ...payload, id: existing?.id }];
+      });
+      setAlertType('success');
+      setAlertMessage("Fiche agent mise à jour.");
+    } catch (error) {
+      console.error('Agent directory update failed:', error);
+      setAlertType('error');
+      setAlertMessage("Impossible de mettre à jour la fiche agent. Vérifiez les droits Firestore.");
+    }
+  };
+
+  const saveClientDirectoryDetails = async () => {
+    if (!user?.uid || !formData.lastName.trim() || !hasClientDirectoryChanges) return;
+    try {
+      const existing = getSelectedClient || clients.find(c =>
+        normalizeString(`${c.firstName} ${c.lastName}`) === normalizeString(`${formData.firstName} ${formData.lastName}`)
+      );
+      const payload: Omit<ClientProfile, 'id'> = {
+        firstName: (formData.firstName || '').trim(),
+        lastName: (formData.lastName || '').trim(),
+        phone: (formData.phone || '').trim(),
+        email: (formData.email || '').trim(),
+        updatedAt: new Date().toISOString(),
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        authorUid: existing?.id ? (existing.authorUid || user.uid) : user.uid
+      };
+      if (existing?.id) {
+        await setDoc(doc(db, 'clients', existing.id), payload, { merge: true });
+      } else {
+        await addDoc(collection(db, 'clients'), payload);
+      }
+      setClients(prev => {
+        const next = prev.filter(c =>
+          normalizeString(`${c.firstName} ${c.lastName}`) !== normalizeString(`${payload.firstName} ${payload.lastName}`)
+        );
+        return [...next, { ...payload, id: existing?.id }];
+      });
+      setAlertType('success');
+      setAlertMessage("Fiche client mise à jour.");
+    } catch (error) {
+      console.error('Client directory update failed:', error);
+      setAlertType('error');
+      setAlertMessage("Impossible de mettre à jour la fiche client. Vérifiez les droits Firestore.");
     }
   };
 
   const softDeleteBooking = async () => {
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isMainAdmin = isMainAdminEmail(userProfile?.email);
     const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
     
     const allowedSites = userProfile?.allowedSites || [];
@@ -935,7 +1165,7 @@ export default function App() {
     );
   }
 
-  const isMainAdmin = user?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || user?.email?.toLowerCase() === 'cyamepi@gmail.com';
+  const isMainAdmin = isMainAdminEmail(user?.email);
 
   if (user && !isMainAdmin && (!userProfile || !userProfile.isApproved)) {
     return (
@@ -1138,7 +1368,7 @@ export default function App() {
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="sidebar fixed md:sticky top-0 left-0 w-full md:w-80 h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-50 print:hidden shadow-2xl md:shadow-none"
+            className="sidebar fixed md:sticky top-0 left-0 w-full md:w-[23rem] lg:w-[24rem] h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-50 print:hidden shadow-2xl md:shadow-none"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h1 className="text-2xl font-black italic tracking-tighter uppercase">YAMEHOME</h1>
@@ -1221,27 +1451,46 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
               {/* Search */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Rechercher un reçu</label>
-                <div className="flex gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Client intelligent (base clients)</label>
+                <div className="flex gap-2 relative">
                   <input 
                     type="text" 
-                    placeholder="ID Reçu..." 
+                    placeholder="Nom, téléphone ou email..." 
                     className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all" 
-                    value={searchId} 
-                    onChange={(e) => setSearchId(e.target.value)} 
+                    value={clientSearch}
+                    onChange={(e) => {
+                      setClientSearch(e.target.value);
+                    }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        loadReceipt(searchId);
+                      if (e.key === 'Enter' && filteredClients.length > 0) {
+                        applyClientSuggestion(filteredClients[0]);
                       }
                     }}
                   />
                   <button 
-                    onClick={() => loadReceipt(searchId)} 
+                    onClick={() => {
+                      if (filteredClients.length > 0) applyClientSuggestion(filteredClients[0]);
+                    }} 
                     className="bg-[#141414] text-white p-3 rounded-xl hover:bg-gray-800 transition-all"
                   >
                     <Search size={16} />
                   </button>
                 </div>
+                {filteredClients.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-2 space-y-1 max-h-44 overflow-y-auto">
+                    {filteredClients.map((client, idx) => (
+                      <button
+                        key={`${client.id || 'legacy'}-${idx}`}
+                        type="button"
+                        onClick={() => applyClientSuggestion(client)}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 transition-all"
+                      >
+                        <div className="text-[11px] font-black text-gray-800 uppercase">{client.firstName} {client.lastName}</div>
+                        <div className="text-[10px] text-gray-500">{client.phone || '-'} | {client.email || '-'}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Form */}
@@ -1260,6 +1509,20 @@ export default function App() {
                     <input disabled={isReadOnly} type="tel" name="phone" value={formData.phone} placeholder="Téléphone" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
                     <input disabled={isReadOnly} type="email" name="email" value={formData.email} placeholder="Email" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
                   </div>
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={saveClientDirectoryDetails}
+                      disabled={!hasClientDirectoryChanges}
+                      className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                        hasClientDirectoryChanges
+                          ? 'bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100'
+                          : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                      Enregistrer / Mettre a jour ce client
+                    </button>
+                  )}
                 </div>
 
                 {/* Apartment Section */}
@@ -1273,7 +1536,7 @@ export default function App() {
                     {Object.keys(TARIFS)
                       .filter(key => {
                         if (!userProfile) return false;
-                        const isMainAdmin = userProfile.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile.email?.toLowerCase() === 'cyamepi@gmail.com';
+                        const isMainAdmin = isMainAdminEmail(userProfile.email);
                         if (userProfile.role === 'admin' || isMainAdmin) return true;
                         const allowedSites = userProfile.allowedSites || [];
                         const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
@@ -1379,17 +1642,16 @@ export default function App() {
                             type="button"
                             disabled={isReadOnly}
                             onClick={() => {
-                              const current = formData.hosts || [];
-                              const next = isSelected 
-                                ? current.filter(x => x !== h.label)
-                                : [...current, h.label];
-                              setFormData(prev => ({ ...prev, hosts: next }));
-                              
-                              // Auto-set signature if empty
-                              if (!formData.signature && next.length > 0) {
-                                const firstHostName = next[0].split(' ')[0].toUpperCase();
-                                setFormData(prev => ({ ...prev, signature: firstHostName, hosts: next }));
-                              }
+                              // Auto-set signature if empty in the same state update.
+                              setFormData(prev => {
+                                const current = prev.hosts || [];
+                                const hostAlreadySelected = current.includes(h.label);
+                                const next = hostAlreadySelected ? current.filter(x => x !== h.label) : [...current, h.label];
+                                const nextSignature = (!prev.signature && next.length > 0)
+                                  ? next[0].split(' ')[0].toUpperCase()
+                                  : prev.signature;
+                                return { ...prev, hosts: next, signature: nextSignature };
+                              });
                             }}
                             className={`flex items-center justify-between p-2.5 rounded-xl border text-[10px] font-bold transition-all ${
                               isSelected 
@@ -1415,7 +1677,11 @@ export default function App() {
                         value={formData.agentName || ''} 
                         placeholder="Nom de l'agent" 
                         className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" 
-                        onChange={handleChange} 
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setAgentSearch(value);
+                          setFormData(prev => ({ ...prev, agentName: value }));
+                        }} 
                       />
                       {formData.agentName && formData.commissionAmount > 0 && (
                         <div className="flex flex-col gap-2">
@@ -1437,6 +1703,58 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                    {filteredAgents.length > 0 && !isReadOnly && (
+                      <div className="bg-white border border-gray-200 rounded-xl p-2 space-y-1 max-h-40 overflow-y-auto">
+                        {filteredAgents.map((agent, idx) => (
+                          <button
+                            key={`${agent.id || 'legacy-agent'}-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({ ...prev, agentName: agent.name }));
+                              setAgentSearch(agent.name);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-50 transition-all"
+                          >
+                            <div className="text-[11px] font-black text-gray-800 uppercase">{agent.name}</div>
+                            <div className="text-[10px] text-gray-500">{agent.preferredPaymentMethod || '-'} | {agent.paymentReference || '-'}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {formData.agentName && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          disabled={isReadOnly}
+                          type="text"
+                          value={agentPaymentMethodInput}
+                          placeholder="Mode paiement agent (OM, MTN, Espèces...)"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-[10px] outline-none focus:border-blue-500 transition-all disabled:opacity-50"
+                          onChange={(e) => setAgentPaymentMethodInput(e.target.value)}
+                        />
+                        <input
+                          disabled={isReadOnly}
+                          type="text"
+                          value={agentPaymentReferenceInput}
+                          placeholder="N° ou référence paiement"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-[10px] outline-none focus:border-blue-500 transition-all disabled:opacity-50"
+                          onChange={(e) => setAgentPaymentReferenceInput(e.target.value)}
+                        />
+                      </div>
+                    )}
+                    {!isReadOnly && formData.agentName && (
+                      <button
+                        type="button"
+                        onClick={saveAgentDirectoryDetails}
+                        disabled={!hasAgentDirectoryChanges}
+                        className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          hasAgentDirectoryChanges
+                            ? 'bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100'
+                            : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        Enregistrer / Mettre a jour cet agent
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1549,7 +1867,7 @@ export default function App() {
                 setView('form');
               }}
               onOpenCleaning={async (menageId, slug, date) => {
-                const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+                const isMainAdmin = isMainAdminEmail(userProfile?.email);
                 const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
                 
                 const allowedSites = userProfile?.allowedSites || [];
@@ -1675,7 +1993,7 @@ export default function App() {
                       onClick={() => { 
                         setFormData(getInitialState()); 
                         setIsReadOnly(false); 
-                        setSearchId(''); 
+                        setClientSearch('');
                         setIsSidebarOpen(true);
                       }} 
                       className="flex items-center gap-2 px-4 md:px-6 py-3 bg-white border border-gray-200 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"

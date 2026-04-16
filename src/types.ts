@@ -153,3 +153,25 @@ export interface Prospect {
   updatedAt: string;
   authorUid: string;
 }
+
+export interface ClientProfile {
+  id?: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+export interface AgentProfile {
+  id?: string;
+  name: string;
+  preferredPaymentMethod: string;
+  paymentReference: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}

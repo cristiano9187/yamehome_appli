@@ -153,6 +153,25 @@ service cloud.firestore {
              data.authorUid is string && data.authorUid.size() > 0;
     }
 
+    function isValidClientProfile(data) {
+      return hasRequiredFields(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
+             hasOnlyAllowedFields(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
+             data.firstName is string &&
+             data.lastName is string && data.lastName.size() > 0 &&
+             data.phone is string &&
+             data.email is string &&
+             data.authorUid is string && data.authorUid.size() > 0;
+    }
+
+    function isValidAgentProfile(data) {
+      return hasRequiredFields(['name', 'preferredPaymentMethod', 'paymentReference', 'createdAt', 'updatedAt', 'authorUid']) &&
+             hasOnlyAllowedFields(['name', 'preferredPaymentMethod', 'paymentReference', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.preferredPaymentMethod is string &&
+             data.paymentReference is string &&
+             data.authorUid is string && data.authorUid.size() > 0;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -213,6 +232,26 @@ service cloud.firestore {
       allow update: if isAgent() &&
         isValidProspect(request.resource.data) &&
         request.resource.data.authorUid == resource.data.authorUid;
+      allow delete: if isAdmin();
+    }
+
+    match /clients/{clientId} {
+      allow read: if isAgent();
+      allow create: if isAgent() &&
+        isValidClientProfile(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if isAgent() &&
+        isValidClientProfile(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /agents/{agentId} {
+      allow read: if isAgent();
+      allow create: if isAgent() &&
+        isValidAgentProfile(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if isAgent() &&
+        isValidAgentProfile(request.resource.data);
       allow delete: if isAdmin();
     }
 

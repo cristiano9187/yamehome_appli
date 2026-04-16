@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, 
   query, 
@@ -6,11 +6,12 @@ import {
   onSnapshot,
   doc,
   updateDoc,
-  Timestamp,
+  getDocs,
+  where,
   limit 
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ReceiptData, UserProfile } from '../types';
+import { ReceiptData, UserProfile, AgentProfile } from '../types';
 import { formatCurrency, SITE_MAPPING } from '../constants';
 import { 
   Search, 
@@ -24,7 +25,8 @@ import {
   ChevronRight,
   Clock,
   Banknote,
-  ShieldCheck
+  ShieldCheck,
+  Copy
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -43,6 +45,8 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
   const [displayLimit, setDisplayLimit] = useState(15);
   const [firestoreLimit, setFirestoreLimit] = useState(50);
   const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
+  const [commissionAgentKey, setCommissionAgentKey] = useState('');
+  const [agentPayInfo, setAgentPayInfo] = useState<AgentProfile | null>(null);
 
   // Close expanded apartment on click outside
   useEffect(() => {
@@ -53,11 +57,6 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
 
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
-    if (userProfile?.role !== 'admin' && !isMainAdmin) {
-      onAlert("Seuls les administrateurs peuvent rembourser les cautions.", "error");
-      return;
-    }
     try {
       const docRef = doc(db, 'receipts', receipt.id);
       await updateDoc(docRef, {
@@ -69,6 +68,20 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     } catch (error) {
       console.error("Error updating refund status:", error);
       onAlert("Erreur lors du remboursement de la caution", "error");
+    }
+  };
+
+  const handleMarkCommissionPaid = async (receipt: ReceiptData) => {
+    if (!receipt.id) return;
+    try {
+      const docRef = doc(db, 'receipts', receipt.id);
+      await updateDoc(docRef, {
+        isCommissionPaid: true
+      });
+      onAlert("Commission marquée comme payée.", "success");
+    } catch (error) {
+      console.error("Error updating commission status:", error);
+      onAlert("Erreur lors de la mise à jour de la commission", "error");
     }
   };
 
@@ -84,6 +97,98 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     });
     return unsubscribe;
   }, [firestoreLimit]);
+
+  const permissionFilteredReceipts = useMemo(() => {
+    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    const allowedSites = userProfile?.allowedSites || [];
+    const allowedApartments = isAdmin ? [] : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+    return receipts.filter(r => isAdmin || allowedApartments.includes(r.apartmentName));
+  }, [receipts, userProfile]);
+
+  const unpaidCommissionsByAgent = useMemo(() => {
+    const map = new Map<string, ReceiptData[]>();
+    for (const r of permissionFilteredReceipts) {
+      if (r.status === 'ANNULE') continue;
+      const name = (r.agentName || '').trim();
+      if (!name) continue;
+      if (r.isCommissionPaid) continue;
+      const amt = r.commissionAmount ?? 0;
+      if (amt <= 0) continue;
+      if (!map.has(name)) map.set(name, []);
+      map.get(name)!.push(r);
+    }
+    for (const [, list] of map) {
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return map;
+  }, [permissionFilteredReceipts]);
+
+  const commissionAgentNames = useMemo(() => {
+    const names: string[] = [...unpaidCommissionsByAgent.keys()];
+    return names.sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [unpaidCommissionsByAgent]);
+
+  useEffect(() => {
+    if (!commissionAgentKey.trim()) {
+      setAgentPayInfo(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = query(
+          collection(db, 'agents'),
+          where('name', '==', commissionAgentKey.trim()),
+          limit(1)
+        );
+        const snap = await getDocs(q);
+        if (cancelled) return;
+        if (!snap.empty) {
+          setAgentPayInfo({ id: snap.docs[0].id, ...snap.docs[0].data() } as AgentProfile);
+        } else {
+          setAgentPayInfo(null);
+        }
+      } catch {
+        if (!cancelled) setAgentPayInfo(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [commissionAgentKey]);
+
+  const selectedUnpaidReceipts = commissionAgentKey
+    ? (unpaidCommissionsByAgent.get(commissionAgentKey) || [])
+    : [];
+
+  const selectedUnpaidTotal = selectedUnpaidReceipts.reduce(
+    (s, r) => s + (r.commissionAmount || 0),
+    0
+  );
+
+  const copyCommissionPaymentSheet = async () => {
+    if (!commissionAgentKey || selectedUnpaidReceipts.length === 0) {
+      onAlert('Choisissez un agent avec des commissions impayées.', 'info');
+      return;
+    }
+    const lines = selectedUnpaidReceipts.map(
+      r => `- ${r.receiptId} : ${formatCurrency(r.commissionAmount || 0)} (${r.firstName} ${r.lastName})`
+    );
+    let text = `Commissions à payer — ${commissionAgentKey}\n`;
+    text += `Total: ${formatCurrency(selectedUnpaidTotal)}\n`;
+    text += `Nombre de reçus: ${selectedUnpaidReceipts.length}\n\n`;
+    text += `Détail:\n${lines.join('\n')}\n`;
+    if (agentPayInfo?.preferredPaymentMethod || agentPayInfo?.paymentReference) {
+      text += `\nPaiement préféré: ${agentPayInfo.preferredPaymentMethod || '-'}`;
+      if (agentPayInfo.paymentReference) text += ` | ${agentPayInfo.paymentReference}`;
+      text += '\n';
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      onAlert('Récap copié dans le presse-papiers.', 'success');
+    } catch {
+      onAlert('Impossible de copier (navigateur).', 'error');
+    }
+  };
 
   const filteredReceipts = receipts.filter(r => {
     const matchesSearch = r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -158,7 +263,89 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
 
       {/* Content */}
       <div className="flex-1 md:overflow-y-auto p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto space-y-4">
+          {commissionAgentNames.length > 0 && (
+            <div
+              className="bg-white rounded-2xl border border-orange-200 shadow-sm p-4 md:p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-orange-700">
+                    <Banknote size={14} />
+                    Paiement des commissions (aperçu rapide)
+                  </div>
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    Choisissez un agent pour voir le total impayé, le détail par reçu et copier un texte prêt à coller (avec mode de paiement si la fiche agent est renseignée).
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <select
+                      className="flex-1 bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-3 text-xs font-bold outline-none focus:border-orange-400"
+                      value={commissionAgentKey}
+                      onChange={(e) => setCommissionAgentKey(e.target.value)}
+                    >
+                      <option value="">— Agent avec commissions impayées —</option>
+                      {commissionAgentNames.map((name) => {
+                        const list = unpaidCommissionsByAgent.get(name) || [];
+                        const total = list.reduce((s, r) => s + (r.commissionAmount || 0), 0);
+                        return (
+                          <option key={name} value={name}>
+                            {name} — {formatCurrency(total)} ({list.length} reçu{list.length > 1 ? 's' : ''})
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => commissionAgentKey && setSearchTerm(commissionAgentKey)}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-gray-100 border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-700 hover:bg-gray-200 transition-all"
+                    >
+                      Filtrer l&apos;historique
+                    </button>
+                  </div>
+                  {commissionAgentKey && (
+                    <div className="rounded-xl bg-orange-50/80 border border-orange-100 p-3 space-y-2">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-lg font-black text-orange-900">{formatCurrency(selectedUnpaidTotal)}</span>
+                        <span className="text-[10px] font-bold text-orange-700 uppercase">
+                          {selectedUnpaidReceipts.length} ligne{selectedUnpaidReceipts.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {agentPayInfo && (agentPayInfo.preferredPaymentMethod || agentPayInfo.paymentReference) && (
+                        <p className="text-[11px] text-gray-700">
+                          <span className="font-black text-gray-500 uppercase text-[9px]">Paiement</span>{' '}
+                          {agentPayInfo.preferredPaymentMethod || '—'}
+                          {agentPayInfo.paymentReference ? ` · ${agentPayInfo.paymentReference}` : ''}
+                        </p>
+                      )}
+                      {!agentPayInfo && (
+                        <p className="text-[10px] text-gray-500 italic">
+                          Aucune fiche agent en base pour ce nom — renseignez OM/MTN dans le formulaire reçu puis enregistrez la fiche agent.
+                        </p>
+                      )}
+                      <ul className="max-h-28 overflow-y-auto text-[10px] text-gray-600 space-y-1 font-mono">
+                        {selectedUnpaidReceipts.map((r) => (
+                          <li key={r.id}>
+                            {r.receiptId} · {formatCurrency(r.commissionAmount || 0)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyCommissionPaymentSheet}
+                  disabled={!commissionAgentKey || selectedUnpaidReceipts.length === 0}
+                  className="shrink-0 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-orange-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Copy size={14} />
+                  Copier le récap
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Desktop Table View */}
           <div className="hidden md:block bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
             <div className="min-w-[700px]">
@@ -264,8 +451,16 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                                 Payée
                               </div>
                             ) : (
-                              <div className={`text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                                Délai: {deadline.toLocaleDateString('fr-FR')}
+                              <div className="flex flex-col gap-1 mt-1">
+                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                  Délai: {deadline.toLocaleDateString('fr-FR')}
+                                </div>
+                                <button
+                                  onClick={() => handleMarkCommissionPaid(receipt)}
+                                  className="text-[7px] font-black uppercase bg-orange-50 border border-orange-200 text-orange-700 px-1 py-0.5 rounded transition-all w-fit"
+                                >
+                                  Marquer payée
+                                </button>
                               </div>
                             )}
                           </div>
@@ -293,22 +488,20 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                                 <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded w-fit ${isRefundOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                                   Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
                                 </div>
-                                { (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) && (
-                                  <div className="flex gap-1">
-                                    <button 
-                                      onClick={() => handleRefundCaution(receipt, 'Espèces')}
-                                      className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
-                                    >
-                                      Espèces
-                                    </button>
-                                    <button 
-                                      onClick={() => handleRefundCaution(receipt, 'Mobile')}
-                                      className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
-                                    >
-                                      Mobile
-                                    </button>
-                                  </div>
-                                )}
+                                <div className="flex gap-1">
+                                  <button 
+                                    onClick={() => handleRefundCaution(receipt, 'Espèces')}
+                                    className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                  >
+                                    Espèces
+                                  </button>
+                                  <button 
+                                    onClick={() => handleRefundCaution(receipt, 'Mobile')}
+                                    className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                  >
+                                    Mobile
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -430,6 +623,14 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                         </div>
                       </div>
                     )}
+                    {receipt.agentName && !receipt.isCommissionPaid && (
+                      <button
+                        onClick={() => handleMarkCommissionPaid(receipt)}
+                        className="w-full bg-orange-50 border border-orange-200 text-orange-700 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest"
+                      >
+                        Marquer commission payée
+                      </button>
+                    )}
 
                     {hasCaution && (
                       <div className={`p-2 rounded-lg border ${receipt.isCautionRefunded ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
@@ -447,7 +648,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                           )}
                         </div>
                         
-                        {!receipt.isCautionRefunded && (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) && (
+                        {!receipt.isCautionRefunded && (
                           <div className="flex gap-2">
                             <button 
                               onClick={() => handleRefundCaution(receipt, 'Espèces')}
