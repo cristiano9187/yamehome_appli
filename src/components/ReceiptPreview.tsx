@@ -1,10 +1,24 @@
 import React from 'react';
-import { Mail, Globe, Phone } from 'lucide-react';
+import { Mail, Globe, Phone, MessageCircle } from 'lucide-react';
 import { ReceiptData } from '../types';
 import { getRateForApartment, LOGO_BASE64, formatCurrency } from '../constants';
 
 interface ReceiptPreviewProps {
   data: ReceiptData;
+}
+
+/**
+ * Normalise un numéro de téléphone pour les protocoles tel: et wa.me/
+ * Gère les formats camerounais : 6XXXXXXXX, +2376XXXXXXXX, 002376XXXXXXXX
+ */
+function normalizePhone(raw: string): { tel: string; wa: string } {
+  const digits = raw.replace(/[\s\-\.\(\)]/g, '');
+  let international = digits;
+  if (digits.startsWith('00')) international = '+' + digits.slice(2);
+  else if (digits.startsWith('237')) international = '+' + digits;
+  else if (!digits.startsWith('+')) international = '+237' + digits;
+  const waDigits = international.replace(/[^\d]/g, '');
+  return { tel: international, wa: waDigits };
 }
 
 const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
@@ -116,8 +130,42 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
           <h3 className="text-[#2B4B8C] font-bold border-b mb-2 uppercase pb-1">Client</h3>
           <div className="space-y-1">
             <p><span className="font-bold">Nom:</span> {data.firstName} {data.lastName}</p>
-            <p><span className="font-bold">Tél:</span> {data.phone || 'N/A'}</p>
-            <p><span className="font-bold">Email:</span> {data.email || 'N/A'}</p>
+            <p className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold">Tél:</span>
+              {data.phone ? (
+                <>
+                  <a
+                    href={`tel:${normalizePhone(data.phone).tel}`}
+                    className="text-blue-700 hover:underline font-mono"
+                    title="Appeler"
+                  >
+                    {data.phone}
+                  </a>
+                  <a
+                    href={`https://wa.me/${normalizePhone(data.phone).wa}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1.5 py-0.5 rounded-md text-[9px] font-black hover:bg-green-200 transition-colors print:hidden"
+                    title="Ouvrir dans WhatsApp"
+                  >
+                    <MessageCircle size={9} />
+                    WhatsApp
+                  </a>
+                </>
+              ) : 'N/A'}
+            </p>
+            <p className="flex items-center gap-1.5">
+              <span className="font-bold">Email:</span>
+              {data.email ? (
+                <a
+                  href={`mailto:${data.email}`}
+                  className="text-blue-700 hover:underline"
+                  title="Envoyer un email"
+                >
+                  {data.email}
+                </a>
+              ) : 'N/A'}
+            </p>
           </div>
         </div>
         <div className="border rounded-lg p-3 bg-gray-50 text-[11px]">

@@ -9,13 +9,22 @@ export const LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAA
 export const PAYMENT_METHODS = ["Espèces", "Paiement mobile", "Virement bancaire", "PayPal", "Autre"];
 
 export const HOSTS = [
-  { id: "paola", label: "Paola (+237 691 47 24 82)" },
-  { id: "edwige", label: "Edwige (+237 656 75 13 10)" },
-  { id: "idriss", label: "Idriss (+237 651 16 37 50)" },
-  { id: "pierre", label: "Pierre (+237 670 87 11 39)" },
-  { id: "regine", label: "Regine (+237 692 79 22 26)" },
-  { id: "madeleine", label: "Madeleine (+237 693 00 96 26)" }
+  { id: "paola",     label: "Paola (+237 691 47 24 82)",    sites: ['Yaoundé'] },
+  { id: "edwige",    label: "Edwige (+237 656 75 13 10)",   sites: ['Yaoundé'] },
+  { id: "idriss",    label: "Idriss (+237 651 16 37 50)",   sites: ['Yaoundé'] },
+  { id: "madeleine", label: "Madeleine (+237 693 00 96 26)",sites: ['Yaoundé'] },
+  { id: "pierre",    label: "Pierre (+237 670 87 11 39)",   sites: ['Bangangté'] },
+  { id: "regine",    label: "Regine (+237 692 79 22 26)",   sites: ['Bangangté'] },
 ];
+
+/** Retourne les hôtes disponibles pour un logement donné.
+ *  Si aucun logement n'est sélectionné, retourne tous les hôtes. */
+export function getHostsForApartment(apartmentName: string) {
+  if (!apartmentName || !TARIFS[apartmentName]) return HOSTS;
+  const address = TARIFS[apartmentName].address as string || '';
+  const location = address.includes('Bangangté') ? 'Bangangté' : 'Yaoundé';
+  return HOSTS.filter(h => h.sites.includes(location));
+}
 
 export const SITES = [
   "MODENA YAMEHOME",
