@@ -29,9 +29,11 @@ import {
   ShieldCheck,
   Copy,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+
+import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 
 interface HistoryViewProps {
   onEdit: (receipt: ReceiptData) => void;
@@ -47,7 +49,6 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
   const [searchTerm, setSearchTerm] = useState('');
   const [displayLimit, setDisplayLimit] = useState(15);
   const [firestoreLimit, setFirestoreLimit] = useState(50);
-  const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
   const [commissionAgentKey, setCommissionAgentKey] = useState('');
   const [agentPayInfo, setAgentPayInfo] = useState<AgentProfile | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReceiptData | null>(null);
@@ -71,12 +72,6 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     }
   };
 
-  // Close expanded apartment on click outside
-  useEffect(() => {
-    const handleClickOutside = () => setExpandedApartmentId(null);
-    window.addEventListener('pointerdown', handleClickOutside);
-    return () => window.removeEventListener('pointerdown', handleClickOutside);
-  }, []);
 
   const handleRefundCaution = async (receipt: ReceiptData, method: string) => {
     if (!receipt.id) return;
@@ -251,7 +246,6 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     <>
     <div 
       className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden"
-      onClick={() => setExpandedApartmentId(null)}
     >
       {/* Header */}
       <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
@@ -410,7 +404,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                               {new Date(receipt.createdAt).toLocaleDateString('fr-FR')}
                             </span>
                             {receipt.status === 'ANNULE' && (
-                              <span className="text-[8px] font-black bg-red-100 text-red-600 px-1 rounded uppercase">Annulé</span>
+                              <span title="Annulé" className="inline-block w-2 h-2 rounded-full bg-red-500 shrink-0" />
                             )}
                           </div>
                         </div>
@@ -422,30 +416,15 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                             <span className="text-xs font-bold text-gray-900 uppercase tracking-tight truncate max-w-[100px]">
                               {receipt.firstName} {receipt.lastName}
                             </span>
-                            <span className="text-[10px] text-gray-400">{receipt.phone || 'Pas de tél'}</span>
+                            {receipt.phone
+                              ? <PhoneLinks phone={receipt.phone} />
+                              : <span className="text-[10px] text-gray-300">Pas de tél</span>}
                           </div>
                         </div>
                       </div>
 
                       <div className="col-span-2">
-                        <div className="flex flex-col relative">
-                          <span 
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
-                            }}
-                            className={`text-xs font-medium cursor-pointer transition-all duration-300 block ${
-                              expandedApartmentId === receipt.id 
-                                ? 'text-blue-700 bg-blue-50 p-2 rounded-lg shadow-md z-50 relative whitespace-normal break-words ring-1 ring-blue-200' 
-                                : 'text-gray-700 truncate max-w-[120px] border-b border-dotted border-gray-400'
-                            }`}
-                          >
-                            {receipt.apartmentName}
-                          </span>
-                          <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest">
-                            {receipt.calendarSlug || 'Standard'}
-                          </span>
-                        </div>
+                        <AptBadge name={receipt.apartmentName || ''} />
                       </div>
 
                       <div className="col-span-2">
@@ -579,12 +558,13 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                   key={receipt.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-4 relative ${expandedApartmentId === receipt.id ? 'z-50' : 'z-0'}`}
+                  className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-4 relative"
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">{receipt.receiptId}</span>
                       <span className="text-sm font-black uppercase text-gray-900">{receipt.firstName} {receipt.lastName}</span>
+                      {receipt.phone && <PhoneLinks phone={receipt.phone} />}
                       <span className="text-[10px] text-gray-400 font-bold">{new Date(receipt.createdAt).toLocaleDateString('fr-FR')}</span>
                     </div>
                     <div className="flex gap-2">
@@ -615,35 +595,9 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
-                    <div className="flex flex-col flex-1 min-w-0 relative">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Logement</span>
-                      <div 
-                        className="relative"
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          setExpandedApartmentId(expandedApartmentId === receipt.id ? null : receipt.id);
-                        }}
-                      >
-                        <span className="text-xs font-bold text-gray-700 truncate border-b border-dotted border-gray-400 block cursor-pointer">
-                          {receipt.apartmentName}
-                        </span>
-                        
-                        {expandedApartmentId === receipt.id && (
-                          <div className="absolute left-0 top-full mt-1 w-full min-w-[200px] bg-white shadow-2xl rounded-xl p-3 z-[100] border-2 border-blue-500 animate-in fade-in zoom-in duration-200 pointer-events-none">
-                            <div className="flex flex-col gap-1">
-                              <span className="text-[8px] font-black uppercase text-blue-600 tracking-widest">Logement Complet</span>
-                              <span className="text-xs font-black text-gray-900 uppercase leading-tight whitespace-normal break-words">
-                                {receipt.apartmentName}
-                              </span>
-                              <span className="text-[9px] text-blue-600 font-bold uppercase tracking-widest mt-1">
-                                {receipt.calendarSlug || 'Standard'}
-                              </span>
-                            </div>
-                            {/* Arrow */}
-                            <div className="absolute left-4 bottom-full border-8 border-transparent border-b-blue-500" />
-                          </div>
-                        )}
-                      </div>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1">Logement</span>
+                      <AptBadge name={receipt.apartmentName || ''} />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total</span>
@@ -718,7 +672,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                       </span>
                     </div>
                     {receipt.status === 'ANNULE' && (
-                      <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-1 rounded uppercase">Annulé</span>
+                      <span title="Annulé" className="inline-block w-2 h-2 rounded-full bg-red-500 shrink-0" />
                     )}
                     {/* Suppression mobile — déjà gérée via le bouton en haut de la carte */}
                   </div>

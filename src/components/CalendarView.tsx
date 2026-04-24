@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Menu
 } from 'lucide-react';
+import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 import { 
   collection, 
   query, 
@@ -576,10 +577,10 @@ export default function CalendarView({
                             <div className="absolute left-[calc(100%-4px)] top-1/2 -translate-y-1/2 w-56 md:w-72 bg-white shadow-2xl rounded-xl p-3 md:p-4 z-[100] border-2 border-blue-500 animate-in fade-in zoom-in duration-200 pointer-events-none">
                               <div className="flex flex-col gap-1">
                                 <span className="text-[8px] md:text-[10px] font-black text-blue-600 uppercase tracking-widest">{group.site}</span>
-                                <span className="text-[10px] md:text-xs font-black text-gray-900 uppercase leading-tight whitespace-normal">
-                                  {unit.category}
+                                <span className="text-sm md:text-base font-black text-gray-900 uppercase tracking-tight">
+                                  {unit.slug}
                                 </span>
-                                <span className="text-[8px] md:text-[10px] font-bold text-gray-400 mt-1">{unit.slug}</span>
+                                <span className="text-[8px] md:text-[10px] font-medium text-gray-400 leading-tight whitespace-normal">{unit.category}</span>
                               </div>
                               {/* Arrow */}
                               <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-blue-500" />
@@ -778,17 +779,18 @@ export default function CalendarView({
                     <span className="text-lg font-black uppercase tracking-tighter text-gray-900">
                       {selectedBooking.firstName} {selectedBooking.lastName}
                     </span>
-                    <span className="text-xs text-gray-400 font-bold">{selectedBooking.phone}</span>
+                    {selectedBooking.phone
+                      ? <PhoneLinks phone={selectedBooking.phone} />
+                      : <span className="text-xs text-gray-400">Pas de tél</span>}
                   </div>
                 </div>
 
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-4">
                   <div className="flex items-start gap-3">
                     <Home size={16} className="text-gray-400 mt-1" />
-                    <div className="flex flex-col">
+                    <div className="flex flex-col gap-1">
                       <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Logement</span>
-                      <span className="text-xs font-bold text-gray-900">{selectedBooking.apartmentName}</span>
-                      <span className="text-[10px] text-blue-600 font-bold uppercase mt-1">{selectedBooking.calendarSlug}</span>
+                      <AptBadge name={selectedBooking.apartmentName || ''} />
                     </div>
                   </div>
 

@@ -1988,17 +1988,6 @@ export default function App() {
                         <Edit size={14}/> Modifier
                       </button>
                     )}
-                    <button 
-                      onClick={() => { 
-                        setFormData(getInitialState()); 
-                        setIsReadOnly(false); 
-                        setClientSearch('');
-                        setIsSidebarOpen(true);
-                      }} 
-                      className="flex items-center gap-2 px-4 md:px-6 py-3 bg-white border border-gray-200 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
-                    >
-                      <Plus size={14}/> Nouveau
-                    </button>
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setShowCancelConfirm(true)} 
