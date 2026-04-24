@@ -255,6 +255,24 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ---------------------------------------------------------------
+    // public_calendar — vue publique des réservations et blocages
+    // Lecture ouverte (yamehome.com, n8n) ; écriture réservée aux agents.
+    // ---------------------------------------------------------------
+    match /public_calendar/{eventId} {
+      allow read: if true;
+      allow write: if isAgent();
+    }
+
+    // ---------------------------------------------------------------
+    // archives — réservations passées pour l'analytique
+    // Lecture et écriture réservées aux agents authentifiés.
+    // ---------------------------------------------------------------
+    match /archives/{archiveId} {
+      allow read: if isAgent();
+      allow write: if isAgent();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

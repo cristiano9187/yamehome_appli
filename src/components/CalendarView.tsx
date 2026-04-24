@@ -29,6 +29,7 @@ import {
   deleteDoc,
   doc
 } from 'firebase/firestore';
+import { upsertPublicCalendar, deletePublicCalendar } from '../utils/publicCalendar';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface CalendarViewProps {
@@ -377,13 +378,25 @@ export default function CalendarView({
     }
 
     try {
-      await addDoc(collection(db, 'blocked_dates'), {
+      const newBlockRef = await addDoc(collection(db, 'blocked_dates'), {
         date,
         calendarSlug: unitSlug,
         createdAt: new Date().toISOString(),
         authorUid: userProfile?.uid || '',
         reason: 'Travaux / Maintenance'
       });
+
+      // Sync vue publique
+      await upsertPublicCalendar({
+        id: unitSlug,
+        start: date,
+        end: date,
+        client: 'Fermé',
+        ref_id: `block_${newBlockRef.id}`,
+        type: 'blocked',
+        updatedAt: new Date().toISOString(),
+      });
+
       onAlert("Date bloquée avec succès", "success");
       setSelectedCell(null);
     } catch (error: any) {
@@ -418,6 +431,8 @@ export default function CalendarView({
 
     try {
       await deleteDoc(doc(db, 'blocked_dates', blockedId));
+      // Retirer de la vue publique
+      await deletePublicCalendar(`block_${blockedId}`);
       onAlert("Date débloquée avec succès", "success");
       setSelectedCell(null);
     } catch (error) {

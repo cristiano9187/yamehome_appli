@@ -31,6 +31,8 @@ import {
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
+import { upsertPublicCalendar, deletePublicCalendar } from './utils/publicCalendar';
+import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import DateRangePicker from './components/DateRangePicker';
 const HistoryView = lazy(() => import('./components/HistoryView'));
@@ -137,7 +139,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects'>('form');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'maintenance'>('form');
+  const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
@@ -882,6 +885,19 @@ export default function App() {
         }));
       }
 
+      // Sync public_calendar (vue publique pour yamehome.com / n8n)
+      if (formData.status !== 'ANNULE') {
+        await upsertPublicCalendar({
+          id: finalSlug,
+          start: formData.startDate,
+          end: formData.endDate,
+          client: `${formData.firstName} ${formData.lastName}`.trim(),
+          ref_id: formData.receiptId,
+          type: 'reservation',
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       // Ensure data is synchronized with the server
       try {
         await withTimeout(waitForPendingWrites(db), 5000);
@@ -1125,6 +1141,10 @@ export default function App() {
       await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
         status: 'ANNULÉ'
       }, { merge: true });
+
+      // Retirer de la vue publique
+      await deletePublicCalendar(formData.receiptId);
+
       setFormData(getInitialState()); 
       setIsReadOnly(false); 
       setShowMobileNav(false);
@@ -1443,6 +1463,19 @@ export default function App() {
                   >
                     <Users size={16} />
                     Utilisateurs
+                  </button>
+                )}
+                {isMainAdmin && (
+                  <button
+                    onClick={() => {
+                      setView('maintenance');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'maintenance' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  >
+                    <Shield size={16} />
+                    Maintenance
                   </button>
                 )}
               </div>
@@ -1938,6 +1971,81 @@ export default function App() {
               }}
               onConvert={handleConvertProspect}
             />
+          ) : view === 'maintenance' ? (
+            <div className="flex-1 flex flex-col bg-[#F5F5F4] overflow-y-auto">
+              <header className="h-20 bg-white border-b border-gray-200 px-8 flex items-center gap-4 sticky top-0 z-40">
+                <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 hover:bg-gray-100 rounded-xl">
+                  <Menu size={20} />
+                </button>
+                <div>
+                  <h2 className="text-base font-black uppercase tracking-widest">Maintenance</h2>
+                  <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">Outils admin — Base de données Firebase</p>
+                </div>
+              </header>
+              <div className="p-8 max-w-2xl mx-auto w-full space-y-6">
+
+                {/* Bloc : Population initiale */}
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="w-8 h-8 bg-blue-100 rounded-xl flex items-center justify-center"><CalendarIcon size={16} className="text-blue-600" /></div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest">Synchroniser public_calendar</p>
+                      <p className="text-[10px] text-gray-400">Alimente la vue publique avec toutes les réservations actuelles et futures (+ dates bloquées)</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setMaintenanceStatus(s => ({ ...s, sync: 'running' }));
+                      const r = await populatePublicCalendar();
+                      setMaintenanceStatus(s => ({
+                        ...s,
+                        sync: r.errors.length ? `Erreur : ${r.errors[0]}` : `✅ ${r.synced} entrée(s) synchronisée(s)`
+                      }));
+                    }}
+                    disabled={maintenanceStatus.sync === 'running'}
+                    className="w-full py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {maintenanceStatus.sync === 'running' ? <><Loader2 size={14} className="animate-spin" /> En cours…</> : 'Lancer la synchronisation'}
+                  </button>
+                  {maintenanceStatus.sync && maintenanceStatus.sync !== 'running' && (
+                    <p className="text-xs text-center text-gray-600 font-mono">{maintenanceStatus.sync}</p>
+                  )}
+                </div>
+
+                {/* Bloc : Archivage */}
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center"><FileText size={16} className="text-orange-600" /></div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest">Archiver les réservations passées</p>
+                      <p className="text-[10px] text-gray-400">Copie dans 'archives' les séjours VALIDE terminés (fin &lt; aujourd'hui) et les retire de public_calendar</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setMaintenanceStatus(s => ({ ...s, archive: 'running' }));
+                      const r = await archivePastReservations();
+                      setMaintenanceStatus(s => ({
+                        ...s,
+                        archive: r.errors.length ? `Erreur : ${r.errors[0]}` : `✅ ${r.archived} archivée(s), ${r.cleaned} retirée(s) de public_calendar`
+                      }));
+                    }}
+                    disabled={maintenanceStatus.archive === 'running'}
+                    className="w-full py-3 bg-orange-500 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {maintenanceStatus.archive === 'running' ? <><Loader2 size={14} className="animate-spin" /> En cours…</> : 'Archiver les séjours passés'}
+                  </button>
+                  {maintenanceStatus.archive && maintenanceStatus.archive !== 'running' && (
+                    <p className="text-xs text-center text-gray-600 font-mono">{maintenanceStatus.archive}</p>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-center text-gray-400 font-mono">
+                  Ces opérations sont sûres et idempotentes — tu peux les relancer sans risque.<br/>
+                  L'archivage automatique nocturne tourne en parallèle via Cloud Scheduler.
+                </p>
+              </div>
+            </div>
           ) : (
             <>
               {/* Top Bar */}
