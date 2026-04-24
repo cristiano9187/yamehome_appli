@@ -29,7 +29,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import { upsertPublicCalendar, deletePublicCalendar } from './utils/publicCalendar';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
@@ -973,6 +973,28 @@ export default function App() {
     setClientSearch(`${matchedClient.firstName} ${matchedClient.lastName}`.trim());
   };
 
+  // Hôtes filtrés selon la ville du logement sélectionné
+  const availableHosts = useMemo(
+    () => getHostsForApartment(formData.apartmentName),
+    [formData.apartmentName]
+  );
+
+  // Nettoyer les hôtes sélectionnés qui ne correspondent plus au logement choisi
+  useEffect(() => {
+    if (!formData.apartmentName || isReadOnly) return;
+    const validIds = new Set(availableHosts.map(h => h.id));
+    const cleanedHosts = (formData.hosts || []).filter(label =>
+      HOSTS.some(h => h.label === label && validIds.has(h.id))
+    );
+    if (cleanedHosts.length !== (formData.hosts || []).length) {
+      setFormData(prev => ({
+        ...prev,
+        hosts: cleanedHosts,
+        signature: cleanedHosts.length > 0 ? prev.signature : '',
+      }));
+    }
+  }, [formData.apartmentName]);
+
   const filteredClients = useMemo(() => {
     const term = normalizeString(clientSearch);
     if (term.length < 2) return [];
@@ -1405,20 +1427,20 @@ export default function App() {
                   Nouveau Reçu
                 </button>
 
-                {/* Mobile-only toggle to show/hide other menus when in form view */}
+                {/* Toggle nav when in form view — visible on all screens */}
                 {view === 'form' && (
                   <button 
                     onClick={() => setShowMobileNav(!showMobileNav)}
-                    className="md:hidden w-full flex items-center justify-between px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-all"
+                    className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-all"
                   >
-                    <span>{showMobileNav ? 'Masquer le menu' : 'Afficher le menu'}</span>
+                    <span>{showMobileNav ? '↑ Masquer le menu' : '↓ Autres vues'}</span>
                     <ChevronRight size={14} className={`transition-transform ${showMobileNav ? 'rotate-90' : ''}`} />
                   </button>
                 )}
               </div>
               
-              {/* Hide other nav on mobile when editing a receipt to focus on the form, unless toggled */}
-              <div className={`${(view === 'form' && !showMobileNav) ? 'hidden md:block' : 'block'} space-y-2`}>
+              {/* Nav items hidden when in form edit mode — shown on all screens only if toggled */}
+              <div className={`${(view === 'form' && !showMobileNav) ? 'hidden' : 'block'} space-y-2`}>
                 <button 
                   onClick={() => {
                     setView('history');
@@ -1527,294 +1549,271 @@ export default function App() {
               </div>
 
               {/* Form */}
-              <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-                {/* Client Section */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    <UserIcon size={12} />
-                    <span>Informations Client</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input disabled={isReadOnly} type="text" name="firstName" value={formData.firstName} placeholder="Prénom" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
-                    <input disabled={isReadOnly} type="text" name="lastName" value={formData.lastName} placeholder="Nom" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input disabled={isReadOnly} type="tel" name="phone" value={formData.phone} placeholder="Téléphone" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
-                    <input disabled={isReadOnly} type="email" name="email" value={formData.email} placeholder="Email" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
-                  </div>
-                  {!isReadOnly && (
-                    <button
-                      type="button"
-                      onClick={saveClientDirectoryDetails}
-                      disabled={!hasClientDirectoryChanges}
-                      className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                        hasClientDirectoryChanges
-                          ? 'bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100'
-                          : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'
-                      }`}
-                    >
-                      Enregistrer / Mettre a jour ce client
-                    </button>
-                  )}
-                </div>
+              <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
 
-                {/* Apartment Section */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    <Home size={12} />
-                    <span>Logement</span>
+                {/* ── SECTION CLIENT ── */}
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-600">
+                    <UserIcon size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Client</span>
                   </div>
-                  <select disabled={isReadOnly} name="apartmentName" value={formData.apartmentName} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50 appearance-none" onChange={handleChange}>
-                    <option value="">-- Choisir Appartement --</option>
-                    {Object.keys(TARIFS)
-                      .filter(key => {
-                        if (!userProfile) return false;
-                        const isMainAdmin = isMainAdminEmail(userProfile.email);
-                        if (userProfile.role === 'admin' || isMainAdmin) return true;
-                        const allowedSites = userProfile.allowedSites || [];
-                        const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
-                        return allowedApartments.includes(key);
-                      })
-                      .map(key => <option key={key} value={key}>{key}</option>)}
-                  </select>
-                  
-                  {TARIFS[formData.apartmentName]?.units && TARIFS[formData.apartmentName].units!.length > 1 && (
-                    <select disabled={isReadOnly} name="calendarSlug" value={formData.calendarSlug} onChange={handleChange} className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50 appearance-none">
-                      <option value="">-- Préciser l'unité --</option>
-                      {TARIFS[formData.apartmentName].units!.map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                  )}
-
-                  <DateRangePicker 
-                    startDate={formData.startDate}
-                    endDate={formData.endDate}
-                    disabled={isReadOnly}
-                    onChange={(start, end) => {
-                      setFormData(prev => ({ ...prev, startDate: start, endDate: end }));
-                    }}
-                  />
-                </div>
-
-                {/* Pricing Section */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    <FileText size={12} />
-                    <span>Tarification</span>
-                  </div>
-                  <div className="flex gap-4">
-                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
-                      <input disabled={isReadOnly} type="checkbox" name="isCustomRate" checked={formData.isCustomRate} onChange={handleChange} className="mr-2 accent-blue-600" /> 
-                      Plateforme
-                    </label>
-                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
-                      <input disabled={isReadOnly} type="checkbox" name="isNegotiatedRate" checked={formData.isNegotiatedRate} onChange={handleChange} className="mr-2 accent-blue-600" /> 
-                      Négocié
-                    </label>
-                  </div>
-                  {formData.isCustomRate && <input disabled={isReadOnly} type="number" name="customLodgingTotal" value={formData.customLodgingTotal || ''} className="w-full bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs outline-none focus:border-yellow-500 transition-all" placeholder="Total Hébergement" onChange={handleChange} />}
-                  {formData.isNegotiatedRate && <input disabled={isReadOnly} type="number" name="negotiatedPricePerNight" value={formData.negotiatedPricePerNight || ''} className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all" placeholder="Prix par nuit" onChange={handleChange} />}
-                  
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Versements</span>
-                      {!isReadOnly && (
-                        <button 
-                          type="button" 
-                          onClick={() => setFormData(prev => ({...prev, payments: [...prev.payments, { id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }]}))} 
-                          className="text-blue-600 hover:text-blue-700 font-black text-[10px] uppercase tracking-widest flex items-center gap-1"
-                        >
-                          <Plus size={12} /> Ajouter
-                        </button>
-                      )}
+                  <div className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input disabled={isReadOnly} type="text" name="firstName" value={formData.firstName} placeholder="Prénom" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
+                      <input disabled={isReadOnly} type="text" name="lastName" value={formData.lastName} placeholder="Nom *" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60 font-bold" onChange={handleChange} />
                     </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input disabled={isReadOnly} type="tel" name="phone" value={formData.phone} placeholder="Téléphone" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
+                      <input disabled={isReadOnly} type="email" name="email" value={formData.email} placeholder="Email" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
+                    </div>
+                    {!isReadOnly && (
+                      <button type="button" onClick={saveClientDirectoryDetails} disabled={!hasClientDirectoryChanges}
+                        className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${hasClientDirectoryChanges ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-white border border-blue-100 text-blue-300 cursor-not-allowed'}`}>
+                        Enregistrer / Mettre à jour ce client
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── SECTION LOGEMENT + DATES ── */}
+                {/* Pas de overflow-hidden ici : le popup DateRangePicker est positionné en absolu et serait sinon coupé */}
+                <div className="rounded-2xl border border-violet-100 bg-violet-50/60">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 rounded-t-[15px]">
+                    <Home size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Logement &amp; Dates de séjour</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <select disabled={isReadOnly} name="apartmentName" value={formData.apartmentName}
+                      className="w-full bg-white border border-violet-200 rounded-xl p-3 text-xs outline-none focus:border-violet-500 transition-all disabled:opacity-60 appearance-none font-bold"
+                      onChange={handleChange}>
+                      <option value="">-- Choisir Appartement --</option>
+                      {Object.keys(TARIFS)
+                        .filter(key => {
+                          if (!userProfile) return false;
+                          const isMainAdmin = isMainAdminEmail(userProfile.email);
+                          if (userProfile.role === 'admin' || isMainAdmin) return true;
+                          const allowedSites = userProfile.allowedSites || [];
+                          const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
+                          return allowedApartments.includes(key);
+                        })
+                        .map(key => <option key={key} value={key}>{key}</option>)}
+                    </select>
+                    {TARIFS[formData.apartmentName]?.units && TARIFS[formData.apartmentName].units!.length > 1 && (
+                      <select disabled={isReadOnly} name="calendarSlug" value={formData.calendarSlug} onChange={handleChange}
+                        className="w-full bg-white border border-violet-300 rounded-xl p-3 text-xs outline-none focus:border-violet-500 transition-all disabled:opacity-60 appearance-none font-bold text-violet-700">
+                        <option value="">-- Préciser l'unité --</option>
+                        {TARIFS[formData.apartmentName].units!.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    )}
+                    <DateRangePicker
+                      startDate={formData.startDate}
+                      endDate={formData.endDate}
+                      disabled={isReadOnly}
+                      onChange={(start, end) => setFormData(prev => ({ ...prev, startDate: start, endDate: end }))}
+                    />
+                  </div>
+                </div>
+
+                {/* ── SECTION TARIFICATION ── */}
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500">
+                    <FileText size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Tarification</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex gap-4">
+                      <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none text-amber-800">
+                        <input disabled={isReadOnly} type="checkbox" name="isCustomRate" checked={formData.isCustomRate} onChange={handleChange} className="mr-2 accent-amber-500" />
+                        Plateforme
+                      </label>
+                      <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none text-amber-800">
+                        <input disabled={isReadOnly} type="checkbox" name="isNegotiatedRate" checked={formData.isNegotiatedRate} onChange={handleChange} className="mr-2 accent-amber-500" />
+                        Négocié
+                      </label>
+                    </div>
+                    {formData.isCustomRate && <input disabled={isReadOnly} type="number" name="customLodgingTotal" value={formData.customLodgingTotal || ''} className="w-full bg-white border border-amber-300 rounded-xl p-3 text-xs outline-none focus:border-amber-500 transition-all font-mono font-bold" placeholder="Total Hébergement (FCFA)" onChange={handleChange} />}
+                    {formData.isNegotiatedRate && <input disabled={isReadOnly} type="number" name="negotiatedPricePerNight" value={formData.negotiatedPricePerNight || ''} className="w-full bg-white border border-amber-300 rounded-xl p-3 text-xs outline-none focus:border-amber-500 transition-all font-mono font-bold" placeholder="Prix par nuit (FCFA)" onChange={handleChange} />}
+                  </div>
+                </div>
+
+                {/* ── SECTION VERSEMENTS ── */}
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-600">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={13} className="text-white" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-white">Versements</span>
+                    </div>
+                    {!isReadOnly && (
+                      <button type="button"
+                        onClick={() => setFormData(prev => ({...prev, payments: [...prev.payments, { id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }]}))}
+                        className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-all">
+                        <Plus size={11} /> Ajouter
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-4 space-y-3">
                     {formData.payments.map((p) => (
-                      <div key={p.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100 relative group">
-                         {!isReadOnly && formData.payments.length > 1 && (
-                           <button 
-                            onClick={() => setFormData(prev => ({...prev, payments: prev.payments.filter(x => x.id !== p.id)}))} 
-                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg"
-                           >
-                             <X size={10} />
-                           </button>
-                         )}
-                         <input disabled={isReadOnly} type="date" value={p.date} onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, date: e.target.value} : x)}))} className="bg-transparent text-[10px] font-bold text-gray-400 mb-2 w-full outline-none" />
-                         <div className="flex gap-2">
-                          <input disabled={isReadOnly} type="number" value={p.amount || ''} placeholder="Montant" onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, amount: parseFloat(e.target.value) || 0} : x)}))} className="bg-white border border-gray-200 rounded-lg p-2 flex-1 font-mono font-bold text-green-600 text-xs outline-none" />
-                          <select disabled={isReadOnly} value={p.method} onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, method: e.target.value} : x)}))} className="bg-white border border-gray-200 rounded-lg p-2 flex-1 text-[10px] outline-none appearance-none">{PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select>
-                         </div>
+                      <div key={p.id} className="bg-white p-3 rounded-xl border border-emerald-200 relative group shadow-sm">
+                        {!isReadOnly && formData.payments.length > 1 && (
+                          <button onClick={() => setFormData(prev => ({...prev, payments: prev.payments.filter(x => x.id !== p.id)}))}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg">
+                            <X size={10} />
+                          </button>
+                        )}
+                        <input disabled={isReadOnly} type="date" value={p.date}
+                          onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, date: e.target.value} : x)}))}
+                          className="bg-transparent text-[10px] font-bold text-emerald-700 mb-2 w-full outline-none" />
+                        <div className="flex gap-2">
+                          <input disabled={isReadOnly} type="number" value={p.amount || ''} placeholder="Montant FCFA"
+                            onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, amount: parseFloat(e.target.value) || 0} : x)}))}
+                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex-1 font-mono font-bold text-emerald-700 text-xs outline-none focus:border-emerald-500" />
+                          <select disabled={isReadOnly} value={p.method}
+                            onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, method: e.target.value} : x)}))}
+                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex-1 text-[10px] outline-none appearance-none focus:border-emerald-500">
+                            {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Options Section */}
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
-                      <input disabled={isReadOnly} type="checkbox" name="electricityCharge" checked={formData.electricityCharge} onChange={handleChange} className="mr-2 accent-blue-600" /> 
-                      Élec client
-                    </label>
-                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
-                      <input disabled={isReadOnly} type="checkbox" name="packEco" checked={formData.packEco} onChange={handleChange} className="mr-2 accent-green-600" /> 
-                      Pack ECO
-                    </label>
-                    <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none">
-                      <input disabled={isReadOnly} type="checkbox" name="packConfort" checked={formData.packConfort} onChange={handleChange} className="mr-2 accent-purple-600" /> 
-                      Pack CONFORT
-                    </label>
+                {/* ── SECTION OPTIONS ── */}
+                <div className="rounded-2xl border border-teal-100 bg-teal-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-teal-600">
+                    <ClipboardCheck size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Options &amp; Services</span>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Contacts Utiles (Hôtes)</label>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {HOSTS.map(h => {
-                        const isSelected = (formData.hosts || []).includes(h.label);
-                        return (
-                          <button
-                            key={h.id}
-                            type="button"
-                            disabled={isReadOnly}
-                            onClick={() => {
-                              // Auto-set signature if empty in the same state update.
-                              setFormData(prev => {
-                                const current = prev.hosts || [];
-                                const hostAlreadySelected = current.includes(h.label);
-                                const next = hostAlreadySelected ? current.filter(x => x !== h.label) : [...current, h.label];
-                                const nextSignature = (!prev.signature && next.length > 0)
-                                  ? next[0].split(' ')[0].toUpperCase()
-                                  : prev.signature;
-                                return { ...prev, hosts: next, signature: nextSignature };
-                              });
-                            }}
-                            className={`flex items-center justify-between p-2.5 rounded-xl border text-[10px] font-bold transition-all ${
-                              isSelected 
-                                ? 'bg-blue-50 border-blue-200 text-blue-700' 
-                                : 'bg-white border-gray-100 text-gray-500 hover:border-gray-200'
-                            }`}
-                          >
-                            <span>{h.label}</span>
-                            {isSelected && <Check size={12} />}
-                          </button>
-                        );
-                      })}
+                  <div className="p-4 space-y-2">
+                    <div className="flex flex-wrap gap-3">
+                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
+                        <input disabled={isReadOnly} type="checkbox" name="electricityCharge" checked={formData.electricityCharge} onChange={handleChange} className="accent-teal-600" />
+                        Élec client
+                      </label>
+                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
+                        <input disabled={isReadOnly} type="checkbox" name="packEco" checked={formData.packEco} onChange={handleChange} className="accent-teal-600" />
+                        Pack ECO
+                      </label>
+                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
+                        <input disabled={isReadOnly} type="checkbox" name="packConfort" checked={formData.packConfort} onChange={handleChange} className="accent-teal-600" />
+                        Pack CONFORT
+                      </label>
                     </div>
                   </div>
+                </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Apporteur d'affaire (Agent)</label>
-                    <div className="flex gap-2">
-                      <input 
-                        disabled={isReadOnly} 
-                        type="text" 
-                        name="agentName" 
-                        value={formData.agentName || ''} 
-                        placeholder="Nom de l'agent" 
-                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" 
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setAgentSearch(value);
-                          setFormData(prev => ({ ...prev, agentName: value }));
-                        }} 
-                      />
-                      {formData.agentName && formData.commissionAmount > 0 && (
-                        <div className="flex flex-col gap-2">
-                          <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 flex flex-col justify-center">
-                            <span className="text-[8px] font-black text-orange-400 uppercase leading-none">Commission</span>
-                            <span className="text-[10px] font-mono font-bold text-orange-600">{formatCurrency(formData.commissionAmount)}</span>
+                {/* ── SECTION HÔTES + AGENT + SIGNATURE ── */}
+                <div className="rounded-2xl border border-orange-100 bg-orange-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-orange-500">
+                    <Users size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Hôtes &amp; Agent</span>
+                  </div>
+                  <div className="p-4 space-y-4">
+
+                    {/* Contacts Utiles */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-orange-700">Contacts Utiles (Hôtes)</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {availableHosts.map(h => {
+                          const isSelected = (formData.hosts || []).includes(h.label);
+                          return (
+                            <button key={h.id} type="button" disabled={isReadOnly}
+                              onClick={() => {
+                                setFormData(prev => {
+                                  const current = prev.hosts || [];
+                                  const hostAlreadySelected = current.includes(h.label);
+                                  const next = hostAlreadySelected ? current.filter(x => x !== h.label) : [...current, h.label];
+                                  const nextSignature = (!prev.signature && next.length > 0) ? next[0].split(' ')[0].toUpperCase() : prev.signature;
+                                  return { ...prev, hosts: next, signature: nextSignature };
+                                });
+                              }}
+                              className={`flex items-center justify-between p-2.5 rounded-xl border text-[10px] font-bold transition-all ${isSelected ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-white border-orange-100 text-gray-500 hover:border-orange-200'}`}>
+                              <span>{h.label}</span>
+                              {isSelected && <Check size={12} className="text-orange-600" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Apporteur d'affaire */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-orange-700">Apporteur d'affaire (Agent)</p>
+                      <div className="flex gap-2">
+                        <input disabled={isReadOnly} type="text" name="agentName" value={formData.agentName || ''} placeholder="Nom de l'agent"
+                          className="flex-1 bg-white border border-orange-200 rounded-xl p-3 text-xs outline-none focus:border-orange-400 transition-all disabled:opacity-60"
+                          onChange={(e) => { setAgentSearch(e.target.value); setFormData(prev => ({ ...prev, agentName: e.target.value })); }} />
+                        {formData.agentName && formData.commissionAmount > 0 && (
+                          <div className="flex flex-col gap-1">
+                            <div className="bg-orange-100 border border-orange-200 rounded-xl px-3 py-2 flex flex-col justify-center">
+                              <span className="text-[8px] font-black text-orange-500 uppercase leading-none">Commission</span>
+                              <span className="text-[10px] font-mono font-bold text-orange-700">{formatCurrency(formData.commissionAmount)}</span>
+                            </div>
+                            <label className="flex items-center text-[9px] font-bold uppercase cursor-pointer select-none text-orange-600 px-1">
+                              <input disabled={isReadOnly} type="checkbox" name="isCommissionPaid" checked={formData.isCommissionPaid || false} onChange={handleChange} className="mr-1.5 accent-orange-600" />Payée
+                            </label>
                           </div>
-                          <label className="flex items-center text-[9px] font-bold uppercase cursor-pointer select-none text-orange-600">
-                            <input 
-                              disabled={isReadOnly} 
-                              type="checkbox" 
-                              name="isCommissionPaid" 
-                              checked={formData.isCommissionPaid || false} 
-                              onChange={handleChange} 
-                              className="mr-2 accent-orange-600" 
-                            /> 
-                            Payée
-                          </label>
+                        )}
+                      </div>
+                      {filteredAgents.length > 0 && !isReadOnly && (
+                        <div className="bg-white border border-orange-200 rounded-xl p-2 space-y-1 max-h-40 overflow-y-auto">
+                          {filteredAgents.map((agent, idx) => (
+                            <button key={`${agent.id || 'legacy-agent'}-${idx}`} type="button"
+                              onClick={() => { setFormData(prev => ({ ...prev, agentName: agent.name })); setAgentSearch(agent.name); }}
+                              className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-50 transition-all">
+                              <div className="text-[11px] font-black text-gray-800 uppercase">{agent.name}</div>
+                              <div className="text-[10px] text-gray-500">{agent.preferredPaymentMethod || '-'} | {agent.paymentReference || '-'}</div>
+                            </button>
+                          ))}
                         </div>
                       )}
+                      {formData.agentName && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <input disabled={isReadOnly} type="text" value={agentPaymentMethodInput} placeholder="OM, MTN, Espèces..." className="w-full bg-white border border-orange-200 rounded-xl p-2 text-[10px] outline-none focus:border-orange-400 transition-all disabled:opacity-60" onChange={(e) => setAgentPaymentMethodInput(e.target.value)} />
+                          <input disabled={isReadOnly} type="text" value={agentPaymentReferenceInput} placeholder="N° référence paiement" className="w-full bg-white border border-orange-200 rounded-xl p-2 text-[10px] outline-none focus:border-orange-400 transition-all disabled:opacity-60" onChange={(e) => setAgentPaymentReferenceInput(e.target.value)} />
+                        </div>
+                      )}
+                      {!isReadOnly && formData.agentName && (
+                        <button type="button" onClick={saveAgentDirectoryDetails} disabled={!hasAgentDirectoryChanges}
+                          className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${hasAgentDirectoryChanges ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-sm' : 'bg-white border border-orange-100 text-orange-300 cursor-not-allowed'}`}>
+                          Enregistrer / Mettre à jour cet agent
+                        </button>
+                      )}
                     </div>
-                    {filteredAgents.length > 0 && !isReadOnly && (
-                      <div className="bg-white border border-gray-200 rounded-xl p-2 space-y-1 max-h-40 overflow-y-auto">
-                        {filteredAgents.map((agent, idx) => (
-                          <button
-                            key={`${agent.id || 'legacy-agent'}-${idx}`}
-                            type="button"
-                            onClick={() => {
-                              setFormData(prev => ({ ...prev, agentName: agent.name }));
-                              setAgentSearch(agent.name);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-50 transition-all"
-                          >
-                            <div className="text-[11px] font-black text-gray-800 uppercase">{agent.name}</div>
-                            <div className="text-[10px] text-gray-500">{agent.preferredPaymentMethod || '-'} | {agent.paymentReference || '-'}</div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {formData.agentName && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          disabled={isReadOnly}
-                          type="text"
-                          value={agentPaymentMethodInput}
-                          placeholder="Mode paiement agent (OM, MTN, Espèces...)"
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-[10px] outline-none focus:border-blue-500 transition-all disabled:opacity-50"
-                          onChange={(e) => setAgentPaymentMethodInput(e.target.value)}
-                        />
-                        <input
-                          disabled={isReadOnly}
-                          type="text"
-                          value={agentPaymentReferenceInput}
-                          placeholder="N° ou référence paiement"
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-[10px] outline-none focus:border-blue-500 transition-all disabled:opacity-50"
-                          onChange={(e) => setAgentPaymentReferenceInput(e.target.value)}
-                        />
-                      </div>
-                    )}
-                    {!isReadOnly && formData.agentName && (
-                      <button
-                        type="button"
-                        onClick={saveAgentDirectoryDetails}
-                        disabled={!hasAgentDirectoryChanges}
-                        className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                          hasAgentDirectoryChanges
-                            ? 'bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100'
-                            : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'
-                        }`}
-                      >
-                        Enregistrer / Mettre a jour cet agent
-                      </button>
-                    )}
-                  </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Signature (Gérant)</label>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {(formData.hosts || []).map(h => {
-                        const name = h.split(' ')[0].toUpperCase();
-                        return (
-                          <button
-                            key={h}
-                            type="button"
-                            disabled={isReadOnly}
-                            onClick={() => setFormData(prev => ({ ...prev, signature: name }))}
-                            className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
-                              formData.signature === name 
-                                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                                : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
-                            }`}
-                          >
-                            {name}
-                          </button>
-                        );
-                      })}
+                    {/* Signature */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-orange-700">Signature (Gérant)</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(formData.hosts || []).map(h => {
+                          const name = h.split(' ')[0].toUpperCase();
+                          return (
+                            <button key={h} type="button" disabled={isReadOnly}
+                              onClick={() => setFormData(prev => ({ ...prev, signature: name }))}
+                              className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${formData.signature === name ? 'bg-orange-500 border-orange-500 text-white shadow-sm' : 'bg-white border-orange-200 text-orange-400 hover:border-orange-300'}`}>
+                              {name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-white border border-orange-200 rounded-xl p-3 text-xs outline-none focus:border-orange-400 transition-all disabled:opacity-60" onChange={handleChange} />
                     </div>
-                    <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange} />
                   </div>
-                  <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={2} placeholder="Observations particulières..." className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-50" onChange={handleChange}></textarea>
+                </div>
+
+                {/* ── SECTION OBSERVATIONS ── */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-500">
+                    <Info size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Observations</span>
+                  </div>
+                  <div className="p-4">
+                    <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={3} placeholder="Observations particulières, notes spéciales..." className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-slate-400 transition-all disabled:opacity-60 resize-none" onChange={handleChange}></textarea>
+                  </div>
+                </div>
+
+                {/* Legacy closing div for Options section */}
+                <div>
                   
                   {/* Mobile-only Preview Button */}
                   {!isReadOnly && (

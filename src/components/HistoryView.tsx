@@ -6,6 +6,7 @@ import {
   onSnapshot,
   doc,
   updateDoc,
+  deleteDoc,
   getDocs,
   where,
   limit 
@@ -26,7 +27,9 @@ import {
   Clock,
   Banknote,
   ShieldCheck,
-  Copy
+  Copy,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -47,6 +50,26 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
   const [expandedApartmentId, setExpandedApartmentId] = useState<string | null>(null);
   const [commissionAgentKey, setCommissionAgentKey] = useState('');
   const [agentPayInfo, setAgentPayInfo] = useState<AgentProfile | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ReceiptData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const isMainAdmin =
+    userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' ||
+    userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
+
+  const handleDeleteReceipt = async () => {
+    if (!deleteTarget?.id) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'receipts', deleteTarget.id));
+      onAlert(`Reçu ${deleteTarget.receiptId} supprimé définitivement.`, 'success');
+      setDeleteTarget(null);
+    } catch (e: any) {
+      onAlert(`Erreur lors de la suppression : ${e?.message || e}`, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Close expanded apartment on click outside
   useEffect(() => {
@@ -225,6 +248,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
   }
 
   return (
+    <>
     <div 
       className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden"
       onClick={() => setExpandedApartmentId(null)}
@@ -525,6 +549,15 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                         >
                           <Printer size={16} />
                         </button>
+                        {isMainAdmin && receipt.status === 'ANNULE' && (
+                          <button
+                            onClick={() => setDeleteTarget(receipt)}
+                            className="p-2 hover:bg-red-100 text-red-500 rounded-lg transition-all"
+                            title="Supprimer définitivement"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </motion.div>
                   );
@@ -569,6 +602,15 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                       >
                         <Printer size={16} />
                       </button>
+                      {isMainAdmin && receipt.status === 'ANNULE' && (
+                        <button
+                          onClick={() => setDeleteTarget(receipt)}
+                          className="p-2 bg-red-50 text-red-500 rounded-xl"
+                          title="Supprimer définitivement"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -678,6 +720,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                     {receipt.status === 'ANNULE' && (
                       <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-1 rounded uppercase">Annulé</span>
                     )}
+                    {/* Suppression mobile — déjà gérée via le bouton en haut de la carte */}
                   </div>
                 </motion.div>
               );
@@ -707,5 +750,61 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
         </div>
       </div>
     </div>
+
+    {/* ── Modal de confirmation de suppression ── */}
+    {deleteTarget && (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        {/* Overlay */}
+        <div
+          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          onClick={() => !isDeleting && setDeleteTarget(null)}
+        />
+        {/* Dialog */}
+        <div className="relative bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full space-y-5 z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center shrink-0">
+              <AlertTriangle size={22} className="text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm font-black uppercase tracking-widest text-gray-900">Suppression définitive</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Cette action est irréversible.</p>
+            </div>
+          </div>
+
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-700">{deleteTarget.receiptId}</p>
+            <p className="text-xs font-bold text-gray-800">{deleteTarget.firstName} {deleteTarget.lastName}</p>
+            <p className="text-[10px] text-gray-500">{deleteTarget.apartmentName}</p>
+            <p className="text-[10px] text-red-600 font-black">STATUT : ANNULÉ</p>
+          </div>
+
+          <p className="text-xs text-gray-500 text-center">
+            Le reçu sera supprimé de la base de données.<br />Il ne peut pas être récupéré.
+          </p>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setDeleteTarget(null)}
+              disabled={isDeleting}
+              className="flex-1 py-3 rounded-2xl border border-gray-200 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleDeleteReceipt}
+              disabled={isDeleting}
+              className="flex-1 py-3 rounded-2xl bg-red-600 text-white text-xs font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isDeleting ? (
+                <span className="animate-pulse">Suppression…</span>
+              ) : (
+                <><Trash2 size={13} /> Supprimer</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
