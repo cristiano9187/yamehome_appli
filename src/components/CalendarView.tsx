@@ -279,6 +279,35 @@ export default function CalendarView({
     });
   }, [userProfile]);
 
+  // Alternating booking colors per unit — even index = light shade, odd = dark shade
+  const COLOR_VARIANTS: Record<string, [string, string]> = {
+    'bg-emerald-500': ['bg-emerald-400', 'bg-emerald-700'],
+    'bg-blue-500':    ['bg-blue-400',    'bg-blue-700'],
+    'bg-orange-500':  ['bg-orange-400',  'bg-orange-700'],
+    'bg-purple-500':  ['bg-purple-400',  'bg-purple-700'],
+    'bg-gray-500':    ['bg-gray-400',    'bg-gray-700'],
+  };
+
+  const bookingIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const byUnit = new Map<string, ReceiptData[]>();
+    for (const r of receipts) {
+      if (!byUnit.has(r.calendarSlug)) byUnit.set(r.calendarSlug, []);
+      byUnit.get(r.calendarSlug)!.push(r);
+    }
+    for (const [, bookings] of byUnit) {
+      bookings.sort((a, b) => a.startDate.localeCompare(b.startDate));
+      bookings.forEach((b, i) => { if (b.id) map.set(b.id, i); });
+    }
+    return map;
+  }, [receipts]);
+
+  const getBookingColor = (baseColor: string, bookingId: string | undefined) => {
+    const variants = COLOR_VARIANTS[baseColor];
+    if (!variants || !bookingId) return baseColor;
+    return variants[(bookingIndexMap.get(bookingId) ?? 0) % 2];
+  };
+
   const groupedUnits = useMemo(() => {
     const groups: { site: string, color: string, units: typeof allUnits }[] = [];
     allUnits.forEach(unit => {
@@ -646,11 +675,14 @@ export default function CalendarView({
                               e.stopPropagation();
                               setSelectedBooking(booking);
                             }}
-                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${unit.color} text-white`}
+                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white`}
                           >
                             <span className="text-[9px] font-black uppercase tracking-tighter truncate px-1">
                               {booking.lastName}
                             </span>
+                            {booking.internalNotes && (
+                              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-400 rounded-full border border-white shadow-sm" title="Note interne" />
+                            )}
                           </div>
                         )}
 
@@ -829,6 +861,20 @@ export default function CalendarView({
                   </p>
                 </div>
               </div>
+
+              {selectedBooking.internalNotes && (
+                <div className="space-y-4">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-2">
+                    <Lock size={10} />
+                    Note interne
+                  </h4>
+                  <div className="bg-amber-50 rounded-2xl p-6 border border-amber-200">
+                    <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
+                      {selectedBooking.internalNotes}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-8 border-t border-gray-100 bg-gray-50">

@@ -27,6 +27,7 @@ export interface ReceiptData {
   packEco: boolean;
   packConfort: boolean;
   observations: string;
+  internalNotes?: string;
   status: 'VALIDE' | 'ANNULE';
   grandTotal: number;
   totalPaid: number;

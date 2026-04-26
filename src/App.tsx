@@ -126,7 +126,7 @@ export default function App() {
     isCustomRate: false, customLodgingTotal: 0,
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
     payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
-    signature: '', hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '',
+    signature: '', hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '', internalNotes: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
     cautionAmount: 0, isCautionRefunded: false,
@@ -1812,6 +1812,26 @@ export default function App() {
                   </div>
                   <div className="p-4">
                     <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={3} placeholder="Observations particulières, notes spéciales..." className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-slate-400 transition-all disabled:opacity-60 resize-none" onChange={handleChange}></textarea>
+                  </div>
+                </div>
+
+                {/* ── SECTION NOTES INTERNES ── */}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500">
+                    <Lock size={13} className="text-white" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Notes internes</span>
+                    <span className="ml-auto text-[9px] font-bold text-amber-100 uppercase tracking-widest">Non imprimé sur le reçu</span>
+                  </div>
+                  <div className="p-4">
+                    <textarea
+                      disabled={isReadOnly}
+                      name="internalNotes"
+                      value={formData.internalNotes || ''}
+                      rows={3}
+                      placeholder="Remarques internes, instructions d'équipe, contexte confidentiel… (jamais visible sur le PDF client)"
+                      className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs outline-none focus:border-amber-400 transition-all disabled:opacity-60 resize-none"
+                      onChange={handleChange}
+                    />
                   </div>
                 </div>
 

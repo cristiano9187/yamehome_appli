@@ -538,6 +538,7 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                           </button>
                         )}
                       </div>
+
                     </motion.div>
                   );
                 })}
