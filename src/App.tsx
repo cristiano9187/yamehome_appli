@@ -1413,7 +1413,10 @@ export default function App() {
             className="sidebar fixed md:sticky top-0 left-0 w-full md:w-[23rem] lg:w-[24rem] h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-50 print:hidden shadow-2xl md:shadow-none"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-              <h1 className="text-2xl font-black italic tracking-tighter uppercase">YAMEHOME</h1>
+              <div className="flex flex-col leading-tight">
+                <h1 className="text-2xl font-black italic tracking-tighter">YameHome</h1>
+                <span className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">Property Management</span>
+              </div>
               <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={20}/></button>
             </div>
 
