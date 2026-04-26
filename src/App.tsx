@@ -137,7 +137,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects'>('form');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects'>('calendar');
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());

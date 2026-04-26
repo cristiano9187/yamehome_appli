@@ -93,6 +93,7 @@ export default function CalendarView({
 
   // Auto-scroll to current day
   useEffect(() => {
+    if (loading) return;
     if ((viewMode === 'reservations' || viewMode === 'cleaning') && scrollContainerRef.current) {
       // If we've already restored a specific scroll position, don't auto-scroll to today
       if (hasRestoredScroll.current) return;
@@ -108,7 +109,6 @@ export default function CalendarView({
           const firstCol = container?.querySelector('th.sticky') as HTMLElement;
           
           if (container && todayEl && firstCol) {
-            const containerRect = container.getBoundingClientRect();
             const todayRect = todayEl.getBoundingClientRect();
             const firstColRect = firstCol.getBoundingClientRect();
             
@@ -122,14 +122,14 @@ export default function CalendarView({
               behavior: 'smooth'
             });
           }
-        }, 150); // Slightly longer timeout to ensure layout is stable
+        }, 100);
         return () => clearTimeout(timeoutId);
       } else if (!hasRestoredScroll.current) {
         // Only scroll to 0 if we haven't restored a position
         scrollContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
       }
     }
-  }, [viewMode, currentDate.getTime()]);
+  }, [loading, viewMode, currentDate.getTime()]);
 
   useEffect(() => {
     const year = currentDate.getFullYear();
