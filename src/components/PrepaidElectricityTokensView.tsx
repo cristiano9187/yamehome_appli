@@ -12,7 +12,13 @@ import {
 import { db, auth } from '../firebase';
 import { TARIFS, SITE_MAPPING, getPrepaidEligibleUnitRowsFromTarifs, formatCurrency } from '../constants';
 import { PrepaidElectricityToken, UserProfile, UnitElectricitySettings } from '../types';
-import { Zap, Menu, Loader2, Trash2, Plus } from 'lucide-react';
+import { Zap, Menu, Loader2, Trash2, Plus, CheckCircle2, Unlock } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+type TokenConfirmDialog = {
+  type: 'markUsed' | 'reopen' | 'delete';
+  token: PrepaidElectricityToken;
+};
 
 interface PrepaidElectricityTokensViewProps {
   userProfile: UserProfile | null;
@@ -44,6 +50,7 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
   const [newCode, setNewCode] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newKwh, setNewKwh] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState<TokenConfirmDialog | null>(null);
 
   const selectedRow = useMemo(
     () => allowedUnitRows.find((r) => r.unitSlug === selectedUnitSlug),
@@ -180,57 +187,73 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
     }
   };
 
-  const setTokenUsed = async (t: PrepaidElectricityToken, used: boolean) => {
-    if (!t.id) return;
-    const { id, ...row } = t;
-    if (used) {
-      if (!window.confirm('Confirmer que ce jeton a bien été utilisé sur ce compteur ? La date et l’heure seront enregistrées.')) return;
-      const now = new Date().toISOString();
-      const display = (auth.currentUser?.displayName || userProfile?.email || 'Agent').trim() || 'Agent';
-      try {
-        await setDoc(
-          doc(db, 'prepaid_electricity_tokens', id),
-          {
-            ...row,
-            used: true,
-            usedAt: now,
-            usedByUid: auth.currentUser?.uid || '',
-            usedByDisplayName: display,
-            updatedAt: now,
-          } as Record<string, unknown>,
-          { merge: true }
-        );
-        onAlert('Utilisation enregistrée', 'success');
-      } catch (e) {
-        onAlert('Erreur de mise à jour', 'error');
-      }
-    } else {
-      if (!isAdmin) return;
-      if (!window.confirm('Rouvrir ce jeton (annuler l’utilisation) ?')) return;
-      const now = new Date().toISOString();
-      try {
-        await setDoc(
-          doc(db, 'prepaid_electricity_tokens', id),
-          {
-            ...row,
-            used: false,
-            usedAt: null,
-            usedByUid: null,
-            usedByDisplayName: null,
-            updatedAt: now,
-          } as Record<string, unknown>,
-          { merge: true }
-        );
-        onAlert('Jeton rouvert', 'success');
-      } catch (e) {
-        onAlert('Erreur de mise à jour', 'error');
-      }
+  const handleTokenUsedToggle = (t: PrepaidElectricityToken, wantChecked: boolean) => {
+    if (wantChecked && !t.used) {
+      setConfirmDialog({ type: 'markUsed', token: t });
+      return;
+    }
+    if (!wantChecked && t.used && isAdmin) {
+      setConfirmDialog({ type: 'reopen', token: t });
     }
   };
 
-  const removeToken = async (t: PrepaidElectricityToken) => {
+  const applyMarkUsed = async (t: PrepaidElectricityToken) => {
+    if (!t.id) return;
+    const { id, ...row } = t;
+    const now = new Date().toISOString();
+    const display = (auth.currentUser?.displayName || userProfile?.email || 'Agent').trim() || 'Agent';
+    setConfirmDialog(null);
+    try {
+      await setDoc(
+        doc(db, 'prepaid_electricity_tokens', id),
+        {
+          ...row,
+          used: true,
+          usedAt: now,
+          usedByUid: auth.currentUser?.uid || '',
+          usedByDisplayName: display,
+          updatedAt: now,
+        } as Record<string, unknown>,
+        { merge: true }
+      );
+      onAlert('Utilisation enregistrée', 'success');
+    } catch (e) {
+      onAlert('Erreur de mise à jour', 'error');
+    }
+  };
+
+  const applyReopen = async (t: PrepaidElectricityToken) => {
     if (!isAdmin || !t.id) return;
-    if (!window.confirm('Supprimer définitivement ce jeton ?')) return;
+    const { id, ...row } = t;
+    const now = new Date().toISOString();
+    setConfirmDialog(null);
+    try {
+      await setDoc(
+        doc(db, 'prepaid_electricity_tokens', id),
+        {
+          ...row,
+          used: false,
+          usedAt: null,
+          usedByUid: null,
+          usedByDisplayName: null,
+          updatedAt: now,
+        } as Record<string, unknown>,
+        { merge: true }
+      );
+      onAlert('Jeton rouvert', 'success');
+    } catch (e) {
+      onAlert('Erreur de mise à jour', 'error');
+    }
+  };
+
+  const openDeleteDialog = (t: PrepaidElectricityToken) => {
+    if (!isAdmin || !t.id) return;
+    setConfirmDialog({ type: 'delete', token: t });
+  };
+
+  const applyDelete = async (t: PrepaidElectricityToken) => {
+    if (!t.id) return;
+    setConfirmDialog(null);
     try {
       await deleteDoc(doc(db, 'prepaid_electricity_tokens', t.id));
       onAlert('Jeton supprimé', 'success');
@@ -405,7 +428,7 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
                         <input
                           type="checkbox"
                           checked={t.used}
-                          onChange={() => setTokenUsed(t, !t.used)}
+                          onChange={(e) => handleTokenUsedToggle(t, e.target.checked)}
                           disabled={t.used && !isAdmin}
                           title={t.used && !isAdmin ? 'Seul un administrateur peut rouvrir un jeton' : 'Marquer comme utilisé'}
                           className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 disabled:opacity-50"
@@ -415,7 +438,7 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
                       {isAdmin && (
                         <button
                           type="button"
-                          onClick={() => removeToken(t)}
+                          onClick={() => openDeleteDialog(t)}
                           className="p-2 text-slate-400 hover:text-red-600"
                           title="Supprimer"
                         >
@@ -430,6 +453,117 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {confirmDialog && (
+          <motion.div
+            key={`${confirmDialog.type}-${confirmDialog.token.id}`}
+            role="presentation"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setConfirmDialog(null)}
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+            >
+              {confirmDialog.type === 'markUsed' && (
+                <>
+                  <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tight mb-2">Confirmer l’utilisation</h3>
+                  <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                    Ce jeton a bien été saisi sur le compteur de ce logement ? La <strong>date, l’heure</strong> et{' '}
+                    <strong>votre nom</strong> seront enregistrés.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => applyMarkUsed(confirmDialog.token)}
+                      className="w-full bg-amber-500 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-amber-500/20 hover:bg-amber-600 transition-all"
+                    >
+                      Confirmer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDialog(null)}
+                      className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {confirmDialog.type === 'reopen' && (
+                <>
+                  <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Unlock size={32} />
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tight mb-2">Rouvrir ce jeton ?</h3>
+                  <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                    L’utilisation enregistrée sera annulée. Utile seulement en cas d’erreur (ex. mauvaise case cochée).
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => applyReopen(confirmDialog.token)}
+                      className="w-full bg-amber-500 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-amber-500/20 hover:bg-amber-600 transition-all"
+                    >
+                      Rouvrir le jeton
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDialog(null)}
+                      className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {confirmDialog.type === 'delete' && (
+                <>
+                  <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Trash2 size={32} />
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tight mb-2">Supprimer ce jeton ?</h3>
+                  <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                    Cette action est <strong>définitive</strong> : le code et l’historique d’achat de cette ligne
+                    seront retirés.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => applyDelete(confirmDialog.token)}
+                      className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all"
+                    >
+                      Supprimer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDialog(null)}
+                      className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
