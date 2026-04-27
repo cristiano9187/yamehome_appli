@@ -163,3 +163,26 @@ export const getRateForApartment = (apartmentName: string, nights: number): { pr
 export const formatCurrency = (amount: number) => {
   return amount.toLocaleString('fr-FR', { style: 'currency', currency: 'XAF', minimumFractionDigits: 0, maximumFractionDigits: 0 });
 };
+
+/** Tous les logements (slug calendrier + intitulé TARIF) — pour jetons kWh, compteurs, etc. */
+export function getAllUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
+  const out: { unitSlug: string; apartmentName: string }[] = [];
+  for (const [apartmentName, data] of Object.entries(TARIFS)) {
+    const units = (data as { units?: string[] }).units;
+    if (units) {
+      for (const u of units) {
+        out.push({ unitSlug: u, apartmentName });
+      }
+    }
+  }
+  return out.sort((a, b) => a.apartmentName.localeCompare(b.apartmentName) || a.unitSlug.localeCompare(b.unitSlug));
+}
+
+/** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
+export function getPrepaidEligibleUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
+  return getAllUnitRowsFromTarifs().filter(({ apartmentName }) => {
+    if (apartmentName.toUpperCase().includes('GALLAGHERS')) return false;
+    if (apartmentName.includes('mode STUDIO')) return false;
+    return true;
+  });
+}

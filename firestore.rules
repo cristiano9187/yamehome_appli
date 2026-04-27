@@ -85,11 +85,12 @@ service cloud.firestore {
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
-             (!('allowedApartments' in data) || data.allowedApartments is list);
+             (!('allowedApartments' in data) || data.allowedApartments is list) &&
+             (!('linkedEmployeeId' in data) || data.linkedEmployeeId == null || data.linkedEmployeeId is string);
     }
 
     function isAuthorizedForApartment(apartmentName) {
@@ -137,6 +138,53 @@ service cloud.firestore {
              data.status in ['PRÉSENT', 'ABSENT', 'REPOS', 'PRÉVU_REPOS'];
     }
 
+    function isValidPrepaidElectricityToken(data) {
+      return hasRequiredFields([
+        'unitSlug', 'apartmentName', 'tokenCode', 'purchasePrice', 'expectedKwh', 'used',
+        'usedAt', 'usedByUid', 'usedByDisplayName', 'createdAt', 'updatedAt', 'createdByUid'
+      ]) &&
+        hasOnlyAllowedFields([
+          'unitSlug', 'apartmentName', 'tokenCode', 'purchasePrice', 'expectedKwh', 'used',
+          'usedAt', 'usedByUid', 'usedByDisplayName', 'createdAt', 'updatedAt', 'createdByUid'
+        ]) &&
+        data.unitSlug is string && data.unitSlug.size() > 0 &&
+        data.apartmentName is string && data.apartmentName.size() > 0 &&
+        data.tokenCode is string && data.tokenCode.size() > 0 && data.tokenCode.size() <= 128 &&
+        data.purchasePrice is number && data.purchasePrice >= 0 &&
+        data.expectedKwh is number && data.expectedKwh > 0 &&
+        data.used is bool &&
+        (data.usedAt == null || (data.usedAt is string)) &&
+        (data.usedByUid == null || (data.usedByUid is string)) &&
+        (data.usedByDisplayName == null || (data.usedByDisplayName is string)) &&
+        data.createdAt is string && data.updatedAt is string &&
+        data.createdByUid is string;
+    }
+
+    function agentMarksPrepaidTokenUsed() {
+      return isAgent() && !isAdmin() &&
+        request.resource.data.tokenCode == resource.data.tokenCode &&
+        request.resource.data.purchasePrice == resource.data.purchasePrice &&
+        request.resource.data.expectedKwh == resource.data.expectedKwh &&
+        request.resource.data.unitSlug == resource.data.unitSlug &&
+        request.resource.data.apartmentName == resource.data.apartmentName &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.createdByUid == resource.data.createdByUid &&
+        resource.data.used == false &&
+        request.resource.data.used == true &&
+        request.resource.data.usedAt is string && request.resource.data.usedAt.size() > 0 &&
+        request.resource.data.usedByUid is string && request.resource.data.usedByUid.size() > 0 &&
+        request.resource.data.usedByDisplayName is string;
+    }
+
+    function isValidUnitElectricitySettings(data) {
+      return hasRequiredFields(['unitSlug', 'apartmentName', 'meterNumber', 'updatedAt', 'updatedByUid']) &&
+        hasOnlyAllowedFields(['unitSlug', 'apartmentName', 'meterNumber', 'updatedAt', 'updatedByUid']) &&
+        data.unitSlug is string && data.apartmentName is string &&
+        data.meterNumber is string && data.meterNumber.size() <= 128 &&
+        data.updatedAt is string &&
+        data.updatedByUid is string;
+    }
+
     function isValidBlockedDate(data) {
       return hasRequiredFields(['date', 'calendarSlug', 'createdAt', 'authorUid']) &&
              hasOnlyAllowedFields(['date', 'calendarSlug', 'createdAt', 'authorUid', 'reason']) &&
@@ -178,6 +226,15 @@ service cloud.firestore {
              data.preferredPaymentMethod is string &&
              data.paymentReference is string &&
              data.authorUid is string && data.authorUid.size() > 0;
+    }
+
+    // Lien employé (présence) défini sur authorized_emails/{email} (document id = email en minuscules)
+    function userOwnsAttendanceViaEmailWhitelist(employeeId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+        'linkedEmployeeId' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+        get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.linkedEmployeeId is string &&
+        get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.linkedEmployeeId == employeeId;
     }
 
     // ===============================================================
@@ -223,7 +280,8 @@ service cloud.firestore {
 
     match /attendance/{attendanceId} {
       allow read: if isAgent();
-      allow write: if isAgent() && isValidAttendance(request.resource.data);
+      allow write: if isAgent() && isValidAttendance(request.resource.data) &&
+        (isAdmin() || userOwnsAttendanceViaEmailWhitelist(request.resource.data.employeeId));
     }
 
     match /blocked_dates/{blockedId} {
@@ -279,6 +337,31 @@ service cloud.firestore {
     match /archives/{archiveId} {
       allow read: if isAgent();
       allow write: if isAgent();
+    }
+
+    match /prepaid_electricity_tokens/{tokenId} {
+      allow read: if isAgent() &&
+        (isAdmin() || (resource.data != null && isAuthorizedForApartment(resource.data.apartmentName)));
+      allow create: if isAdmin() && isValidPrepaidElectricityToken(request.resource.data) &&
+        request.resource.data.used == false &&
+        (request.resource.data.usedAt == null) &&
+        (request.resource.data.usedByUid == null) &&
+        (request.resource.data.usedByDisplayName == null) &&
+        request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isValidPrepaidElectricityToken(request.resource.data) && (
+        isAdmin() ||
+        (agentMarksPrepaidTokenUsed() && isAuthorizedForApartment(resource.data.apartmentName))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /unit_electricity_settings/{unitSlug} {
+      allow read: if isAgent() && (
+        isAdmin() ||
+        (resource.data != null && isAuthorizedForApartment(resource.data.apartmentName))
+      );
+      allow create, update: if isAdmin() && isValidUnitElectricitySettings(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Default deny

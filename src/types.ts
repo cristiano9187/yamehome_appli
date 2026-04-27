@@ -84,6 +84,34 @@ export interface Apartment {
   caution: number;
 }
 
+/** Jeton prépayé d’électricité — rattaché à un logement (slug calendrier = un seul compteur). */
+export interface PrepaidElectricityToken {
+  id?: string;
+  unitSlug: string;
+  apartmentName: string;
+  /** Code de recharge (texte, ~50 caractères) */
+  tokenCode: string;
+  purchasePrice: number;
+  expectedKwh: number;
+  used: boolean;
+  /** Date-heure ISO à l’enregistrement de l’utilisation */
+  usedAt: string | null;
+  usedByUid: string | null;
+  usedByDisplayName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdByUid: string;
+}
+
+/** N° de compteur affiché pour un logement (un doc par `unitSlug`). */
+export interface UnitElectricitySettings {
+  unitSlug: string;
+  apartmentName: string;
+  meterNumber: string;
+  updatedAt: string;
+  updatedByUid: string;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -91,6 +119,8 @@ export interface UserProfile {
   displayName: string;
   isApproved?: boolean;
   allowedSites?: string[];
+  /** Profil employé (présence) — renseigné via Gestion des accès, synchronisé depuis authorized_emails */
+  linkedEmployeeId?: string | null;
 }
 
 export interface AuthorizedEmail {
@@ -99,6 +129,8 @@ export interface AuthorizedEmail {
   role: 'admin' | 'agent';
   addedAt: string;
   allowedSites?: string[];
+  /** ID document `employees/{id}` — l’agent ne peut cocher la présence que pour cet employé */
+  linkedEmployeeId?: string | null;
 }
 
 export interface Employee {
