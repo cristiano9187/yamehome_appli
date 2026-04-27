@@ -21,6 +21,7 @@ import {
   Menu
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
+import { effectuéMériteAffichageAlerte } from '../cleaningReportUtils';
 import { 
   collection, 
   query, 
@@ -686,26 +687,48 @@ export default function CalendarView({
                           </div>
                         )}
 
-                        {viewMode === 'cleaning' && isCleaningDay && (
+                        {viewMode === 'cleaning' && isCleaningDay && (() => {
+                          const showOrangeOnEffectué =
+                            currentReport?.status === 'EFFECTUÉ' &&
+                            effectuéMériteAffichageAlerte(currentReport);
+                          const cellTitle = showOrangeOnEffectué
+                            ? "Effectué : point(s) d'attention (mesures, serviettes, texte) — surlignage discret"
+                            : undefined;
+                          return (
                           <div 
                             onClick={(e) => {
                               e.stopPropagation();
                               onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr);
                             }}
-                            className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 shadow-sm border ${
+                            title={cellTitle}
+                            className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
                               currentReport 
-                                ? currentReport.status === 'EFFECTUÉ' ? 'bg-green-100 border-green-500 text-green-600 shadow-md border-2' : 
-                                  currentReport.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
-                                  'bg-orange-100 border-orange-500 text-orange-600 shadow-md border-2'
+                                ? currentReport.status === 'EFFECTUÉ' 
+                                    ? (showOrangeOnEffectué
+                                        ? 'bg-amber-50/90 border-amber-200/90 text-amber-900/90 shadow-sm' 
+                                        : 'bg-green-100 border-green-500 text-green-600 shadow-md border-2')
+                                    : currentReport.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
+                                    'bg-amber-50/90 border-amber-200/90 text-amber-900/90 shadow-sm'
                                 : isCalculatedCleaningDay 
                                   ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' 
                                   : 'bg-transparent border-gray-200 text-gray-300 opacity-20 hover:opacity-100 hover:bg-white hover:border-blue-300'
                             }`}
                           >
                             <ClipboardCheck size={14} />
-                            {currentReport && <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                            {currentReport && (
+                              <div
+                                className={`absolute -top-1 -right-1 w-2 h-2 rounded-full animate-pulse ${
+                                  currentReport.status === 'EFFECTUÉ' && !showOrangeOnEffectué
+                                    ? 'bg-green-500'
+                                    : currentReport.status === 'PRÉVU'
+                                      ? 'bg-blue-500'
+                                      : 'bg-amber-500/80'
+                                }`}
+                              />
+                            )}
                           </div>
-                        )}
+                          );
+                        })()}
                       </td>
                     );
                   })}

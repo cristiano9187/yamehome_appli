@@ -29,8 +29,9 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
+import { defaultCleaningChecklist, normalizeCleaningReport, validateCleaningReportForSubmit } from './cleaningReportUtils';
 import { upsertPublicCalendar, deletePublicCalendar } from './utils/publicCalendar';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
@@ -98,10 +99,12 @@ function handleFirestoreError(error: unknown, operationType: string, path: strin
     }
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  
-  if (errInfo.error.toLowerCase().includes('permission') || errInfo.error.toLowerCase().includes('insufficient')) {
-    throw new Error(JSON.stringify(errInfo));
-  }
+  // Ne pas re-lancer : les catch des appelants doivent pouvoir afficher setAlertMessage à l’utilisateur.
+}
+
+/** Firestore rejette les champs `undefined` — on les retire avant setDoc. */
+function stripUndefinedForFirestore<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
 const getLocalDateString = (date: Date = new Date()) => {
@@ -179,6 +182,7 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [alertType, setAlertType] = useState<'info' | 'error' | 'success'>('info');
+  const [cleaningSubmitHint, setCleaningSubmitHint] = useState<string | null>(null);
   
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
@@ -197,13 +201,24 @@ export default function App() {
     menageId: urlParams.get('menageId') || '',
     calendarSlug: urlParams.get('slug') || '',
     dateIntervention: urlParams.get('date') || getLocalDateString(),
-    agent: '', 
+    agentEtape1: '',
+    agentEtape2: '',
     status: 'PRÉVU', 
     feedback: '', 
     damages: '', 
-    maintenance: '',
+    ...defaultCleaningChecklist,
     createdAt: new Date().toISOString()
   });
+
+  // Chambres sans onduleur (Matera / Gallaghers) : ne pas conserver d’ancienne saisie onduleur
+  useEffect(() => {
+    if (!isCleaningMode || isCleaningReadOnly) return;
+    if (!isOnduleurNonConcerne(cleaningReport.calendarSlug)) return;
+    setCleaningReport((prev) => {
+      if (!prev.backupOnduleurFonctionne && prev.backupBatterieBarres == null) return prev;
+      return { ...prev, backupOnduleurFonctionne: '', backupBatterieBarres: null };
+    });
+  }, [isCleaningMode, isCleaningReadOnly, cleaningReport.calendarSlug]);
 
   // --- AUTH ---
   useEffect(() => {
@@ -351,8 +366,9 @@ export default function App() {
         }
         const snap = await getDocs(q);
         if (!snap.empty) {
-          const data = snap.docs[0].data() as CleaningReport;
-          setCleaningReport(data);
+          const cr = snap.docs[0];
+          const raw = cr.data() as Record<string, unknown>;
+          setCleaningReport(normalizeCleaningReport({ id: cr.id, ...raw }));
           setIsCleaningReadOnly(true);
         }
       }
@@ -617,12 +633,56 @@ export default function App() {
     }
   };
 
-  const handleCleaningChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setCleaningReport(prev => ({ ...prev, [name]: value as any }));
+  const handleCleaningChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    const t = e.target;
+    if ('type' in t && t.type === 'checkbox' && t instanceof HTMLInputElement) {
+      const { name, checked } = t;
+      setCleaningReport(prev => ({ ...prev, [name]: checked } as CleaningReport));
+      return;
+    }
+    if ('type' in t && t.type === 'number' && t instanceof HTMLInputElement) {
+      const { name, value } = t;
+      if (name === 'kwhCompteurPrepaye' || name === 'nombreServiettes') {
+        if (value === '') {
+          setCleaningReport(prev => ({ ...prev, [name]: null } as CleaningReport));
+        } else if (name === 'kwhCompteurPrepaye') {
+          const n = parseFloat(value);
+          setCleaningReport(prev => ({ ...prev, kwhCompteurPrepaye: Number.isNaN(n) ? null : n }));
+        } else {
+          const n = parseInt(value, 10);
+          setCleaningReport(prev => ({ ...prev, nombreServiettes: Number.isNaN(n) ? null : Math.max(0, n) }));
+        }
+      }
+      return;
+    }
+    const { name, value } = t;
+    if (name === 'backupOnduleurFonctionne') {
+      setCleaningReport(prev => ({
+        ...prev,
+        backupOnduleurFonctionne: value as '' | 'OUI' | 'NON',
+        backupBatterieBarres: value === 'NON' ? null : prev.backupBatterieBarres
+      } as CleaningReport));
+      return;
+    }
+    if (name === 'backupBatterieBarres') {
+      if (value === '') {
+        setCleaningReport(prev => ({ ...prev, backupBatterieBarres: null } as CleaningReport));
+        return;
+      }
+      const n = parseInt(value, 10);
+      setCleaningReport(prev => ({
+        ...prev,
+        backupBatterieBarres: n === 1 || n === 2 || n === 3 ? n : null
+      } as CleaningReport));
+      return;
+    }
+    setCleaningReport(prev => ({ ...prev, [name]: value } as CleaningReport));
   };
 
   const submitCleaningReport = async () => {
+    setCleaningSubmitHint(null);
     const allowedSites = userProfile?.allowedSites || [];
     const isMainAdmin = isMainAdminEmail(userProfile?.email);
     
@@ -633,30 +693,36 @@ export default function App() {
     const isAllowed = allowedApartments.some(apt => TARIFS[apt]?.units?.includes(cleaningReport.calendarSlug));
 
     if (!isAllowed) {
+      const msg = "Vous n'êtes pas autorisé à gérer le ménage pour ce logement.";
+      setCleaningSubmitHint(msg);
       setAlertType('error');
-      setAlertMessage("Vous n'êtes pas autorisé à gérer le ménage pour ce logement.");
+      setAlertMessage(msg);
       return;
     }
 
-    if (cleaningReport.status !== 'PRÉVU' && cleaningReport.status !== 'ANNULÉ' && !cleaningReport.agent) {
+    const validationError = validateCleaningReportForSubmit(cleaningReport);
+    if (validationError) {
+      setCleaningSubmitHint(validationError);
       setAlertType('error');
-      setAlertMessage("Nom agent requis");
+      setAlertMessage(validationError);
       return;
     }
     setIsSaving(true);
     try {
       // Create a unique deterministic ID if not already present
       const reportId = cleaningReport.id || `CR-${cleaningReport.menageId}-${cleaningReport.calendarSlug}-${cleaningReport.dateIntervention}`;
-      await setDoc(doc(db, 'cleaning_reports', reportId), {
+      const payload = stripUndefinedForFirestore({
         ...cleaningReport,
         id: reportId,
         createdAt: new Date().toISOString()
-      });
+      } as Record<string, unknown>);
+      await setDoc(doc(db, 'cleaning_reports', reportId), payload);
 
       // Close modals first
       setIsCleaningMode(false);
       setView('calendar');
 
+      setCleaningSubmitHint(null);
       // Then show alert
       setTimeout(() => {
         setAlertType('success');
@@ -664,8 +730,15 @@ export default function App() {
       }, 100);
     } catch (e) { 
       handleFirestoreError(e, OperationType.WRITE, 'cleaning_reports');
+      const em = e && typeof e === 'object' && 'message' in e ? String((e as Error).message) : String(e);
+      const isPerm =
+        /permission|insufficient|missing or insufficient|denied|PERMISSION/i.test(em);
+      const msg = isPerm
+        ? "Enregistrement refusé : droits Firebase insuffisants. Vérifiez que vous êtes connecté et autorisé pour ce logement, ou demandez un correctif des règles Firestore."
+        : "Erreur d'enregistrement (réseau, données invalides, etc.). Détails dans la console (F12).";
+      setCleaningSubmitHint(msg);
       setAlertType('error');
-      setAlertMessage("Erreur d'enregistrement");
+      setAlertMessage(msg);
     } finally { 
       setIsSaving(false); 
     }
@@ -868,11 +941,12 @@ export default function App() {
           menageId: formData.receiptId,
           calendarSlug: finalSlug,
           dateIntervention: formData.endDate,
-          agent: '',
+          agentEtape1: '',
+          agentEtape2: '',
           status: 'PRÉVU',
           feedback: '',
           damages: '',
-          maintenance: '',
+          ...defaultCleaningChecklist,
           createdAt: new Date().toISOString()
         }, { merge: true }));
       }
@@ -1272,17 +1346,32 @@ export default function App() {
               </div>
               
               <div className="space-y-6">
-                <div>
-                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Agent Responsable</label>
-                  <input 
-                    disabled={isCleaningReadOnly} 
-                    type="text" 
-                    name="agent" 
-                    className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
-                    placeholder="Nom de l'agent" 
-                    value={cleaningReport.agent} 
-                    onChange={handleCleaningChange} 
-                  />
+                <div className="space-y-3">
+                  <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Contrôle en 2 étapes — deux noms requis en fin de rapport</p>
+                  <div>
+                    <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Agent — étape 1 (1er passage / contrôle)</label>
+                    <input 
+                      disabled={isCleaningReadOnly} 
+                      type="text" 
+                      name="agentEtape1" 
+                      className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
+                      placeholder="Nom de l'agent" 
+                      value={cleaningReport.agentEtape1} 
+                      onChange={handleCleaningChange} 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Agent — étape 2 (relecture / validation)</label>
+                    <input 
+                      disabled={isCleaningReadOnly} 
+                      type="text" 
+                      name="agentEtape2" 
+                      className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
+                      placeholder="Deuxième agent" 
+                      value={cleaningReport.agentEtape2} 
+                      onChange={handleCleaningChange} 
+                    />
+                  </div>
                 </div>
                 
                 <div>
@@ -1300,46 +1389,214 @@ export default function App() {
                     <option value="REPORTÉ">⏳ REPORTÉ</option>
                   </select>
                 </div>
-                
+
+                {(cleaningReport.status === 'EFFECTUÉ' || cleaningReport.status === 'ANOMALIE') && (
+                  <div className="space-y-4 p-4 rounded-xl border border-gray-200 bg-gray-50/90">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Contrôles obligatoires</p>
+                    <div>
+                      <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">kWh restants (compteur prépayé)</label>
+                      <input
+                        disabled={isCleaningReadOnly}
+                        type="number"
+                        name="kwhCompteurPrepaye"
+                        min={0}
+                        step="0.1"
+                        inputMode="decimal"
+                        className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
+                        placeholder="ex. 42"
+                        value={cleaningReport.kwhCompteurPrepaye ?? ''}
+                        onChange={handleCleaningChange}
+                      />
+                    </div>
+
+                    <div
+                      className={`pt-3 border-t border-gray-200/90 space-y-3 rounded-xl p-3 -mx-1 ${
+                        isOnduleurNonConcerne(cleaningReport.calendarSlug)
+                          ? 'bg-gray-100/90 border border-gray-200/80 opacity-90 pointer-events-none'
+                          : ''
+                      }`}
+                    >
+                      <p className="text-[10px] text-amber-800 font-black uppercase tracking-widest">Onduleur / backup de courant</p>
+                      {isOnduleurNonConcerne(cleaningReport.calendarSlug) ? (
+                        <div className="space-y-1.5">
+                          <p className="text-xs text-gray-600 leading-relaxed">
+                            <span className="font-bold text-gray-800">Non concerné</span> sur cette chambre (Matera chambre standard ou Gallaghers City) : pas d’onduleur installé à ce jour. Aucune saisie requise ici.
+                          </p>
+                          <p className="text-[10px] text-gray-500">Les autres appartements / studios du parc continuent d’indiquer le test onduleur et le niveau de batterie.</p>
+                        </div>
+                      ) : (
+                        <>
+                      <div>
+                        <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">L’onduleur (backup) fonctionne-t-il ?</label>
+                        <p className="text-[9px] text-gray-400 mb-1.5">Vérifiez l’appareil : voyants, bips anormaux, passage sur batterie.</p>
+                        <select
+                          disabled={isCleaningReadOnly}
+                          name="backupOnduleurFonctionne"
+                          className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-amber-500 disabled:bg-gray-50"
+                          value={cleaningReport.backupOnduleurFonctionne}
+                          onChange={handleCleaningChange}
+                        >
+                          <option value="">— Choisir —</option>
+                          <option value="OUI">Oui</option>
+                          <option value="NON">Non / défaut / alarme</option>
+                        </select>
+                      </div>
+                      {cleaningReport.backupOnduleurFonctionne === 'OUI' && (
+                        <div>
+                          <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Niveau de batterie (barres sur l’écran de l’onduleur)</label>
+                          <select
+                            disabled={isCleaningReadOnly}
+                            name="backupBatterieBarres"
+                            className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-amber-500 disabled:bg-gray-50"
+                            value={cleaningReport.backupBatterieBarres ?? ''}
+                            onChange={handleCleaningChange}
+                          >
+                            <option value="">— Choisir 1, 2 ou 3 barres —</option>
+                            <option value="1">1 barre — presque vide, à recharger vite</option>
+                            <option value="2">2 barres — à mi-parcours</option>
+                            <option value="3">3 barres — bon niveau / plein</option>
+                          </select>
+                        </div>
+                      )}
+                      {cleaningReport.backupOnduleurFonctionne === 'NON' && (
+                        <p className="text-[10px] text-amber-900 bg-amber-50/90 border border-amber-200/80 p-2.5 rounded-lg leading-snug">
+                          Détaillez l’onduleur dans le compte-rendu. Vous pouvez rester en <strong>« Effectué »</strong> si le ménage est fait : la case du planning s’affichera en <strong>orange</strong> pour attirer l’œil. Utilisez <strong>« Anomalie signalée »</strong> seulement si l’intervention n’a pas pu être menée correctement.
+                        </p>
+                      )}
+                        </>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Eau</label>
+                        <select
+                          disabled={isCleaningReadOnly}
+                          name="eau"
+                          className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
+                          value={cleaningReport.eau}
+                          onChange={handleCleaningChange}
+                        >
+                          <option value="">— Choisir —</option>
+                          <option value="OUI">Oui</option>
+                          <option value="NON">Non</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Courant</label>
+                        <select
+                          disabled={isCleaningReadOnly}
+                          name="courant"
+                          className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
+                          value={cleaningReport.courant}
+                          onChange={handleCleaningChange}
+                        >
+                          <option value="">— Choisir —</option>
+                          <option value="OUI">Oui</option>
+                          <option value="NON">Non</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                      <div>
+                        <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Nombre de serviettes (propres, en place)</label>
+                        <input
+                          disabled={isCleaningReadOnly}
+                          type="number"
+                          name="nombreServiettes"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
+                          placeholder="ex. 6"
+                          value={cleaningReport.nombreServiettes ?? ''}
+                          onChange={handleCleaningChange}
+                        />
+                      </div>
+                      <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-white cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="serviettesPropresRangees"
+                          disabled={isCleaningReadOnly}
+                          checked={cleaningReport.serviettesPropresRangees}
+                          onChange={handleCleaningChange}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <span className="text-xs font-bold text-gray-800">Serviettes propres et bien rangées</span>
+                      </label>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-2">Vérification par zone</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {[
+                          ['checkEntreeSalon', 'Entrée & salon'] as const,
+                          ['checkCuisine', 'Cuisine'] as const,
+                          ['checkChambres', 'Chambres'] as const,
+                          ['checkSdb', 'Salle de bain'] as const
+                        ].map(([name, label]) => (
+                          <label key={name} className="flex items-center gap-2 p-2 rounded-lg border border-gray-100 bg-white">
+                            <input
+                              type="checkbox"
+                              name={name}
+                              disabled={isCleaningReadOnly}
+                              checked={!!(cleaningReport as Record<string, boolean>)[name]}
+                              onChange={handleCleaningChange}
+                              className="h-4 w-4 rounded border-gray-300"
+                            />
+                            <span className="text-xs font-semibold text-gray-800">{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {cleaningReport.status === 'REPORTÉ' && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200/80 p-3 rounded-xl leading-relaxed">
+                    Expliquez pourquoi le ménage est reporté (nouvelle date, accès, etc.) — 20 caractères minimum.
+                  </p>
+                )}
+
                 <div>
-                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">Feedback & Observations</label>
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2 block">
+                    {cleaningReport.status === 'PRÉVU'
+                      ? 'Notes (optionnel)'
+                      : 'Compte-rendu & observations'}
+                  </label>
                   <textarea 
                     disabled={isCleaningReadOnly} 
                     name="feedback" 
-                    rows={3} 
+                    rows={4} 
                     className="w-full bg-white border border-gray-200 rounded-xl p-4 text-sm outline-none focus:border-blue-500 transition-all disabled:bg-gray-50" 
-                    placeholder="Commentaire sur l'état général..." 
+                    placeholder={
+                      cleaningReport.status === 'EFFECTUÉ' || cleaningReport.status === 'ANOMALIE'
+                        ? "Décrivez l’état réel du logement (min. 30 caractères) : propreté, manques, remarques…"
+                        : cleaningReport.status === 'REPORTÉ'
+                          ? "Motif du report (20 caractères min.)…"
+                          : "Commentaire sur l’état général…"
+                    } 
                     value={cleaningReport.feedback} 
                     onChange={handleCleaningChange}
                   ></textarea>
+                  {(cleaningReport.status === 'EFFECTUÉ' || cleaningReport.status === 'ANOMALIE') && (
+                    <p className="text-[10px] text-gray-400 mt-1">Un simple « RAS » n’est plus accepté — soyez précis.</p>
+                  )}
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                {cleaningReport.status !== 'PRÉVU' && (
                   <div>
-                    <label className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-2 block">Casse / Dommages</label>
+                    <label className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-2 block">Casse / dommages</label>
                     <textarea 
                       disabled={isCleaningReadOnly} 
                       name="damages" 
-                      rows={2} 
-                      className="w-full bg-white border border-red-100 rounded-xl p-3 text-xs outline-none focus:border-red-500 transition-all disabled:bg-gray-50" 
-                      placeholder="Signaler une casse..." 
+                      rows={3} 
+                      className="w-full bg-white border border-red-100 rounded-xl p-3 text-sm outline-none focus:border-red-500 transition-all disabled:bg-gray-50" 
+                      placeholder="Signaler une casse, une tache, un objet cassé… (laisser vide si rien)" 
                       value={cleaningReport.damages} 
                       onChange={handleCleaningChange}
                     ></textarea>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-orange-400 font-black uppercase tracking-widest mb-2 block">Maintenance</label>
-                    <textarea 
-                      disabled={isCleaningReadOnly} 
-                      name="maintenance" 
-                      rows={2} 
-                      className="w-full bg-white border border-orange-100 rounded-xl p-3 text-xs outline-none focus:border-orange-500 transition-all disabled:bg-gray-50" 
-                      placeholder="Besoin technique ?" 
-                      value={cleaningReport.maintenance} 
-                      onChange={handleCleaningChange}
-                    ></textarea>
-                  </div>
-                </div>
+                )}
                 
                 {isCleaningReadOnly ? (
                    <div className="flex flex-col gap-3 mt-8">
@@ -1371,6 +1628,7 @@ export default function App() {
                   <div className="flex flex-col gap-3 mt-8">
                     <div className="flex gap-4">
                       <button 
+                        type="button"
                         onClick={() => {
                           setIsCleaningMode(false);
                           setView('calendar');
@@ -1380,13 +1638,24 @@ export default function App() {
                         Annuler
                       </button>
                       <button 
-                        onClick={submitCleaningReport} 
-                        disabled={isSaving || (cleaningReport.status !== 'PRÉVU' && !cleaningReport.agent)} 
+                        type="button"
+                        onClick={() => { void submitCleaningReport(); }} 
+                        disabled={isSaving || (cleaningReport.status !== 'PRÉVU' && (!cleaningReport.agentEtape1?.trim() || !cleaningReport.agentEtape2?.trim()))} 
                         className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-600/20 uppercase text-xs tracking-widest transition-all disabled:opacity-50"
                       >
                         {isSaving ? 'ENVOI...' : cleaningReport.status === 'PRÉVU' ? 'CONFIRMER LA PLANIFICATION' : 'VALIDER LE RAPPORT'}
                       </button>
                     </div>
+                    {cleaningReport.status !== 'PRÉVU' && (!cleaningReport.agentEtape1?.trim() || !cleaningReport.agentEtape2?.trim()) && (
+                      <p className="text-[10px] text-center text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg p-2">
+                        Renseignez les <strong>deux noms d’agents</strong> (étape 1 et 2) pour activer l’enregistrement.
+                      </p>
+                    )}
+                    {cleaningSubmitHint && (
+                      <p className="text-xs text-center text-red-600 font-semibold leading-snug px-1">
+                        {cleaningSubmitHint}
+                      </p>
+                    )}
                     {cleaningReport.id && (
                       <button 
                         onClick={() => setShowDeleteCleaningConfirm(true)} 
@@ -1936,6 +2205,7 @@ export default function App() {
                   return;
                 }
 
+                setCleaningSubmitHint(null);
                 // Check if report exists for this unit and date (regardless of menageId)
                 const q = query(
                   collection(db, 'cleaning_reports'), 
@@ -1944,7 +2214,10 @@ export default function App() {
                   limit(1)
                 );
                 const snap = await getDocs(q);
-                const existing = !snap.empty ? snap.docs[0].data() as CleaningReport : null;
+                const existingRaw = !snap.empty
+                  ? ({ id: snap.docs[0].id, ...snap.docs[0].data() } as Record<string, unknown>)
+                  : null;
+                const existing = existingRaw ? normalizeCleaningReport(existingRaw) : null;
                 
                 if (existing && existing.status !== 'ANNULÉ') {
                   // If it's just planned (PRÉVU), open it directly without confirmation
@@ -1963,11 +2236,12 @@ export default function App() {
                     menageId: menageId || 'MANUAL',
                     calendarSlug: slug,
                     dateIntervention: date,
-                    agent: '',
+                    agentEtape1: '',
+                    agentEtape2: '',
                     status: 'PRÉVU',
                     feedback: '',
                     damages: '',
-                    maintenance: '',
+                    ...defaultCleaningChecklist,
                     createdAt: new Date().toISOString()
                   });
                   setIsCleaningReadOnly(false);
@@ -2188,11 +2462,13 @@ export default function App() {
               </p>
               <div className="flex flex-col gap-3">
                 <button 
+                  type="button"
                   onClick={() => {
                     if (pendingCleaningData.report) {
                       setCleaningReport(pendingCleaningData.report);
                       setIsCleaningReadOnly(true);
                       setIsCleaningMode(true);
+                      setCleaningSubmitHint(null);
                     }
                     setShowCleaningConfirm(false);
                     setPendingCleaningData(null);
@@ -2210,11 +2486,12 @@ export default function App() {
                         menageId: pendingCleaningData.menageId || 'MANUAL',
                         calendarSlug: pendingCleaningData.slug,
                         dateIntervention: pendingCleaningData.date,
-                        agent: '',
+                        agentEtape1: '',
+                        agentEtape2: '',
                         status: 'PRÉVU',
                         feedback: '',
                         damages: '',
-                        maintenance: '',
+                        ...defaultCleaningChecklist,
                         createdAt: new Date().toISOString()
                       });
                     }
@@ -2307,7 +2584,7 @@ export default function App() {
         )}
 
         {alertMessage && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}

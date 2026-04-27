@@ -61,14 +61,25 @@
         "menageId": { "type": "string", "description": "Reference to the receipt ID." },
         "calendarSlug": { "type": "string" },
         "dateIntervention": { "type": "string", "format": "date" },
-        "agent": { "type": "string" },
+        "agentEtape1": { "type": "string", "description": "1er contrôle" },
+        "agentEtape2": { "type": "string", "description": "2e contrôle" },
         "status": { "type": "string", "enum": ["EFFECTUÉ", "ANOMALIE", "REPORTÉ", "PRÉVU"] },
         "feedback": { "type": "string" },
         "damages": { "type": "string" },
-        "maintenance": { "type": "string" },
+        "kwhCompteurPrepaye": { "type": "number" },
+        "eau": { "type": "string" },
+        "courant": { "type": "string" },
+        "backupOnduleurFonctionne": { "type": "string" },
+        "backupBatterieBarres": { "type": "number" },
+        "nombreServiettes": { "type": "number" },
+        "serviettesPropresRangees": { "type": "boolean" },
+        "checkEntreeSalon": { "type": "boolean" },
+        "checkCuisine": { "type": "boolean" },
+        "checkChambres": { "type": "boolean" },
+        "checkSdb": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["menageId", "calendarSlug", "dateIntervention", "agent", "status"]
+      "required": ["menageId", "calendarSlug", "dateIntervention", "agentEtape1", "agentEtape2", "status"]
     },
     "User": {
       "title": "User",
