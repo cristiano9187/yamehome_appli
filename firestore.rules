@@ -15,7 +15,8 @@ service cloud.firestore {
     //         electricityCharge, packEco, packConfort, observations, signature, createdAt, authorUid
     //
     // Collection: cleaning_reports
-    // Fields: menageId, calendarSlug, dateIntervention, agent, status, feedback, damages, maintenance, createdAt
+    // Fields: menageId, calendarSlug, dateIntervention, agentEtape1, agentEtape2, status, feedback, damages,
+    //         kWh, eau, courant, backup onduleur, serviettes, checklists, etc. (ancien « agent » migré côté app)
     //
     // Collection: users
     // Fields: uid, email, role, displayName, allowedSites
@@ -110,9 +111,16 @@ service cloud.firestore {
     }
 
     function isValidCleaningReport(data) {
-      return hasRequiredFields(['menageId', 'calendarSlug', 'dateIntervention', 'status', 'agent']) &&
-             (data.status == 'PRÉVU' || data.status == 'ANNULÉ' || data.agent.size() > 0) &&
-             data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU', 'ANNULÉ'];
+      // Deux noms d’agents (fiches 2 étapes) — pas l’ancien champ « agent ».
+      // PRÉVU / ANNULÉ : noms pouvant être vides ; sinon les deux noms requis côté app.
+      return hasRequiredFields(['menageId', 'calendarSlug', 'dateIntervention', 'status', 'agentEtape1', 'agentEtape2']) &&
+        data.menageId is string && data.menageId.size() > 0 &&
+        data.calendarSlug is string && data.calendarSlug.size() > 0 &&
+        data.dateIntervention is string && data.dateIntervention.size() > 0 &&
+        data.agentEtape1 is string && data.agentEtape2 is string &&
+        (data.status == 'PRÉVU' || data.status == 'ANNULÉ' ||
+          (data.agentEtape1.size() > 0 && data.agentEtape2.size() > 0)) &&
+        data.status in ['EFFECTUÉ', 'ANOMALIE', 'REPORTÉ', 'PRÉVU', 'ANNULÉ'];
     }
 
     function isValidEmployee(data) {
@@ -253,6 +261,24 @@ service cloud.firestore {
       allow update: if isAgent() &&
         isValidAgentProfile(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // public_calendar — vue publique des réservations et blocages
+    // Lecture ouverte (yamehome.com, n8n) ; écriture réservée aux agents.
+    // ---------------------------------------------------------------
+    match /public_calendar/{eventId} {
+      allow read: if true;
+      allow write: if isAgent();
+    }
+
+    // ---------------------------------------------------------------
+    // archives — réservations passées pour l'analytique
+    // Lecture et écriture réservées aux agents authentifiés.
+    // ---------------------------------------------------------------
+    match /archives/{archiveId} {
+      allow read: if isAgent();
+      allow write: if isAgent();
     }
 
     // Default deny

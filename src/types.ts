@@ -27,6 +27,7 @@ export interface ReceiptData {
   packEco: boolean;
   packConfort: boolean;
   observations: string;
+  internalNotes?: string;
   status: 'VALIDE' | 'ANNULE';
   grandTotal: number;
   totalPaid: number;
@@ -47,11 +48,30 @@ export interface CleaningReport {
   menageId: string;
   calendarSlug: string;
   dateIntervention: string;
-  agent: string;
+  /** Contrôle en 2 temps (comme les fiches papier) — obligatoires sur le rapport final */
+  agentEtape1: string;
+  agentEtape2: string;
   status: 'EFFECTUÉ' | 'ANOMALIE' | 'REPORTÉ' | 'PRÉVU' | 'ANNULÉ';
   feedback: string;
   damages: string;
-  maintenance: string;
+  /** kWh restants (compteur prépayé) — obligatoire pour EFFECTUÉ / ANOMALIE */
+  kwhCompteurPrepaye: number | null;
+  /** Présence / disponibilité de l'eau */
+  eau: '' | 'OUI' | 'NON';
+  courant: '' | 'OUI' | 'NON';
+  /** L’onduleur / backup de secours pris en charge (affiche, bip, autonomie) */
+  backupOnduleurFonctionne: '' | 'OUI' | 'NON';
+  /**
+   * Niveau batterie (barres visibles sur l’onduleur) : 1 = presque vide, 2 = moyen, 3 = plein.
+   * Obligatoire si `backupOnduleurFonctionne` = OUI.
+   */
+  backupBatterieBarres: 1 | 2 | 3 | null;
+  nombreServiettes: number | null;
+  serviettesPropresRangees: boolean;
+  checkEntreeSalon: boolean;
+  checkCuisine: boolean;
+  checkChambres: boolean;
+  checkSdb: boolean;
   createdAt: string;
 }
 

@@ -33,6 +33,24 @@ export const SITES = [
   "GALLAGHERS CITY"
 ];
 
+/**
+ * Slugs d’unités (chambres) sans installation onduleur / backup — formulaire ménage : bloc grisé, pas de saisie.
+ * Matera : chambres A/B. Gallaghers : toutes les chambres (standard simple + cuisine).
+ */
+export const UNITS_SANS_ONDULEUR: readonly string[] = [
+  'matera-chambre-a',
+  'matera-chambre-b',
+  'bgt-standard-a',
+  'bgt-standard-b',
+  'bgt-standard-c',
+  'bgt-cuisine'
+];
+
+export function isOnduleurNonConcerne(calendarSlug: string): boolean {
+  if (!calendarSlug || typeof calendarSlug !== 'string') return false;
+  return (UNITS_SANS_ONDULEUR as readonly string[]).includes(calendarSlug);
+}
+
 export const SITE_MAPPING: Record<string, string[]> = {
   "MODENA YAMEHOME": [
     'MODENA YAMEHOME - APPARTEMENT HAUT STANDING mode STUDIO',

@@ -47,11 +47,22 @@ export interface CleaningReport {
   menageId: string;
   calendarSlug: string;
   dateIntervention: string;
-  agent: string;
+  agentEtape1: string;
+  agentEtape2: string;
   status: 'EFFECTUÉ' | 'ANOMALIE' | 'REPORTÉ' | 'PRÉVU' | 'ANNULÉ';
   feedback: string;
   damages: string;
-  maintenance: string;
+  kwhCompteurPrepaye: number | null;
+  eau: '' | 'OUI' | 'NON';
+  courant: '' | 'OUI' | 'NON';
+  backupOnduleurFonctionne: '' | 'OUI' | 'NON';
+  backupBatterieBarres: 1 | 2 | 3 | null;
+  nombreServiettes: number | null;
+  serviettesPropresRangees: boolean;
+  checkEntreeSalon: boolean;
+  checkCuisine: boolean;
+  checkChambres: boolean;
+  checkSdb: boolean;
   createdAt: string;
 }
 
