@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, deleteDoc, doc, setDoc, where, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { AuthorizedEmail } from '../types';
+import { AuthorizedEmail, Employee } from '../types';
 import { Trash2, UserPlus, Shield, User as UserIcon, Loader2, Menu, CheckSquare, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SITES } from '../constants';
@@ -21,6 +21,7 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
   useEffect(() => {
     const q = query(collection(db, 'authorized_emails'));
@@ -29,6 +30,13 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
       setLoading(false);
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'employees'), where('active', '==', true), orderBy('name'));
+    return onSnapshot(q, (snap) => {
+      setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    });
   }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -99,6 +107,23 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
+  const handleUpdateLinkedEmployee = async (authEmailId: string, employeeId: string) => {
+    setIsUpdating(authEmailId);
+    try {
+      await setDoc(
+        doc(db, 'authorized_emails', authEmailId),
+        { linkedEmployeeId: employeeId || null },
+        { merge: true }
+      );
+      onAlert("Fiche employé (présence) mise à jour", "success");
+    } catch (error) {
+      console.error("Error updating linked employee:", error);
+      onAlert("Erreur lors de la liaison employé", "error");
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -108,7 +133,7 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-6">
       <div className="mb-8 flex items-center gap-4">
         {onMenuClick && (
           <button 
@@ -192,9 +217,10 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4">
-          <div className="col-span-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Email</div>
-          <div className="col-span-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Rôle</div>
-          <div className="col-span-2 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Action</div>
+          <div className="col-span-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Email</div>
+          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Rôle</div>
+          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Présence (fiche)</div>
+          <div className="col-span-1 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Action</div>
         </div>
         <div className="divide-y divide-gray-50">
           <AnimatePresence>
@@ -206,13 +232,13 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                 exit={{ opacity: 0, x: -20 }}
                 className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50 transition-all"
               >
-                <div className="col-span-6 flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                <div className="col-span-5 flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 shrink-0">
                     <UserIcon size={14} />
                   </div>
-                  <span className="text-sm font-medium text-gray-900">{item.email}</span>
+                  <span className="text-sm font-medium text-gray-900 truncate">{item.email}</span>
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-3">
                   {isUpdating === item.id ? (
                     <Loader2 className="animate-spin text-blue-600" size={14} />
                   ) : (
@@ -246,7 +272,26 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                     </div>
                   )}
                 </div>
-                <div className="col-span-2 text-right">
+                <div className="col-span-3 min-w-0">
+                  {isUpdating === item.id ? (
+                    <Loader2 className="animate-spin text-blue-600" size={14} />
+                  ) : (
+                    <select
+                      value={item.linkedEmployeeId || ''}
+                      onChange={(e) => handleUpdateLinkedEmployee(item.id!, e.target.value)}
+                      className="w-full text-[10px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500"
+                      title="Compte autorisé = cette fiche pour la feuille de présence"
+                    >
+                      <option value="">— Non lié —</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className="col-span-1 text-right">
                   {item.email !== 'christian.yamepi@gmail.com' && item.email !== 'cyamepi@gmail.com' && (
                     <button
                       onClick={() => setDeleteConfirmId(item.id!)}

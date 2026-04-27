@@ -40,6 +40,7 @@ const HistoryView = lazy(() => import('./components/HistoryView'));
 const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ProspectsView = lazy(() => import('./components/ProspectsView'));
+const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
 import { 
   LogOut, 
   Plus, 
@@ -66,7 +67,8 @@ import {
   Info,
   Eye,
   Calendar as CalendarIcon,
-  Loader2
+  Loader2,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -142,7 +144,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'maintenance'>('calendar');
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -261,6 +263,11 @@ export default function App() {
             const shouldBeApproved = profile.isApproved || isMainAdmin || !!whiteData;
             const finalRole = isMainAdmin ? 'admin' : (whiteData?.role || profile.role || 'agent');
             const finalSites = isMainAdmin ? SITES : (whiteData?.allowedSites || profile.allowedSites || []);
+            /** Lien fiche employé (présence) : source of truth = authorized_emails, pas stocké sur users/ */
+            const finalLinked: string | null | undefined =
+              whiteData != null
+                ? (whiteData.linkedEmployeeId ?? null)
+                : (profile as UserProfile & { linkedEmployeeId?: string | null }).linkedEmployeeId ?? null;
 
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
@@ -269,6 +276,7 @@ export default function App() {
               role: finalRole,
               allowedSites: finalSites
             };
+            const forUi: UserProfile = { ...updatedProfile, linkedEmployeeId: finalLinked ?? undefined };
             
             // Only update if something actually changed to avoid unnecessary permission checks
             const hasChanged = profile.role !== finalRole || 
@@ -284,7 +292,7 @@ export default function App() {
                 console.warn("Could not update user profile in Firestore (likely permission denied for non-admin):", e);
               }
             }
-            setUserProfile(updatedProfile);
+            setUserProfile(forUi);
           } else {
             console.log("No profile found, creating new one");
             const isApproved = !!whiteData || isMainAdmin;
@@ -297,6 +305,10 @@ export default function App() {
               isApproved: isApproved,
               allowedSites: isMainAdmin ? SITES : (whiteData?.allowedSites || [])
             };
+            const newForUi: UserProfile = {
+              ...newProfile,
+              linkedEmployeeId: whiteData != null ? (whiteData.linkedEmployeeId ?? undefined) : undefined
+            };
             console.log("Setting user profile (new):", newProfile);
             try {
               await setDoc(docRef, newProfile);
@@ -304,7 +316,7 @@ export default function App() {
               console.error("Error creating user profile:", e);
               handleFirestoreError(e, OperationType.WRITE, `users/${u.uid}`);
             }
-            setUserProfile(newProfile);
+            setUserProfile(newForUi);
           }
         } catch (error) {
           console.error("Auth profile general error:", error);
@@ -1746,6 +1758,17 @@ export default function App() {
                   <Search size={16} />
                   Prospects
                 </button>
+                <button
+                  onClick={() => {
+                    setView('prepaidTokens');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prepaidTokens' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <Zap size={16} />
+                  Prépayé (kWh)
+                </button>
                 {(userProfile?.role === 'admin' || isMainAdmin) && (
                   <button 
                     onClick={() => {
@@ -2266,6 +2289,15 @@ export default function App() {
                 setAlertMessage(msg);
               }}
               onConvert={handleConvertProspect}
+            />
+          ) : view === 'prepaidTokens' ? (
+            <PrepaidElectricityTokensView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
             />
           ) : view === 'maintenance' ? (
             <div className="flex-1 flex flex-col bg-[#F5F5F4] overflow-y-auto">

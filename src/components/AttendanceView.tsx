@@ -6,19 +6,15 @@ import {
   doc, 
   setDoc, 
   deleteDoc, 
-  getDoc,
   where,
   orderBy,
-  Timestamp
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import { Employee, AttendanceRecord, UserProfile } from '../types';
-import { SITES } from '../constants';
 import { 
   Users, 
   Calendar as CalendarIcon, 
   Clock, 
-  MapPin, 
   Plus, 
   Trash2, 
   CheckCircle2, 
@@ -54,6 +50,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
 
   const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
   const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+  const linkedEmployeeId = userProfile?.linkedEmployeeId;
+
+  const canEditPresenceFor = (employeeId: string) =>
+    isAdmin || (!!linkedEmployeeId && linkedEmployeeId === employeeId);
 
   // Auto-scroll to current day in planning mode
   useEffect(() => {
@@ -86,23 +86,17 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
   }, [mode, currentDate.getTime()]);
 
-  const filteredSites = useMemo(() => {
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
-    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
-    if (isAdmin) return SITES;
-
-    const allowedSites = userProfile?.allowedSites || [];
-    if (allowedSites.length === 0) return [];
-
-    return SITES.filter(site => {
-      const upperSite = site.toUpperCase();
-      return allowedSites.some(s => {
-        const upperS = s.toUpperCase();
-        if (upperSite === 'BGT') return upperS.includes('GALLAGHERS') || upperS.includes('CITY');
-        return upperS.includes(upperSite);
-      });
-    });
-  }, [userProfile?.allowedSites, userProfile?.role, userProfile?.email]);
+  /**
+   * Statut affiché uniquement (non cliquable) :
+   * - Présent : entrée enregistrée
+   * - Repos : jour de repos (planning PRÉVU_REPOS / REPOS) et pas d'entrée
+   * - Absent : en service (pas de repos prévu) et pas d'entrée
+   */
+  const deriveStatusDisplay = (record: AttendanceRecord | undefined): 'PRÉSENT' | 'REPOS' | 'ABSENT' => {
+    if (record?.checkInTime) return 'PRÉSENT';
+    if (record?.status === 'PRÉVU_REPOS' || record?.status === 'REPOS') return 'REPOS';
+    return 'ABSENT';
+  };
 
   // Fetch Employees
   useEffect(() => {
@@ -208,6 +202,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   };
 
   const updateAttendance = async (employeeId: string, updates: Partial<AttendanceRecord>, customDate?: string) => {
+    if (!canEditPresenceFor(employeeId)) {
+      onAlert("Vous ne pouvez enregistrer la présence que pour votre fiche. Les administrateurs peuvent tout modifier.", "error");
+      return;
+    }
     const date = customDate || selectedDate;
     const recordId = `${employeeId}_${date}`;
     
@@ -231,28 +229,21 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   };
 
   const handleCheckIn = (employeeId: string) => {
-    const record = attendance[employeeId];
-    if (!record?.checkInSite) {
-      onAlert("Veuillez sélectionner un site d'entrée", "info");
-      return;
-    }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    
-    updateAttendance(employeeId, { 
-      checkInTime: timeStr, 
-      status: 'PRÉSENT'
-    });
+    if (!window.confirm(`Enregistrer l'heure d'entrée à ${timeStr} ?\n(Non modifiable après validation.)`)) return;
+    updateAttendance(employeeId, { checkInTime: timeStr, status: 'PRÉSENT' });
   };
 
   const handleCheckOut = (employeeId: string) => {
     const record = attendance[employeeId];
-    if (!record?.checkOutSite) {
-      onAlert("Veuillez sélectionner un site de sortie", "info");
+    if (!record?.checkInTime) {
+      onAlert("Enregistrez d'abord l'entrée.", "info");
       return;
     }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    if (!window.confirm(`Enregistrer l'heure de sortie à ${timeStr} ?\n(Non modifiable après validation.)`)) return;
     updateAttendance(employeeId, { checkOutTime: timeStr });
   };
 
@@ -346,10 +337,22 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
             </div>
           </div>
 
+          {!isAdmin && !linkedEmployeeId && (
+            <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+              <Info className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+              <p>
+                Pour enregistrer <strong>votre</strong> entrée / sortie, un administrateur doit d’abord lier ce compte à votre fiche employé dans
+                <span className="whitespace-nowrap"> « Gestion des accès »</span> (colonne Présence).
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-4">
             {employees.filter(e => e.active).map(emp => {
               const record = attendance[emp.id];
-              const isRepos = record?.status === 'REPOS' || record?.status === 'PRÉVU_REPOS';
+              const display = deriveStatusDisplay(record);
+              const isPlannedRepos = record?.status === 'PRÉVU_REPOS';
+              const canEdit = canEditPresenceFor(emp.id);
               
               return (
                 <motion.div 
@@ -357,114 +360,92 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                   layout
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center gap-6"
+                  className={`bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center gap-6 ${
+                    !isAdmin && !canEdit ? 'opacity-80' : ''
+                  }`}
                 >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-slate-900 text-lg">{emp.name}</h3>
-                      {record?.status === 'PRÉVU_REPOS' && (
-                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Repos Programmé</span>
+                      {isPlannedRepos && (
+                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Repos au planning</span>
                       )}
                     </div>
                     <p className="text-sm text-slate-500">{emp.role}</p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button 
-                      onClick={() => updateAttendance(emp.id, { status: 'PRÉSENT' })}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${record?.status === 'PRÉSENT' ? 'bg-emerald-100 text-emerald-700 border-2 border-emerald-200' : 'bg-slate-50 text-slate-600 border-2 border-transparent hover:bg-slate-100'}`}
-                    >
-                      <CheckCircle2 className="w-4 h-4" /> Présent
-                    </button>
-                    <button 
-                      onClick={() => updateAttendance(emp.id, { status: 'ABSENT', checkInTime: '', checkOutTime: '' })}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${record?.status === 'ABSENT' ? 'bg-rose-100 text-rose-700 border-2 border-rose-200' : 'bg-slate-50 text-slate-600 border-2 border-transparent hover:bg-slate-100'}`}
-                    >
-                      <XCircle className="w-4 h-4" /> Absent
-                    </button>
-                    <button 
-                      onClick={() => updateAttendance(emp.id, { status: 'REPOS', checkInTime: '', checkOutTime: '' })}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${isRepos ? 'bg-amber-100 text-amber-700 border-2 border-amber-200' : 'bg-slate-50 text-slate-600 border-2 border-transparent hover:bg-slate-100'}`}
-                    >
-                      <Coffee className="w-4 h-4" /> Repos
-                    </button>
+                  <div
+                    className="flex items-center justify-center"
+                    title="Statut calculé automatiquement (non modifiable ici)"
+                  >
+                    {display === 'PRÉSENT' && (
+                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-emerald-100 text-emerald-800 border border-emerald-200/80 select-none">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" /> Présent
+                      </span>
+                    )}
+                    {display === 'ABSENT' && (
+                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-rose-100 text-rose-800 border border-rose-200/80 select-none">
+                        <XCircle className="w-4 h-4 shrink-0" /> Absent
+                      </span>
+                    )}
+                    {display === 'REPOS' && (
+                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-amber-100 text-amber-900 border border-amber-200/80 select-none">
+                        <Coffee className="w-4 h-4 shrink-0" /> Repos
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-8 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-8">
-                    <div className="space-y-2">
+                  <div className="flex flex-col md:flex-row items-start md:items-stretch gap-4 md:gap-8 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-8 w-full md:w-auto">
+                    <div className="space-y-2 shrink-0">
                       <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
                         <Clock className="w-4 h-4" /> Entrée / Sortie
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {!record?.checkInTime ? (
-                          <button 
+                          <button
+                            type="button"
                             onClick={() => handleCheckIn(emp.id)}
-                            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
+                            disabled={!canEdit}
+                            className="text-xs font-bold bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
                           >
                             Valider Entrée
                           </button>
                         ) : (
-                          <span className="text-lg font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">
+                          <span className="text-lg font-mono font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg tabular-nums" title="Heure d'entrée enregistrée">
                             {record.checkInTime}
                           </span>
                         )}
                         <span className="text-slate-300">—</span>
                         {!record?.checkOutTime ? (
-                          <button 
+                          <button
+                            type="button"
                             onClick={() => handleCheckOut(emp.id)}
-                            disabled={!record?.checkInTime}
-                            className="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-900 transition-colors disabled:opacity-50"
+                            disabled={!record?.checkInTime || !canEdit}
+                            className="text-xs font-bold bg-slate-700 text-white px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             Valider Sortie
                           </button>
                         ) : (
-                          <span className="text-lg font-mono font-bold text-slate-800 bg-slate-100 px-2 py-1 rounded-lg">
+                          <span className="text-lg font-mono font-bold text-slate-800 bg-slate-100 px-3 py-1.5 rounded-lg tabular-nums" title="Heure de sortie enregistrée">
                             {record.checkOutTime}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-                      <div className="space-y-2 w-full md:w-40">
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                          <MapPin className="w-3 h-3" /> Site Entrée
-                        </div>
-                        <select 
-                          value={record?.checkInSite || ''}
-                          onChange={(e) => updateAttendance(emp.id, { checkInSite: e.target.value })}
-                          className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
-                        >
-                          <option value="">Site Entrée</option>
-                          {filteredSites.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-
-                      <div className="space-y-2 w-full md:w-40">
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                          <MapPin className="w-3 h-3" /> Site Sortie
-                        </div>
-                        <select 
-                          value={record?.checkOutSite || ''}
-                          onChange={(e) => updateAttendance(emp.id, { checkOutSite: e.target.value })}
-                          className="w-full text-xs border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 py-1.5"
-                        >
-                          <option value="">Site Sortie</option>
-                          {filteredSites.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 w-full md:w-64">
+                    <div className="space-y-2 flex-1 w-full min-w-0 max-w-md">
                       <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                        <Edit2 className="w-4 h-4" /> Notes / Justification
+                        <Edit2 className="w-4 h-4" /> Note / justificatif
                       </div>
                       <input 
                         type="text"
-                        placeholder="Retard, absence..."
+                        placeholder="Retard, absence…"
                         value={record?.notes || ''}
                         onChange={(e) => updateAttendance(emp.id, { notes: e.target.value })}
-                        className="w-full text-sm border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
+                        readOnly={!canEdit}
+                        className={`w-full text-sm border-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 ${
+                          !canEdit ? 'bg-slate-50 cursor-not-allowed text-slate-500' : ''
+                        }`}
                       />
                     </div>
                   </div>
@@ -480,9 +461,13 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-900">Planning des Repos</h2>
-            <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg">
-              <Info className="w-4 h-4 text-indigo-500" />
-              Cliquez sur une case pour définir un repos programmé
+            <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg max-w-md">
+              <Info className="w-4 h-4 text-indigo-500 shrink-0" />
+              <span>
+                {isAdmin
+                  ? 'Cliquez sur une case pour définir un repos programmé (tous les employés).'
+                  : 'Vous ne pouvez modifier le planning que sur votre propre ligne (cellules de votre ligne).'}
+              </span>
             </div>
           </div>
           <div className="overflow-x-auto" ref={planningScrollRef}>
@@ -516,13 +501,15 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                       const record = planningData[`${emp.id}_${dateStr}`];
                       const isRepos = record?.status === 'PRÉVU_REPOS' || record?.status === 'REPOS';
                       const isToday = d.toDateString() === new Date().toDateString();
+                      const canEdit = canEditPresenceFor(emp.id);
                       
                       return (
                         <td key={i} className={`p-2 border-b border-slate-100 text-center transition-colors ${isToday ? 'bg-slate-500/[0.05]' : ''}`}>
                           <button 
+                            type="button"
+                            disabled={!canEdit}
                             onClick={() => {
                               if (isRepos) {
-                                // If it was PRÉVU_REPOS, delete it or set to ABSENT
                                 updateAttendance(emp.id, { status: 'ABSENT' }, dateStr);
                               } else {
                                 updateAttendance(emp.id, { status: 'PRÉVU_REPOS' }, dateStr);
@@ -532,7 +519,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                               isRepos 
                                 ? 'bg-amber-100 text-amber-600 shadow-inner' 
                                 : 'bg-slate-50 text-slate-300 hover:bg-slate-100 hover:text-slate-400'
-                            }`}
+                            } ${!canEdit ? 'opacity-50 cursor-not-allowed hover:bg-slate-50' : ''}`}
                           >
                             <Coffee className={`w-5 h-5 transition-transform group-active:scale-90 ${isRepos ? 'scale-110' : ''}`} />
                           </button>
