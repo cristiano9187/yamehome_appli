@@ -21,6 +21,8 @@ service cloud.firestore {
     // Collection: users
     // Fields: uid, email, role, displayName, allowedSites
     //
+    // Collection: finance_entries — lignes coûts / revenus manuels (vue Coûts)
+    //
     // Collection: attendance
     // Fields: employeeId, date, status, checkInTime, checkOutTime, checkInSite, checkOutSite, notes, updatedAt
     //
@@ -59,6 +61,30 @@ service cloud.firestore {
          exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)));
     }
 
+    /** Super-admins : toujours accès finance (règles métier). */
+    function isMainAdminEmailToken() {
+      return isAuthenticated() &&
+        (request.auth.token.email == "christian.yamepi@gmail.com" ||
+         request.auth.token.email == "cyamepi@gmail.com");
+    }
+
+    /** Ce compte ne doit pas hériter « admin ⇒ Coûts » ; uniquement financeAccess explicite ou super-admin. */
+    function isFinanceCostsOptOutEmail() {
+      return request.auth.token.email == "yamehome.yaounde@gmail.com";
+    }
+
+    /** Vue Coûts / marges : super-admins, ou admin sauf opt-out, ou flag financeAccess */
+    function canAccessFinance() {
+      return isMainAdminEmailToken() ||
+        (!isFinanceCostsOptOutEmail() && isAdmin()) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          'financeAccess' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.financeAccess == true) ||
+        (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          'financeAccess' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+          get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.financeAccess == true);
+    }
+
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
@@ -76,21 +102,23 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
-             (!('allowedApartments' in data) || data.allowedApartments is list);
+             (!('allowedApartments' in data) || data.allowedApartments is list) &&
+             (!('financeAccess' in data) || data.financeAccess is bool);
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
              (!('allowedApartments' in data) || data.allowedApartments is list) &&
-             (!('linkedEmployeeId' in data) || data.linkedEmployeeId == null || data.linkedEmployeeId is string);
+             (!('linkedEmployeeId' in data) || data.linkedEmployeeId == null || data.linkedEmployeeId is string) &&
+             (!('financeAccess' in data) || data.financeAccess is bool);
     }
 
     function isAuthorizedForApartment(apartmentName) {
@@ -136,6 +164,25 @@ service cloud.firestore {
              data.employeeId is string && data.employeeId.size() > 0 &&
              data.date is string && data.date.size() > 0 &&
              data.status in ['PRÉSENT', 'ABSENT', 'REPOS', 'PRÉVU_REPOS'];
+    }
+
+    function isValidFinanceEntry(data) {
+      return data.keys().hasAll(['kind', 'category', 'amount', 'currency', 'date', 'title', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['kind', 'category', 'amount', 'currency', 'date', 'title', 'createdAt', 'updatedAt', 'authorUid', 'notes', 'employeeId', 'apartmentName', 'unitSlug']) &&
+        data.kind in ['REVENUE', 'EXPENSE'] &&
+        ((data.kind == 'EXPENSE' && data.category in ['SALARY', 'RENT', 'BILL', 'REPAIR', 'PURCHASE', 'OTHER_EXPENSE']) ||
+         (data.kind == 'REVENUE' && data.category in ['MISC_SALE', 'OTHER_REVENUE'])) &&
+        data.amount is number && data.amount > 0 && data.amount < 1000000000000 &&
+        data.currency == 'XAF' &&
+        data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 400 &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 8000)) &&
+        (!('employeeId' in data) || data.employeeId == null || (data.employeeId is string && data.employeeId.size() > 0)) &&
+        (!('apartmentName' in data) || data.apartmentName == null || (data.apartmentName is string && data.apartmentName.size() > 0 && data.apartmentName.size() <= 200)) &&
+        (!('unitSlug' in data) || data.unitSlug == null || (data.unitSlug is string && data.unitSlug.size() > 0 && data.unitSlug.size() <= 120)) &&
+        data.authorUid is string && data.authorUid == request.auth.uid &&
+        data.createdAt is string &&
+        data.updatedAt is string;
     }
 
     function isValidPrepaidElectricityToken(data) {
@@ -362,6 +409,14 @@ service cloud.firestore {
       );
       allow create, update: if isAdmin() && isValidUnitElectricitySettings(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /finance_entries/{entryId} {
+      allow read: if canAccessFinance();
+      allow create: if canAccessFinance() && isValidFinanceEntry(request.resource.data);
+      allow update: if canAccessFinance() && isValidFinanceEntry(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid;
+      allow delete: if canAccessFinance() && (isAdmin() || resource.data.authorUid == request.auth.uid);
     }
 
     // Default deny
