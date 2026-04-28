@@ -6,6 +6,7 @@ export const defaultCleaningChecklist: Pick<
   | 'kwhCompteurPrepaye'
   | 'eau'
   | 'courant'
+  | 'internet'
   | 'backupOnduleurFonctionne'
   | 'backupBatterieBarres'
   | 'nombreServiettes'
@@ -18,6 +19,7 @@ export const defaultCleaningChecklist: Pick<
   kwhCompteurPrepaye: null,
   eau: '',
   courant: '',
+  internet: '',
   backupOnduleurFonctionne: '',
   backupBatterieBarres: null,
   nombreServiettes: null,
@@ -72,6 +74,7 @@ export function normalizeCleaningReport(raw: Record<string, unknown>): CleaningR
     })(),
     eau: rest.eau === 'OUI' || rest.eau === 'NON' ? rest.eau : '',
     courant: rest.courant === 'OUI' || rest.courant === 'NON' ? rest.courant : '',
+    internet: rest.internet === 'OUI' || rest.internet === 'NON' ? rest.internet : '',
     backupOnduleurFonctionne:
       rest.backupOnduleurFonctionne === 'OUI' || rest.backupOnduleurFonctionne === 'NON'
         ? rest.backupOnduleurFonctionne
@@ -121,6 +124,9 @@ export function validateCleaningReportForSubmit(r: CleaningReport): string | nul
     if (r.courant !== 'OUI' && r.courant !== 'NON') {
       return 'Indiquez si le courant est disponible (Oui / Non).';
     }
+    if (r.internet !== 'OUI' && r.internet !== 'NON') {
+      return "Indiquez si l'Internet fonctionne (Oui / Non).";
+    }
     if (!isOnduleurNonConcerne(r.calendarSlug)) {
       if (r.backupOnduleurFonctionne !== 'OUI' && r.backupOnduleurFonctionne !== 'NON') {
         return "Indiquez si l'onduleur / backup de courant est fonctionnel (Oui / Non).";
@@ -155,7 +161,7 @@ export function validateCleaningReportForSubmit(r: CleaningReport): string | nul
 export function effectuéMériteAffichageAlerte(r: CleaningReport): boolean {
   if (r.status !== 'EFFECTUÉ') return false;
   if (effectuéSignaleUnSouciTextuel(r)) return true;
-  if (r.eau === 'NON' || r.courant === 'NON') return true;
+  if (r.eau === 'NON' || r.courant === 'NON' || r.internet === 'NON') return true;
   if (!isOnduleurNonConcerne(r.calendarSlug) && r.backupOnduleurFonctionne === 'NON') return true;
   if (!r.serviettesPropresRangees) return true;
   if (!isOnduleurNonConcerne(r.calendarSlug) && r.backupBatterieBarres === 1) return true;

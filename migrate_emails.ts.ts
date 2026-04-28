@@ -55,6 +55,7 @@ export interface CleaningReport {
   kwhCompteurPrepaye: number | null;
   eau: '' | 'OUI' | 'NON';
   courant: '' | 'OUI' | 'NON';
+  internet: '' | 'OUI' | 'NON';
   backupOnduleurFonctionne: '' | 'OUI' | 'NON';
   backupBatterieBarres: 1 | 2 | 3 | null;
   nombreServiettes: number | null;
