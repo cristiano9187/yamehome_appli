@@ -236,6 +236,53 @@ export interface AgentProfile {
   authorUid: string;
 }
 
+/**
+ * Facture destinée aux structures employeuses — document séparé du reçu interne {@link ReceiptData}.
+ * `amountFromReceipt` trace le total du reçu ; `amountInvoice` ce qui figure sur la facture (écart léger possible).
+ */
+export interface ProInvoice {
+  id?: string;
+  /** ID document Firestore `receipts/{id}` lié au reçu source */
+  sourceReceiptFirestoreId: string;
+  /** Numéro métier affiché côté reçus (ReceiptData.receiptId) */
+  receiptBusinessId: string;
+
+  apartmentName: string;
+  calendarSlug: string;
+  guestFirstName: string;
+  guestLastName: string;
+  startDate: string;
+  endDate: string;
+
+  /** Total enregistré sur le reçu interne (référence honnête) */
+  amountFromReceipt: number;
+  /** Total affiché sur la facture « entreprise » */
+  amountInvoice: number;
+
+  /** Motif léger si écart (optionnel, court) */
+  adjustmentNote?: string | null;
+
+  /** Tampon « Payé » sur le PDF (optionnel) */
+  paidStamp?: 'none' | 'paid' | 'paid_cash';
+
+  invoiceNumber: string;
+  invoiceDate: string;
+  issuePlace: string;
+  billedToDisplayName: string;
+
+  sectionTitle: string;
+  lineLabel: string;
+  roomsCount: number;
+  nightsCount: number;
+  unitPriceDisplay: number;
+
+  currency: 'XAF';
+
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
 /** Ligne saisie manuelle dans la vue Coûts (Firestore `finance_entries`) */
 export type FinanceEntryKind = 'REVENUE' | 'EXPENSE';
 
