@@ -148,8 +148,10 @@ export interface AttendanceRecord {
   employeeId: string;
   date: string; // YYYY-MM-DD
   status: 'PRÉSENT' | 'ABSENT' | 'REPOS' | 'PRÉVU_REPOS';
-  checkInTime?: string; // HH:mm
-  checkOutTime?: string; // HH:mm
+  /** HH:mm — heure locale du Cameroun (Africa/Douala), pas le fuseau du navigateur */
+  checkInTime?: string;
+  /** HH:mm — heure locale du Cameroun (Africa/Douala) */
+  checkOutTime?: string;
   checkInSite?: string;
   checkOutSite?: string;
   notes?: string;

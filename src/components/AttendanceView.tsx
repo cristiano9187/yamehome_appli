@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Employee, AttendanceRecord, UserProfile } from '../types';
+import { formatCameroonHm } from '../utils/cameroonTime';
 import { 
   Users, 
   Calendar as CalendarIcon, 
@@ -234,18 +235,13 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
   };
 
-  const formatNowTime = () => {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  };
-
   const handleCheckIn = (employeeId: string) => {
     const emp = employees.find(e => e.id === employeeId);
     setPresenceConfirm({
       type: 'checkIn',
       employeeId,
       employeeName: emp?.name ?? 'Employé',
-      timeStr: formatNowTime()
+      timeStr: formatCameroonHm()
     });
   };
 
@@ -260,7 +256,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
       type: 'checkOut',
       employeeId,
       employeeName: emp?.name ?? 'Employé',
-      timeStr: formatNowTime()
+      timeStr: formatCameroonHm()
     });
   };
 
@@ -364,6 +360,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
               </button>
             </div>
           </div>
+          <p className="text-[11px] text-slate-500 px-1 -mt-2 leading-snug">
+            Pointages entrée / sortie : heure du Cameroun (fuseau Africa/Douala, UTC+1), quel que soit le fuseau du téléphone ou du navigateur.
+          </p>
 
           {!isAdmin && !linkedEmployeeId && (
             <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
@@ -726,8 +725,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
               </p>
               <p className="text-sm text-gray-500 mb-6 leading-relaxed">
                 Enregistrer l’heure à{' '}
-                <span className="font-mono font-bold text-gray-900 tabular-nums">{presenceConfirm.timeStr}</span> — non
-                modifiable après validation.
+                <span className="font-mono font-bold text-gray-900 tabular-nums">{presenceConfirm.timeStr}</span>{' '}
+                <span className="text-gray-400">(heure du Cameroun)</span>
+                {' — '}non modifiable après validation.
               </p>
               <div className="flex flex-col gap-3">
                 <button
