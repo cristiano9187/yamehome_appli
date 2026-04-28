@@ -26,7 +26,9 @@ import {
   Edit2,
   X,
   AlertCircle,
-  Info
+  Info,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -43,6 +45,10 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<'daily' | 'planning' | 'employees'>('daily');
+  /** Modale entrée/sortie (remplace window.confirm — texte FR, même style que reçus / ménage) */
+  const [presenceConfirm, setPresenceConfirm] = useState<
+    null | { type: 'checkIn' | 'checkOut'; employeeId: string; employeeName: string; timeStr: string }
+  >(null);
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newEmployee, setNewEmployee] = useState({ name: '', role: '' });
@@ -228,11 +234,19 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
   };
 
-  const handleCheckIn = (employeeId: string) => {
+  const formatNowTime = () => {
     const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    if (!window.confirm(`Enregistrer l'heure d'entrée à ${timeStr} ?\n(Non modifiable après validation.)`)) return;
-    updateAttendance(employeeId, { checkInTime: timeStr, status: 'PRÉSENT' });
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const handleCheckIn = (employeeId: string) => {
+    const emp = employees.find(e => e.id === employeeId);
+    setPresenceConfirm({
+      type: 'checkIn',
+      employeeId,
+      employeeName: emp?.name ?? 'Employé',
+      timeStr: formatNowTime()
+    });
   };
 
   const handleCheckOut = (employeeId: string) => {
@@ -241,10 +255,24 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
       onAlert("Enregistrez d'abord l'entrée.", "info");
       return;
     }
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    if (!window.confirm(`Enregistrer l'heure de sortie à ${timeStr} ?\n(Non modifiable après validation.)`)) return;
-    updateAttendance(employeeId, { checkOutTime: timeStr });
+    const emp = employees.find(e => e.id === employeeId);
+    setPresenceConfirm({
+      type: 'checkOut',
+      employeeId,
+      employeeName: emp?.name ?? 'Employé',
+      timeStr: formatNowTime()
+    });
+  };
+
+  const confirmPresenceAction = () => {
+    if (!presenceConfirm) return;
+    const { type, employeeId, timeStr } = presenceConfirm;
+    setPresenceConfirm(null);
+    if (type === 'checkIn') {
+      void updateAttendance(employeeId, { checkInTime: timeStr, status: 'PRÉSENT' });
+    } else {
+      void updateAttendance(employeeId, { checkOutTime: timeStr });
+    }
   };
 
   const planningDays = useMemo(() => {
@@ -654,6 +682,77 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {presenceConfirm && (
+          <motion.div
+            key={`presence-confirm-${presenceConfirm.employeeId}-${presenceConfirm.type}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="presence-confirm-title"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setPresenceConfirm(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl text-center pointer-events-auto max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain touch-manipulation"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center mx-auto mb-5 ${
+                  presenceConfirm.type === 'checkIn' ? 'bg-blue-50 text-blue-600' : 'bg-slate-800 text-white'
+                }`}
+              >
+                {presenceConfirm.type === 'checkIn' ? (
+                  <LogIn className="w-7 h-7 sm:w-8 sm:h-8" strokeWidth={2} />
+                ) : (
+                  <LogOut className="w-7 h-7 sm:w-8 sm:h-8" strokeWidth={2} />
+                )}
+              </div>
+              <h3
+                id="presence-confirm-title"
+                className="text-lg sm:text-xl font-black uppercase tracking-tight text-gray-900 mb-2"
+              >
+                {presenceConfirm.type === 'checkIn' ? 'Valider l’entrée ?' : 'Valider la sortie ?'}
+              </h3>
+              <p className="text-sm text-gray-500 mb-2 leading-relaxed">
+                <span className="font-bold text-gray-900">{presenceConfirm.employeeName}</span>
+              </p>
+              <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                Enregistrer l’heure à{' '}
+                <span className="font-mono font-bold text-gray-900 tabular-nums">{presenceConfirm.timeStr}</span> — non
+                modifiable après validation.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={confirmPresenceAction}
+                  className={
+                    presenceConfirm.type === 'checkIn'
+                      ? 'w-full bg-blue-600 text-white font-black py-3.5 sm:py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-colors active:scale-[0.99]'
+                      : 'w-full bg-slate-800 text-white font-black py-3.5 sm:py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-slate-800/20 hover:bg-slate-900 transition-colors active:scale-[0.99]'
+                  }
+                >
+                  Confirmer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresenceConfirm(null)}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-3.5 sm:py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-colors"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
