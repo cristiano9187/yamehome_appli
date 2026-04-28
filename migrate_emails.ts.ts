@@ -106,8 +106,8 @@ export interface AttendanceRecord {
   employeeId: string;
   date: string; // YYYY-MM-DD
   status: 'PRÉSENT' | 'ABSENT' | 'REPOS' | 'PRÉVU_REPOS';
-  checkInTime?: string; // HH:mm
-  checkOutTime?: string; // HH:mm
+  checkInTime?: string; // HH:mm heure Cameroun
+  checkOutTime?: string; // HH:mm heure Cameroun
   checkInSite?: string;
   checkOutSite?: string;
   notes?: string;
