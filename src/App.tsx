@@ -42,6 +42,7 @@ const UserManagement = lazy(() => import('./components/UserManagement'));
 const ProspectsView = lazy(() => import('./components/ProspectsView'));
 const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
 const CostsView = lazy(() => import('./components/CostsView'));
+const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 import { 
   LogOut, 
   Plus, 
@@ -70,7 +71,8 @@ import {
   Calendar as CalendarIcon,
   Loader2,
   Zap,
-  Wallet
+  Wallet,
+  ScrollText,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -146,7 +148,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'costs' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -1761,6 +1763,17 @@ export default function App() {
                   <History size={16} />
                   Historique
                 </button>
+                <button
+                  onClick={() => {
+                    setView('proInvoices');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'proInvoices' ? 'bg-[#2B4B8C] text-white shadow-lg shadow-[#2B4B8C]/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                >
+                  <ScrollText size={16} />
+                  Factures société
+                </button>
                 <button 
                   onClick={() => {
                     setView('calendar');
@@ -2346,6 +2359,15 @@ export default function App() {
                 setAlertMessage(msg);
               }}
               isMainAdmin={isMainAdminEmail(userProfile?.email)}
+            />
+          ) : view === 'proInvoices' ? (
+            <ProInvoicesView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
             />
           ) : view === 'maintenance' ? (
             <div className="flex-1 flex flex-col bg-[#F5F5F4] overflow-y-auto">

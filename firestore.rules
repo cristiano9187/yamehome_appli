@@ -21,7 +21,7 @@ service cloud.firestore {
     // Collection: users
     // Fields: uid, email, role, displayName, allowedSites
     //
-    // Collection: finance_entries — lignes coûts / revenus manuels (vue Coûts)
+    // Collection: pro_invoices — factures « entreprises » liées à un ReceiptData (tracé montant interne vs affiché)
     //
     // Collection: attendance
     // Fields: employeeId, date, status, checkInTime, checkOutTime, checkInSite, checkOutSite, notes, updatedAt
@@ -166,6 +166,49 @@ service cloud.firestore {
              data.status in ['PRÉSENT', 'ABSENT', 'REPOS', 'PRÉVU_REPOS'];
     }
 
+    function isValidProInvoice(data) {
+      return data.keys().hasAll([
+        'sourceReceiptFirestoreId', 'receiptBusinessId', 'apartmentName', 'calendarSlug',
+        'guestFirstName', 'guestLastName', 'startDate', 'endDate',
+        'amountFromReceipt', 'amountInvoice', 'invoiceNumber', 'invoiceDate', 'issuePlace',
+        'billedToDisplayName', 'sectionTitle', 'lineLabel', 'roomsCount', 'nightsCount',
+        'unitPriceDisplay', 'currency', 'createdAt', 'updatedAt', 'authorUid'
+      ]) &&
+        data.keys().hasOnly([
+        'sourceReceiptFirestoreId', 'receiptBusinessId', 'apartmentName', 'calendarSlug',
+        'guestFirstName', 'guestLastName', 'startDate', 'endDate',
+        'amountFromReceipt', 'amountInvoice', 'adjustmentNote', 'paidStamp', 'invoiceNumber', 'invoiceDate', 'issuePlace',
+        'billedToDisplayName', 'sectionTitle', 'lineLabel', 'roomsCount', 'nightsCount',
+        'unitPriceDisplay', 'currency', 'createdAt', 'updatedAt', 'authorUid'
+      ]) &&
+        data.sourceReceiptFirestoreId is string && data.sourceReceiptFirestoreId.size() > 0 &&
+        data.receiptBusinessId is string && data.receiptBusinessId.size() > 0 &&
+        data.apartmentName is string && data.apartmentName.size() > 0 && data.apartmentName.size() <= 200 &&
+        data.calendarSlug is string && data.calendarSlug.size() > 0 && data.calendarSlug.size() <= 120 &&
+        data.guestFirstName is string &&
+        data.guestLastName is string && data.guestLastName.size() > 0 &&
+        data.startDate is string && data.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.endDate is string && data.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.amountFromReceipt is number && data.amountFromReceipt >= 0 && data.amountFromReceipt < 1000000000000 &&
+        data.amountInvoice is number && data.amountInvoice > 0 && data.amountInvoice < 1000000000000 &&
+        (!('adjustmentNote' in data) || data.adjustmentNote == null || (data.adjustmentNote is string && data.adjustmentNote.size() <= 500)) &&
+        (!('paidStamp' in data) || data.paidStamp == null ||
+          (data.paidStamp is string && data.paidStamp in ['none', 'paid', 'paid_cash'])) &&
+        data.invoiceNumber is string && data.invoiceNumber.size() > 0 && data.invoiceNumber.size() <= 80 &&
+        data.invoiceDate is string && data.invoiceDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.issuePlace is string && data.issuePlace.size() > 0 && data.issuePlace.size() <= 80 &&
+        data.billedToDisplayName is string && data.billedToDisplayName.size() > 0 && data.billedToDisplayName.size() <= 400 &&
+        data.sectionTitle is string && data.sectionTitle.size() > 0 && data.sectionTitle.size() <= 120 &&
+        data.lineLabel is string && data.lineLabel.size() > 0 && data.lineLabel.size() <= 200 &&
+        data.roomsCount is int && data.roomsCount >= 1 && data.roomsCount <= 99 &&
+        data.nightsCount is int && data.nightsCount >= 1 && data.nightsCount <= 999 &&
+        data.unitPriceDisplay is number && data.unitPriceDisplay >= 0 && data.unitPriceDisplay < 1000000000000 &&
+        data.currency == 'XAF' &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string;
+    }
+
     function isValidFinanceEntry(data) {
       return data.keys().hasAll(['kind', 'category', 'amount', 'currency', 'date', 'title', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.keys().hasOnly(['kind', 'category', 'amount', 'currency', 'date', 'title', 'createdAt', 'updatedAt', 'authorUid', 'notes', 'employeeId', 'apartmentName', 'unitSlug']) &&
@@ -304,6 +347,19 @@ service cloud.firestore {
     match /apartments/{apartmentId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /pro_invoices/{invoiceId} {
+      allow read: if isAgent();
+      allow create: if isAgent() &&
+        isValidProInvoice(request.resource.data) &&
+        isAuthorizedForApartment(request.resource.data.apartmentName) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if isAgent() &&
+        isValidProInvoice(request.resource.data) &&
+        isAuthorizedForApartment(request.resource.data.apartmentName) &&
+        request.resource.data.authorUid == resource.data.authorUid;
+      allow delete: if isAdmin();
     }
 
     match /receipts/{receiptId} {
