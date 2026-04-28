@@ -1,4 +1,20 @@
-import { TarifMap } from './types';
+import { TarifMap, UserProfile } from './types';
+
+/** Ne pas ouvrir la vue Coûts via le seul rôle admin ; droits via bouton « Vue Coûts » (sauf super-admins). */
+export const FINANCE_COSTS_OPT_OUT_EMAILS = new Set(['yamehome.yaounde@gmail.com']);
+
+/** Qui voit le menu Coûts & marges (aligné sur firestore.rules `canAccessFinance`). */
+export function canSeeCostsMenu(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  const em = profile.email.toLowerCase().trim();
+  if (isMainAdminEmail(profile.email)) return true;
+  if (profile.financeAccess === true) return true;
+  if (FINANCE_COSTS_OPT_OUT_EMAILS.has(em)) return false;
+  return profile.role === 'admin';
+}
 
 /**
  * LOGO_BASE64: Paste your logo's base64 string here.
@@ -177,6 +193,53 @@ export function getAllUnitRowsFromTarifs(): { unitSlug: string; apartmentName: s
   }
   return out.sort((a, b) => a.apartmentName.localeCompare(b.apartmentName) || a.unitSlug.localeCompare(b.unitSlug));
 }
+
+/** Vue Coûts — logements sans entrées « mode STUDIO » (doublon / même compteur que l’appart classique). */
+export function getFinanceCostsUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
+  return getAllUnitRowsFromTarifs().filter(({ apartmentName }) => {
+    const n = apartmentName.toLowerCase();
+    return !n.includes('mode studio');
+  });
+}
+
+/**
+ * Loyers bailleur (saisie rapide) : même base que la vue Coûts, sans les biens familiaux Bangangté
+ * (GALLAGHERS CITY — pas de loyer « vers tiers » à suivre comme à Yaoundé).
+ */
+export function getFinanceCostsRentQuickFillUnitRows(): { unitSlug: string; apartmentName: string }[] {
+  return getFinanceCostsUnitRowsFromTarifs().filter(
+    ({ apartmentName }) => !apartmentName.toUpperCase().includes('GALLAGHERS')
+  );
+}
+
+/** Saisie rapide Coûts — montants défaut salaires (hints Paola / Madeleine / Idriss → nom employé). */
+export const FINANCE_QUICK_SALARY_AMOUNT_BY_HINT: Record<string, number> = {
+  paola: 120_000,
+  madeleine: 70_000,
+  idriss: 95_000,
+};
+
+/** Autres unités Yaoundé sans montant listé : valeur par défaut avant édition au crayon. */
+export const FINANCE_QUICK_RENT_AMOUNT_FALLBACK = 150_000;
+
+/** Loyers bail vers tiers — par slug calendrier (base direction). */
+export const FINANCE_QUICK_RENT_AMOUNT_BY_UNIT_SLUG: Record<string, number> = {
+  'rieti-terracotta': 150_000,
+  'rieti-emeraude': 150_000,
+  'modena-haut-standing': 160_000,
+  'matera-deluxe': 200_000,
+  'matera-studio': 130_000,
+  'matera-studio-superior': 130_000,
+  'matera-chambre-a': 125_000,
+  'matera-chambre-b': 125_000,
+};
+
+export function getFinanceQuickRentDefaultAmount(unitSlug: string): number {
+  return FINANCE_QUICK_RENT_AMOUNT_BY_UNIT_SLUG[unitSlug] ?? FINANCE_QUICK_RENT_AMOUNT_FALLBACK;
+}
+
+/** Internet — dépense récurrente saisie rapide (facture / charges). */
+export const FINANCE_QUICK_INTERNET_AMOUNT = 60_000;
 
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
 export function getPrepaidEligibleUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {

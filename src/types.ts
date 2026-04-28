@@ -123,6 +123,8 @@ export interface UserProfile {
   allowedSites?: string[];
   /** Profil employé (présence) — renseigné via Gestion des accès, synchronisé depuis authorized_emails */
   linkedEmployeeId?: string | null;
+  /** Vue Coûts / marges — accordé via Gestion des accès (whitelist) ou champ users */
+  financeAccess?: boolean;
 }
 
 export interface AuthorizedEmail {
@@ -133,6 +135,8 @@ export interface AuthorizedEmail {
   allowedSites?: string[];
   /** ID document `employees/{id}` — l’agent ne peut cocher la présence que pour cet employé */
   linkedEmployeeId?: string | null;
+  /** Accès à la vue Coûts / marges (sans être admin complet) */
+  financeAccess?: boolean;
 }
 
 export interface Employee {
@@ -227,6 +231,43 @@ export interface AgentProfile {
   preferredPaymentMethod: string;
   paymentReference: string;
   notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+/** Ligne saisie manuelle dans la vue Coûts (Firestore `finance_entries`) */
+export type FinanceEntryKind = 'REVENUE' | 'EXPENSE';
+
+export type FinanceExpenseCategory =
+  | 'SALARY'
+  | 'RENT'
+  | 'BILL'
+  | 'REPAIR'
+  | 'PURCHASE'
+  | 'OTHER_EXPENSE';
+
+export type FinanceRevenueCategory = 'MISC_SALE' | 'OTHER_REVENUE';
+
+export type FinanceCategory = FinanceExpenseCategory | FinanceRevenueCategory;
+
+export interface FinanceEntry {
+  id?: string;
+  kind: FinanceEntryKind;
+  category: FinanceCategory;
+  /** Toujours > 0 ; le sens est donné par `kind` */
+  amount: number;
+  currency: 'XAF';
+  /** Date comptable (jour concerné) */
+  date: string;
+  title: string;
+  notes?: string;
+  /** Obligatoire pour catégorie SALARY si renseigné */
+  employeeId?: string | null;
+  /** Unité du parc (slug calendrier), optionnel — avec apartmentName pour l’affichage */
+  unitSlug?: string | null;
+  /** Nom du bâtiment TARIFS — renseigné avec unitSlug pour affichage / filtres */
+  apartmentName?: string | null;
   createdAt: string;
   updatedAt: string;
   authorUid: string;

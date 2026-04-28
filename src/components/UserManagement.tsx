@@ -107,6 +107,19 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
+  const handleToggleFinanceAccess = async (authEmailId: string, current: boolean) => {
+    setIsUpdating(authEmailId);
+    try {
+      await setDoc(doc(db, 'authorized_emails', authEmailId), { financeAccess: !current }, { merge: true });
+      onAlert(!current ? 'Accès à la vue Coûts activé' : 'Accès à la vue Coûts retiré', 'success');
+    } catch (error) {
+      console.error('Error toggling finance access:', error);
+      onAlert('Erreur lors de la mise à jour', 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
   const handleUpdateLinkedEmployee = async (authEmailId: string, employeeId: string) => {
     setIsUpdating(authEmailId);
     try {
@@ -151,6 +164,11 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
             <Shield className="text-blue-600" /> Gestion des Accès
           </h2>
           <p className="text-gray-500 text-sm mt-1">Définissez les emails autorisés à se connecter à l'application.</p>
+          <p className="text-emerald-900/85 text-xs mt-4 leading-relaxed max-w-3xl border border-emerald-100 bg-emerald-50/60 rounded-xl px-4 py-3">
+            <span className="font-black uppercase tracking-wider text-[10px] text-emerald-800 block mb-1">Vue Coûts &amp; marges</span>
+            Sur chaque ligne, le bouton <strong className="text-emerald-950">« Vue Coûts »</strong> active ou désactive l’accès au menu vert (saisie des lignes et lecture des marges).
+            Les <strong className="text-emerald-950">super-admins</strong> ont toujours accès. Les autres <strong className="text-emerald-950">administrateurs</strong> aussi, sauf le compte générique Yaoundé (<strong className="font-mono text-[10px]">yamehome.yaounde@gmail.com</strong>) qui n’a la vue Coûts que si vous activez explicitement ce bouton.
+          </p>
         </div>
       </div>
 
@@ -219,7 +237,9 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
         <div className="p-4 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4">
           <div className="col-span-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Email</div>
           <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Rôle</div>
-          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Présence (fiche)</div>
+          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
+            Présence / Coûts
+          </div>
           <div className="col-span-1 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Action</div>
         </div>
         <div className="divide-y divide-gray-50">
@@ -276,19 +296,33 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                   {isUpdating === item.id ? (
                     <Loader2 className="animate-spin text-blue-600" size={14} />
                   ) : (
-                    <select
-                      value={item.linkedEmployeeId || ''}
-                      onChange={(e) => handleUpdateLinkedEmployee(item.id!, e.target.value)}
-                      className="w-full text-[10px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500"
-                      title="Compte autorisé = cette fiche pour la feuille de présence"
-                    >
-                      <option value="">— Non lié —</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
+                    <>
+                      <select
+                        value={item.linkedEmployeeId || ''}
+                        onChange={(e) => handleUpdateLinkedEmployee(item.id!, e.target.value)}
+                        className="w-full text-[10px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500"
+                        title="Compte autorisé = cette fiche pour la feuille de présence"
+                      >
+                        <option value="">— Non lié —</option>
+                        {employees.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        title="Autoriser ce compte à ouvrir « Coûts & marges » (saisie et totaux du mois)"
+                        onClick={() => handleToggleFinanceAccess(item.id!, !!item.financeAccess)}
+                        className={`mt-1.5 w-full text-[9px] font-black uppercase py-1.5 rounded-lg border transition-colors ${
+                          item.financeAccess
+                            ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
+                            : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        Vue Coûts {item.financeAccess ? '✓' : '○'}
+                      </button>
+                    </>
                   )}
                 </div>
                 <div className="col-span-1 text-right">

@@ -29,7 +29,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu } from './constants';
 import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import { defaultCleaningChecklist, normalizeCleaningReport, validateCleaningReportForSubmit } from './cleaningReportUtils';
 import { upsertPublicCalendar, deletePublicCalendar } from './utils/publicCalendar';
@@ -41,6 +41,7 @@ const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ProspectsView = lazy(() => import('./components/ProspectsView'));
 const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
+const CostsView = lazy(() => import('./components/CostsView'));
 import { 
   LogOut, 
   Plus, 
@@ -68,7 +69,8 @@ import {
   Eye,
   Calendar as CalendarIcon,
   Loader2,
-  Zap
+  Zap,
+  Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -144,7 +146,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'costs' | 'maintenance'>('calendar');
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -269,6 +271,10 @@ export default function App() {
                 ? (whiteData.linkedEmployeeId ?? null)
                 : (profile as UserProfile & { linkedEmployeeId?: string | null }).linkedEmployeeId ?? null;
 
+            const financeFromWhitelist = whiteData?.financeAccess === true;
+            const financeFromProfile = !!(profile as UserProfile & { financeAccess?: boolean }).financeAccess;
+            const finalFinanceAccess = financeFromWhitelist || financeFromProfile;
+
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
               ...restProfile, 
@@ -276,7 +282,11 @@ export default function App() {
               role: finalRole,
               allowedSites: finalSites
             };
-            const forUi: UserProfile = { ...updatedProfile, linkedEmployeeId: finalLinked ?? undefined };
+            const forUi: UserProfile = {
+              ...updatedProfile,
+              linkedEmployeeId: finalLinked ?? undefined,
+              ...(finalFinanceAccess ? { financeAccess: true } : {})
+            };
             
             // Only update if something actually changed to avoid unnecessary permission checks
             const hasChanged = profile.role !== finalRole || 
@@ -307,7 +317,8 @@ export default function App() {
             };
             const newForUi: UserProfile = {
               ...newProfile,
-              linkedEmployeeId: whiteData != null ? (whiteData.linkedEmployeeId ?? undefined) : undefined
+              linkedEmployeeId: whiteData != null ? (whiteData.linkedEmployeeId ?? undefined) : undefined,
+              ...(whiteData?.financeAccess ? { financeAccess: true } : {})
             };
             console.log("Setting user profile (new):", newProfile);
             try {
@@ -1783,6 +1794,19 @@ export default function App() {
                   <Zap size={16} />
                   Prépayé (kWh)
                 </button>
+                {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
+                  <button
+                    onClick={() => {
+                      setView('costs');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'costs' ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-900/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  >
+                    <Wallet size={16} />
+                    Coûts & marges
+                  </button>
+                )}
                 {(userProfile?.role === 'admin' || isMainAdmin) && (
                   <button 
                     onClick={() => {
@@ -2312,6 +2336,16 @@ export default function App() {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);
               }}
+            />
+          ) : view === 'costs' ? (
+            <CostsView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+              isMainAdmin={isMainAdminEmail(userProfile?.email)}
             />
           ) : view === 'maintenance' ? (
             <div className="flex-1 flex flex-col bg-[#F5F5F4] overflow-y-auto">
