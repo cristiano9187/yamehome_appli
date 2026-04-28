@@ -48,6 +48,9 @@ interface CalendarViewProps {
   onDateChange: (date: Date) => void;
 }
 
+/** Suivi Ménage : cases avec contrôle ayant relevé des points d’attention / anomalie (couleur signature) */
+const CLEANING_ISSUE_SURFACE = 'bg-[#ec7f54]/18 border-[#ec7f54] text-[#a9432c] shadow-md border-2';
+
 export default function CalendarView({ 
   onEdit, 
   onOpenCleaning, 
@@ -705,10 +708,10 @@ export default function CalendarView({
                               currentReport 
                                 ? currentReport.status === 'EFFECTUÉ' 
                                     ? (showOrangeOnEffectué
-                                        ? 'bg-amber-50/90 border-amber-200/90 text-amber-900/90 shadow-sm' 
+                                        ? CLEANING_ISSUE_SURFACE 
                                         : 'bg-green-100 border-green-500 text-green-600 shadow-md border-2')
                                     : currentReport.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
-                                    'bg-amber-50/90 border-amber-200/90 text-amber-900/90 shadow-sm'
+                                    CLEANING_ISSUE_SURFACE
                                 : isCalculatedCleaningDay 
                                   ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' 
                                   : 'bg-transparent border-gray-200 text-gray-300 opacity-20 hover:opacity-100 hover:bg-white hover:border-blue-300'
@@ -722,7 +725,7 @@ export default function CalendarView({
                                     ? 'bg-green-500'
                                     : currentReport.status === 'PRÉVU'
                                       ? 'bg-blue-500'
-                                      : 'bg-amber-500/80'
+                                      : 'bg-[#ec7f54]'
                                 }`}
                               />
                             )}
