@@ -69,6 +69,7 @@
         "kwhCompteurPrepaye": { "type": "number" },
         "eau": { "type": "string" },
         "courant": { "type": "string" },
+        "internet": { "type": "string" },
         "backupOnduleurFonctionne": { "type": "string" },
         "backupBatterieBarres": { "type": "number" },
         "nombreServiettes": { "type": "number" },

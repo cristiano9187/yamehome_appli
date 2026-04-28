@@ -16,7 +16,7 @@ service cloud.firestore {
     //
     // Collection: cleaning_reports
     // Fields: menageId, calendarSlug, dateIntervention, agentEtape1, agentEtape2, status, feedback, damages,
-    //         kWh, eau, courant, backup onduleur, serviettes, checklists, etc. (ancien « agent » migré côté app)
+    //         kWh, eau, courant, internet, backup onduleur, serviettes, checklists, etc. (ancien « agent » migré côté app)
     //
     // Collection: users
     // Fields: uid, email, role, displayName, allowedSites

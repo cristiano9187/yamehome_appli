@@ -59,6 +59,8 @@ export interface CleaningReport {
   /** Présence / disponibilité de l'eau */
   eau: '' | 'OUI' | 'NON';
   courant: '' | 'OUI' | 'NON';
+  /** Connexion Internet opérationnelle */
+  internet: '' | 'OUI' | 'NON';
   /** L’onduleur / backup de secours pris en charge (affiche, bip, autonomie) */
   backupOnduleurFonctionne: '' | 'OUI' | 'NON';
   /**

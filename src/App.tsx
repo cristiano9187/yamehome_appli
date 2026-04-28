@@ -1479,7 +1479,7 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Eau</label>
                         <select
@@ -1501,6 +1501,20 @@ export default function App() {
                           name="courant"
                           className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
                           value={cleaningReport.courant}
+                          onChange={handleCleaningChange}
+                        >
+                          <option value="">— Choisir —</option>
+                          <option value="OUI">Oui</option>
+                          <option value="NON">Non</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1 block">Internet</label>
+                        <select
+                          disabled={isCleaningReadOnly}
+                          name="internet"
+                          className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
+                          value={cleaningReport.internet}
                           onChange={handleCleaningChange}
                         >
                           <option value="">— Choisir —</option>
