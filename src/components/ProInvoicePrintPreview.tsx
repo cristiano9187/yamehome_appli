@@ -3,6 +3,9 @@ import { ProInvoice } from '../types';
 import { LOGO_BASE64, formatCurrency, COMPANY_LEGAL_ISSUER } from '../constants';
 import { amountFcfaToFrenchWords } from '../utils/frenchNumberWords';
 
+/** Fichier copié dans `public/` (facture représentant légal). */
+const SIGNATURE_SRC = `${import.meta.env.BASE_URL}signature-yamepi-tonag.png`;
+
 interface Props {
   data: ProInvoice;
 }
@@ -57,39 +60,27 @@ const ProInvoicePrintPreview = React.memo(function ProInvoicePrintPreview({ data
         </div>
       </div>
 
-      <div className="relative isolate">
-        {showPaidStamp && (
-          <div
-            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden rounded-sm"
-            aria-hidden
-          >
-            <span
-              className="-rotate-[12deg] whitespace-nowrap rounded-xl border-[0.3rem] border-red-700/45 px-8 py-4 font-black uppercase tracking-[0.2em] text-red-700/55 shadow-sm [text-shadow:1px_1px_0_rgba(255_255_255_/_0_5)] select-none print:border-red-700/40 print:text-red-800/50"
-              style={{ fontSize: 'clamp(1.25rem, 4.5vmin, 2rem)' }}
-            >
-              {paidStampLabel}
-            </span>
-          </div>
-        )}
-        <p className="text-center text-sm font-black uppercase tracking-wide underline decoration-[#2B4B8C] decoration-1 underline-offset-4 mb-6 relative z-0">
-          Facture N° <span className="font-mono">{data.invoiceNumber}</span>
+      <p className="text-center text-sm font-black uppercase tracking-wide underline decoration-[#2B4B8C] decoration-1 underline-offset-4 mb-6">
+        Facture N° <span className="font-mono">{data.invoiceNumber}</span>
+      </p>
+
+      <div className="mb-6">
+        <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-1">Doit</p>
+        <p className="text-base font-black text-gray-900">{data.billedToDisplayName}</p>
+      </div>
+
+      {/* Période de séjour : toujours lisible au-dessus du tableau */}
+      <div className="text-center mb-4 relative z-[1]">
+        <p className="font-black uppercase text-base underline underline-offset-2">{data.sectionTitle}</p>
+        <p className="text-xs mt-2 underline">{stayRangeLabel(data.startDate, data.endDate)}</p>
+        <p className="text-[10px] text-gray-500 mt-1">
+          Réf. reçu interne :{' '}
+          <span className="font-mono">{data.receiptBusinessId}</span> — {data.apartmentName}
         </p>
+      </div>
 
-        <div className="mb-6 relative z-0">
-          <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-1">Doit</p>
-          <p className="text-base font-black text-gray-900">{data.billedToDisplayName}</p>
-        </div>
-
-        <div className="text-center mb-4 relative z-0">
-          <p className="font-black uppercase text-base underline underline-offset-2">{data.sectionTitle}</p>
-          <p className="text-xs mt-2 underline">{stayRangeLabel(data.startDate, data.endDate)}</p>
-          <p className="text-[10px] text-gray-500 mt-1">
-            Réf. reçu interne :{' '}
-            <span className="font-mono">{data.receiptBusinessId}</span> — {data.apartmentName}
-          </p>
-        </div>
-
-        <table className="w-full border-collapse border border-gray-300 text-[11px] mb-6 relative z-0">
+      <div>
+        <table className="w-full border-collapse border border-gray-300 text-[11px] mb-6 bg-white">
         <thead>
           <tr className="bg-gray-100">
             <th className="border border-gray-300 px-2 py-2 font-black">N°</th>
@@ -122,29 +113,55 @@ const ProInvoicePrintPreview = React.memo(function ProInvoicePrintPreview({ data
         </tbody>
         </table>
 
-        <p className="text-xs leading-relaxed mb-8 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50/80 relative z-0">
+        <p className="text-xs leading-relaxed mb-8 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50/80">
           Arrêtée la présente facture à la somme de {wordsTotal}.
         </p>
       </div>
 
-      <div className="mt-10 pt-4 border-t-2 border-gray-300 space-y-2 text-[9px] text-gray-700 leading-relaxed">
-        <p className="font-black uppercase tracking-wider text-[10px] text-gray-900">République du Cameroun — Émetteur</p>
-        <p className="font-mono tabular-nums">
-          RCCM : {COMPANY_LEGAL_ISSUER.rccm} · NIU : {COMPANY_LEGAL_ISSUER.niu}
-        </p>
-        <p>
-          Centre des impôts : {COMPANY_LEGAL_ISSUER.taxOffice} — {COMPANY_LEGAL_ISSUER.taxRegime}. Activité RCCM :{' '}
-          {COMPANY_LEGAL_ISSUER.activityDeclared}.
-        </p>
-        <p>
-          Représentant légal : {COMPANY_LEGAL_ISSUER.representative} — Siège principal :{' '}
-          {COMPANY_LEGAL_ISSUER.headquartersShort}.
-        </p>
-        <p className="font-mono">{COMPANY_LEGAL_ISSUER.phoneDisplay}</p>
+      {/* Bloc émetteur + zone client « Payé » (à droite, demande employeur) */}
+      <div className="mt-10 pt-4 border-t-2 border-gray-300 flex flex-row flex-wrap gap-x-4 gap-y-3 sm:gap-x-6 items-center print:flex-nowrap print:items-center print:justify-between">
+        <div className="min-w-0 flex-1 space-y-2 text-[9px] text-gray-700 leading-relaxed">
+          <p className="font-black uppercase tracking-wider text-[10px] text-gray-900">République du Cameroun — Émetteur</p>
+          <p className="font-mono tabular-nums">
+            RCCM : {COMPANY_LEGAL_ISSUER.rccm} · NIU : {COMPANY_LEGAL_ISSUER.niu}
+          </p>
+          <p>
+            Centre des impôts : {COMPANY_LEGAL_ISSUER.taxOffice} — {COMPANY_LEGAL_ISSUER.taxRegime}. Activité RCCM :{' '}
+            {COMPANY_LEGAL_ISSUER.activityDeclared}.
+          </p>
+          <p>
+            Représentant légal : {COMPANY_LEGAL_ISSUER.representative} — Siège principal :{' '}
+            {COMPANY_LEGAL_ISSUER.headquartersShort}.
+          </p>
+          <p className="font-mono">{COMPANY_LEGAL_ISSUER.phoneDisplay}</p>
+        </div>
+        {showPaidStamp && (
+          <div
+            className="shrink-0 mx-auto sm:mx-0 flex min-h-[5.5rem] w-full max-w-[11rem] sm:w-[10.5rem] flex-col items-center justify-center print:max-w-[11rem]"
+            aria-hidden
+          >
+            <span
+              className="-rotate-[10deg] text-center rounded-xl border-[0.28rem] border-red-700/45 px-4 py-3 font-black uppercase tracking-[0.15em] text-red-700/60 leading-tight shadow-sm [text-shadow:1px_1px_0_rgba(255_255_255_/_0_5)] select-none print:border-red-700/45 print:text-red-800/55"
+              style={{ fontSize: data.paidStamp === 'paid_cash' ? 'clamp(0.75rem, 2.8vmin, 0.92rem)' : 'clamp(0.85rem, 3vmin, 1.05rem)' }}
+            >
+              {paidStampLabel}
+            </span>
+          </div>
+        )}
       </div>
 
-      <div className="flex justify-end mt-auto pt-6 border-t border-dashed border-gray-200">
-        <div className="text-right text-[10px] text-gray-500 max-w-[42%] ml-auto">
+      <div className="flex flex-col sm:flex-row print:flex-row print:justify-between sm:justify-between sm:items-end gap-6 mt-auto pt-6 border-t border-dashed border-gray-200">
+        <div className="flex flex-col items-center sm:items-start text-center sm:text-left order-2 sm:order-1 shrink-0">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+            Signature du représentant légal
+          </span>
+          <img
+            src={SIGNATURE_SRC}
+            alt={`Signature ${COMPANY_LEGAL_ISSUER.representative}`}
+            className="h-[4.25rem] w-auto max-w-[220px] object-contain object-bottom print:h-[4.5rem]"
+          />
+        </div>
+        <div className="text-right text-[10px] text-gray-500 max-w-[min(100%,20rem)] sm:max-w-[42%] ml-auto sm:ml-0 order-1 sm:order-2 flex-1 min-w-0">
           <p className="font-black uppercase text-[9px] text-gray-900 mb-1">
             Bon pour agrément frais professionnels sous réserve validation employeur.
           </p>
