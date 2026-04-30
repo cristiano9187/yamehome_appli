@@ -1260,32 +1260,48 @@ export default function App() {
       return;
     }
 
+    const receiptDocId = formData.id || formData.receiptId;
+    const backTarget = receiptReturnTarget ?? 'calendar';
+
     setIsSaving(true);
     try {
-      await setDoc(doc(db, 'receipts', formData.id || formData.receiptId), {
+      await setDoc(doc(db, 'receipts', receiptDocId), {
         ...formData,
         status: 'ANNULE'
       }, { merge: true });
 
-      // --- CANCEL ASSOCIATED CLEANING ---
-      const cleaningReportId = `CR-${formData.receiptId}-${formData.calendarSlug}-${formData.endDate}`;
-      await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
-        status: 'ANNULÉ'
-      }, { merge: true });
+      // Ne pas faire échouer l’annulation si aucun rapport ménage n’existe (merge seul champ + règles Firestore).
+      try {
+        const cleaningReportId = `CR-${formData.receiptId}-${formData.calendarSlug}-${formData.endDate}`;
+        await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
+          status: 'ANNULÉ'
+        }, { merge: true });
+      } catch (eClean) {
+        console.warn('[annulation] synchro rapport ménage ignorée:', eClean);
+      }
 
-      // Retirer de la vue publique
       await deletePublicCalendar(formData.receiptId);
 
-      setFormData(getInitialState()); 
-      setIsReadOnly(false); 
-      setShowMobileNav(false);
       setShowCancelConfirm(false);
+      setReceiptReturnTarget(null);
+      setFormData(getInitialState());
+      setIsReadOnly(false);
+      setShowMobileNav(false);
+      setView(backTarget);
+
       setAlertType('success');
-      setAlertMessage("Réservation annulée avec succès !");
-    } catch (e) { 
+      setAlertMessage(
+        'La réservation a été correctement annulée. Elle ne figure plus comme active dans le planning.'
+      );
+    } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, 'receipts');
-    } finally { 
-      setIsSaving(false); 
+      setShowCancelConfirm(false);
+      setAlertType('error');
+      setAlertMessage(
+        "L'enregistrement de l'annulation a échoué. Vérifiez la connexion et vos droits, puis réessayez."
+      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
