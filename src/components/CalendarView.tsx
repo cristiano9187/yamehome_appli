@@ -48,8 +48,12 @@ interface CalendarViewProps {
   onDateChange: (date: Date) => void;
 }
 
-/** Suivi Ménage : cases avec contrôle ayant relevé des points d’attention / anomalie (couleur signature) */
+/** Suivi Ménage : anomalie ou effectué avec point(s) d’attention (orange signature) */
 const CLEANING_ISSUE_SURFACE = 'bg-[#ec7f54]/18 border-[#ec7f54] text-[#a9432c] shadow-md border-2';
+
+/** Rapport REPORTÉ — teinte indigo/bleu discret, distincte de l’orange anomalie */
+const CLEANING_POSTPONED_SURFACE =
+  'bg-indigo-100/90 border-indigo-400/95 text-indigo-900 shadow-md border-2';
 
 export default function CalendarView({ 
   onEdit, 
@@ -694,9 +698,12 @@ export default function CalendarView({
                           const showOrangeOnEffectué =
                             currentReport?.status === 'EFFECTUÉ' &&
                             effectuéMériteAffichageAlerte(currentReport);
-                          const cellTitle = showOrangeOnEffectué
-                            ? "Effectué : point(s) d'attention (mesures, serviettes, texte) — surlignage discret"
-                            : undefined;
+                          const cellTitle =
+                            currentReport?.status === 'REPORTÉ'
+                              ? 'Ménage reporté — consulter le compte-rendu pour la suite'
+                              : showOrangeOnEffectué
+                                ? "Effectué : point(s) d'attention (mesures, serviettes, texte) — surlignage discret"
+                                : undefined;
                           return (
                           <div 
                             onClick={(e) => {
@@ -711,7 +718,9 @@ export default function CalendarView({
                                         ? CLEANING_ISSUE_SURFACE 
                                         : 'bg-green-100 border-green-500 text-green-600 shadow-md border-2')
                                     : currentReport.status === 'PRÉVU' ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' :
-                                    CLEANING_ISSUE_SURFACE
+                                    currentReport.status === 'REPORTÉ'
+                                      ? CLEANING_POSTPONED_SURFACE
+                                      : CLEANING_ISSUE_SURFACE
                                 : isCalculatedCleaningDay 
                                   ? 'bg-white border-blue-500 text-blue-600 shadow-md border-2' 
                                   : 'bg-transparent border-gray-200 text-gray-300 opacity-20 hover:opacity-100 hover:bg-white hover:border-blue-300'
@@ -725,7 +734,9 @@ export default function CalendarView({
                                     ? 'bg-green-500'
                                     : currentReport.status === 'PRÉVU'
                                       ? 'bg-blue-500'
-                                      : 'bg-[#ec7f54]'
+                                      : currentReport.status === 'REPORTÉ'
+                                        ? 'bg-indigo-500'
+                                        : 'bg-[#ec7f54]'
                                 }`}
                               />
                             )}
