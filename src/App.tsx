@@ -73,6 +73,7 @@ import {
   Zap,
   Wallet,
   ScrollText,
+  ArrowLeft,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -149,6 +150,8 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
+  /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
+  const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | null>(null);
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -1028,9 +1031,15 @@ export default function App() {
     setFormData(getInitialState());
     setSourceProspectId(null);
     setIsReadOnly(false);
+    setReceiptReturnTarget(null);
     setView('form');
     setShowMobileNav(false);
   };
+
+  const handleCloseReceiptPreview = useCallback(() => {
+    setView(receiptReturnTarget ?? 'calendar');
+    setReceiptReturnTarget(null);
+  }, [receiptReturnTarget]);
 
   const handleConvertProspect = (prospect: Prospect) => {
     const apartmentData = prospect.apartmentName ? TARIFS[prospect.apartmentName] : undefined;
@@ -1054,6 +1063,7 @@ export default function App() {
     });
     setSourceProspectId(prospect.id || null);
     setIsReadOnly(false);
+    setReceiptReturnTarget('prospects');
     setView('form');
     setShowMobileNav(false);
     if (window.innerWidth < 768) setIsSidebarOpen(true);
@@ -1578,7 +1588,7 @@ export default function App() {
                               type="checkbox"
                               name={name}
                               disabled={isCleaningReadOnly}
-                              checked={!!(cleaningReport as Record<string, boolean>)[name]}
+                              checked={Boolean((cleaningReport as unknown as Record<string, unknown>)[name])}
                               onChange={handleCleaningChange}
                               className="h-4 w-4 rounded border-gray-300"
                             />
@@ -2233,11 +2243,13 @@ export default function App() {
               onEdit={(receipt) => {
                 setFormData(receipt);
                 setIsReadOnly(true);
+                setReceiptReturnTarget('history');
                 setView('form');
               }}
               onPrint={(receipt) => {
                 setFormData(receipt);
                 setIsReadOnly(true);
+                setReceiptReturnTarget('history');
                 setView('form');
                 // The useEffect will handle the title sync automatically
                 setTimeout(() => {
@@ -2262,6 +2274,7 @@ export default function App() {
               onEdit={(receipt) => {
                 setFormData(receipt);
                 setIsReadOnly(true);
+                setReceiptReturnTarget('calendar');
                 setView('form');
               }}
               onOpenCleaning={async (menageId, slug, date) => {
@@ -2486,7 +2499,15 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={handleCloseReceiptPreview}
+                      className="flex items-center gap-2 px-4 md:px-5 py-3 bg-white border border-gray-200 text-gray-800 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
+                      title="Fermer sans passer par le menu"
+                    >
+                      <ArrowLeft size={14} /> Fermer
+                    </button>
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setIsReadOnly(false)} 

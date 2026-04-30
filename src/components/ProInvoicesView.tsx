@@ -81,11 +81,12 @@ function buildProInvoicePdfSuggestedFilename(inv: ProInvoice): string {
   return `facture_${client}_${site}_${moisFacture}_${jourImpression}`;
 }
 
-export function proInvoiceDraftFromReceipt(r: ReceiptData, authorUid: string): Omit<ProInvoice, 'id' | 'createdAt' | 'updatedAt'> {
+export function proInvoiceDraftFromReceipt(r: ReceiptData, authorUid: string): Omit<ProInvoice, 'id'> {
   const nights = nightsBetween(r.startDate, r.endDate);
   const amountFrom = Math.round(r.grandTotal);
   const amountInv = Math.max(1, amountFrom);
   const unitPu = Math.round(amountInv / nights);
+  const now = new Date().toISOString();
   return {
     sourceReceiptFirestoreId: r.id || r.receiptId,
     receiptBusinessId: r.receiptId,
@@ -110,6 +111,8 @@ export function proInvoiceDraftFromReceipt(r: ReceiptData, authorUid: string): O
     unitPriceDisplay: unitPu,
     currency: 'XAF',
     authorUid,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
