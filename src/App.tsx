@@ -2475,69 +2475,91 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* Top Bar */}
-              <header className="top-bar h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40 print:hidden">
-              <div className="flex items-center gap-4">
+              {/* Top Bar — lecture seule : barre compacte sur mobile (icônes + tooltips) */}
+              <header className="top-bar bg-white border-b border-gray-200 px-3 sm:px-4 md:px-8 py-2 md:h-20 md:py-0 flex flex-col gap-2 md:flex-row md:items-center md:justify-between sticky top-0 z-40 print:hidden">
+              <div className="flex items-center gap-2 md:gap-4 min-w-0 shrink">
                 {!isSidebarOpen && (
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       setIsSidebarOpen(true);
                     }} 
-                    className="p-2 hover:bg-gray-100 rounded-xl transition-all"
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-all shrink-0 touch-manipulation"
+                    type="button"
+                    aria-label="Ouvrir le menu"
                   >
                     <Menu size={20} />
                   </button>
                 )}
-                <div className="flex flex-col">
-                  <h2 className="text-sm font-black uppercase tracking-widest">Aperçu du Reçu</h2>
-                  <span className="text-[10px] font-mono text-gray-400 font-bold">{formData.receiptId}</span>
+                <div className="flex flex-col min-w-0">
+                  <h2 className="text-[11px] sm:text-sm font-black uppercase tracking-widest truncate">Aperçu du Reçu</h2>
+                  <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 font-bold truncate">{formData.receiptId}</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 md:gap-3">
+              <div className="flex flex-nowrap items-center justify-end gap-1 sm:gap-1.5 md:gap-3 w-full md:w-auto md:shrink-0 border-t border-gray-100/80 pt-2 md:border-0 md:pt-0 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {!isReadOnly ? (
-                  <div className="flex gap-2">
-                    {/* Mobile-only Edit Button to go back to sidebar */}
+                  <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5 md:gap-2 ml-auto">
                     <button 
                       onClick={() => setIsSidebarOpen(true)} 
-                      className="md:hidden flex items-center gap-2 px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all"
+                      className="md:hidden h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 touch-manipulation"
+                      type="button"
+                      title="Modifier le reçu"
+                      aria-label="Modifier le reçu"
                     >
-                      <Edit size={12}/> Modifier
+                      <Edit size={18} />
                     </button>
                     <button 
                       onClick={saveToFirestore} 
                       disabled={isSaving || formData.status === 'ANNULE'} 
-                      className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
+                      type="button"
+                      aria-label={isSaving ? 'Enregistrement en cours' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      title={isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder le reçu'}
+                      className={`inline-flex items-center justify-center gap-2 h-10 px-3 sm:px-4 md:h-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg touch-manipulation ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
                     >
-                      {isSaving ? <Clock size={14} className="animate-spin"/> : saveStatus === 'success' ? <CheckCircle2 size={14}/> : <Save size={14}/>}
-                      {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      {isSaving ? <Clock size={16} className="animate-spin shrink-0"/> : saveStatus === 'success' ? <CheckCircle2 size={16} className="shrink-0"/> : <Save size={16} className="shrink-0"/>}
+                      <span className="hidden sm:inline md:inline max-w-[7rem] sm:max-w-none truncate">
+                        {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      </span>
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-2 justify-end">
+                  <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5 md:gap-2 ml-auto">
                     <button
                       type="button"
                       onClick={handleCloseReceiptPreview}
-                      className="flex items-center gap-2 px-4 md:px-5 py-3 bg-white border border-gray-200 text-gray-800 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-gray-50 transition-all"
-                      title="Fermer sans passer par le menu"
+                      className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 touch-manipulation md:h-auto md:w-auto md:px-5 md:py-3 md:gap-2"
+                      title="Fermer l'aperçu"
+                      aria-label="Fermer l'aperçu"
                     >
-                      <ArrowLeft size={14} /> Fermer
+                      <X size={18} className="md:hidden" />
+                      <ArrowLeft size={14} className="hidden md:block" />
+                      <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Fermer</span>
                     </button>
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setIsReadOnly(false)} 
-                        className="flex items-center gap-2 px-4 md:px-6 py-3 bg-orange-50 text-orange-600 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-orange-100 transition-all"
+                        type="button"
+                        className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl bg-orange-50 text-orange-600 border border-orange-200/80 hover:bg-orange-100 touch-manipulation md:h-auto md:w-auto md:px-6 md:py-3 md:border-0 md:gap-2"
+                        title="Modifier le reçu"
+                        aria-label="Modifier le reçu"
                       >
-                        <Edit size={14}/> Modifier
+                        <Edit size={18} className="md:hidden shrink-0" />
+                        <Edit size={14} className="hidden md:block shrink-0" />
+                        <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Modifier</span>
                       </button>
                     )}
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setShowCancelConfirm(true)} 
-                        className="flex items-center gap-2 px-4 md:px-6 py-3 bg-red-50 text-red-600 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-red-100 transition-all"
+                        type="button"
+                        className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl bg-red-50 text-red-600 border border-red-200/80 hover:bg-red-100 touch-manipulation md:h-auto md:w-auto md:px-6 md:py-3 md:border-0 md:gap-2"
+                        title="Annuler la réservation"
+                        aria-label="Annuler la réservation"
                       >
-                        <Trash2 size={14}/> Annuler
+                        <Trash2 size={18} className="md:hidden shrink-0" />
+                        <Trash2 size={14} className="hidden md:block shrink-0" />
+                        <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Annuler</span>
                       </button>
                     )}
                   </div>
@@ -2545,9 +2567,14 @@ export default function App() {
                 <button 
                   onClick={handlePrint} 
                   disabled={!isReadOnly}
-                  className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl ${!isReadOnly ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#141414] text-white hover:bg-gray-800 shadow-black/10'}`}
+                  type="button"
+                  title="Exporter en PDF"
+                  aria-label="Exporter en PDF"
+                  className={`inline-flex items-center justify-center gap-2 h-10 w-10 shrink-0 md:h-auto md:w-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation ${!isReadOnly ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#141414] text-white hover:bg-gray-800 shadow-black/10'}`}
                 >
-                  <Printer size={14}/> Exporter PDF
+                  <Printer size={18} className="md:hidden shrink-0" />
+                  <Printer size={14} className="hidden md:block shrink-0" />
+                  <span className="hidden md:inline">Exporter PDF</span>
                 </button>
               </div>
             </header>
