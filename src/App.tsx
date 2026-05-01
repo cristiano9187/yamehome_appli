@@ -2525,6 +2525,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5 md:gap-2 ml-auto">
+                    {/* 1 — Fermer (le plus utilisé) */}
                     <button
                       type="button"
                       onClick={handleCloseReceiptPreview}
@@ -2536,12 +2537,26 @@ export default function App() {
                       <ArrowLeft size={14} className="hidden md:block" />
                       <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Fermer</span>
                     </button>
+                    {/* 2 — PDF : libellé « PDF » toujours visible sur mobile */}
+                    <button
+                      onClick={handlePrint}
+                      type="button"
+                      title="Exporter le reçu en PDF"
+                      aria-label="Exporter en PDF"
+                      className="inline-flex items-center justify-center gap-1.5 h-10 shrink-0 px-2.5 md:gap-2 md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation bg-[#141414] text-white hover:bg-gray-800 shadow-black/10"
+                    >
+                      <Printer size={18} className="md:hidden shrink-0" />
+                      <Printer size={14} className="hidden md:block shrink-0" />
+                      <span className="inline md:hidden font-black text-[10px] uppercase tracking-widest">PDF</span>
+                      <span className="hidden md:inline">Exporter PDF</span>
+                    </button>
+                    {/* 3 — Modifier */}
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setIsReadOnly(false)} 
                         type="button"
                         className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl bg-orange-50 text-orange-600 border border-orange-200/80 hover:bg-orange-100 touch-manipulation md:h-auto md:w-auto md:px-6 md:py-3 md:border-0 md:gap-2"
-                        title="Modifier le reçu"
+                        title="Modifier le texte du reçu avant impression"
                         aria-label="Modifier le reçu"
                       >
                         <Edit size={18} className="md:hidden shrink-0" />
@@ -2549,12 +2564,13 @@ export default function App() {
                         <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Modifier</span>
                       </button>
                     )}
+                    {/* 4 — Annuler la réservation (action sensible, en dernier) */}
                     {(!formData.status || formData.status === 'VALIDE') && (
                       <button 
                         onClick={() => setShowCancelConfirm(true)} 
                         type="button"
                         className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl bg-red-50 text-red-600 border border-red-200/80 hover:bg-red-100 touch-manipulation md:h-auto md:w-auto md:px-6 md:py-3 md:border-0 md:gap-2"
-                        title="Annuler la réservation"
+                        title="Annuler définitivement la réservation (irréversible)"
                         aria-label="Annuler la réservation"
                       >
                         <Trash2 size={18} className="md:hidden shrink-0" />
@@ -2564,18 +2580,21 @@ export default function App() {
                     )}
                   </div>
                 )}
+                {!isReadOnly && (
                 <button 
                   onClick={handlePrint} 
-                  disabled={!isReadOnly}
+                  disabled
                   type="button"
-                  title="Exporter en PDF"
+                  title="Enregistrez le reçu pour exporter en PDF"
                   aria-label="Exporter en PDF"
-                  className={`inline-flex items-center justify-center gap-2 h-10 w-10 shrink-0 md:h-auto md:w-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation ${!isReadOnly ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#141414] text-white hover:bg-gray-800 shadow-black/10'}`}
+                  className={`inline-flex items-center justify-center gap-1.5 h-10 shrink-0 px-2.5 md:gap-2 md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation bg-gray-100 text-gray-400 cursor-not-allowed`}
                 >
                   <Printer size={18} className="md:hidden shrink-0" />
                   <Printer size={14} className="hidden md:block shrink-0" />
+                  <span className="inline md:hidden font-black text-[10px] uppercase tracking-widest">PDF</span>
                   <span className="hidden md:inline">Exporter PDF</span>
                 </button>
+                )}
               </div>
             </header>
 
