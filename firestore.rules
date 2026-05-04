@@ -291,7 +291,7 @@ service cloud.firestore {
                'assignedTo', 'nextFollowUpDate', 'notes', 'convertedReceiptId',
                'createdAt', 'updatedAt', 'authorUid'
              ]) &&
-             data.source in ['FACEBOOK', 'AIRBNB', 'BOOKING', 'TELEPHONE', 'WHATSAPP', 'AUTRE'] &&
+             data.source in ['FACEBOOK', 'AIRBNB', 'BOOKING', 'TELEPHONE', 'WHATSAPP', 'AUTRE', 'SITE_WEB'] &&
              data.status in ['NOUVEAU', 'A_RELANCER', 'EN_NEGOCIATION', 'CONVERTI', 'PERDU', 'ANNULE'] &&
              data.lastName is string && data.lastName.size() > 0 &&
              data.phone is string && data.phone.size() > 0 &&

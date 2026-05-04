@@ -188,7 +188,7 @@ export interface BlockedDate {
 
 export type ProspectStatus = 'NOUVEAU' | 'A_RELANCER' | 'EN_NEGOCIATION' | 'CONVERTI' | 'PERDU' | 'ANNULE';
 
-export type ProspectSource = 'FACEBOOK' | 'AIRBNB' | 'BOOKING' | 'TELEPHONE' | 'WHATSAPP' | 'AUTRE';
+export type ProspectSource = 'FACEBOOK' | 'AIRBNB' | 'BOOKING' | 'TELEPHONE' | 'WHATSAPP' | 'AUTRE' | 'SITE_WEB';
 
 export interface Prospect {
   id?: string;

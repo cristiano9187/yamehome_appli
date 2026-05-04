@@ -34,10 +34,11 @@ const SOURCE_CONFIG: Record<ProspectSource, { label: string; bg: string; color: 
   FACEBOOK:  { label: 'Facebook', bg: 'bg-blue-800',  color: 'text-white', icon: <Users size={11} /> },
   WHATSAPP:  { label: 'WhatsApp', bg: 'bg-green-500', color: 'text-white', icon: <MessageCircle size={11} /> },
   TELEPHONE: { label: 'Tél.',     bg: 'bg-gray-500',  color: 'text-white', icon: <Phone size={11} /> },
+  SITE_WEB:  { label: 'Site web', bg: 'bg-amber-600', color: 'text-white', icon: <Globe size={11} /> },
   AUTRE:     { label: 'Autre',    bg: 'bg-gray-400',  color: 'text-white', icon: <HelpCircle size={11} /> },
 };
 
-const SOURCE_OPTIONS: ProspectSource[] = ['FACEBOOK', 'AIRBNB', 'BOOKING', 'TELEPHONE', 'WHATSAPP', 'AUTRE'];
+const SOURCE_OPTIONS: ProspectSource[] = ['FACEBOOK', 'AIRBNB', 'BOOKING', 'SITE_WEB', 'TELEPHONE', 'WHATSAPP', 'AUTRE'];
 
 function normalizePhone(raw: string): { tel: string; wa: string } {
   if (!raw) return { tel: '', wa: '' };
