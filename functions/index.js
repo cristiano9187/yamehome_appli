@@ -21,10 +21,12 @@ const {
   tomorrowYmdDouala,
 } = require('./pricing');
 
-initializeApp();
-
 const DB_ID = 'ai-studio-469b45b3-ddc0-4c8a-9d44-563700ba9c68';
 const REGION = 'europe-west1';
+
+const app = initializeApp();
+/** Base Firestore nommée (même ID que le client web). */
+const db = getFirestore(app, DB_ID);
 
 /** Même chaîne pour tous les prospects créés depuis le site (pas un UID Firebase réel). */
 const WEBSITE_PROSPECT_AUTHOR_UID = 'yamehome-site-public';
@@ -155,7 +157,6 @@ exports.submitWebsiteProspect = onCall(
       authorUid: WEBSITE_PROSPECT_AUTHOR_UID,
     };
 
-    const db = getFirestore(DB_ID);
     const ref = await db.collection('prospects').add(payload);
     logger.info(`[submitWebsiteProspect] créé ${ref.id} — ${calendarSlug} — ${startDate}→${endDate}`);
 
@@ -170,7 +171,6 @@ exports.archivePastReservations = onSchedule(
     region: REGION,
   },
   async () => {
-    const db = getFirestore(DB_ID);
     const today = new Date().toISOString().split('T')[0];
 
     logger.info(`[archive] Démarrage — date de référence : ${today}`);
