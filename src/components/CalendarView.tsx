@@ -34,6 +34,38 @@ import {
 import { upsertPublicCalendar, deletePublicCalendar } from '../utils/publicCalendar';
 import { motion, AnimatePresence } from 'motion/react';
 
+/** YYYY-MM-DD (local) */
+function ymdLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Dates de passage ménage théoriques pour une réservation (check-in, +3j, check-out).
+ * Le jour de départ (`endDate`) est inclus alors que `getBookingForUnitAndDay` l’exclut :
+ * sans cette règle, la case checkout ne recevait pas le bon receiptId et le rapport
+ * pouvait être considéré « orphelin » et masqué dans la grille.
+ */
+function getCleaningTaskDates(booking: ReceiptData): string[] {
+  const tasks: string[] = [];
+  const start = new Date(booking.startDate);
+  const end = new Date(booking.endDate);
+
+  tasks.push(booking.startDate);
+
+  let current = new Date(start);
+  current.setDate(current.getDate() + 3);
+  while (current < end) {
+    tasks.push(ymdLocal(current));
+    current.setDate(current.getDate() + 3);
+  }
+
+  tasks.push(booking.endDate);
+  return [...new Set(tasks)];
+}
+
 interface CalendarViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onOpenCleaning: (menageId: string, slug: string, date: string) => void;
@@ -356,27 +388,17 @@ export default function CalendarView({
     );
   };
 
-  const getCleaningTasks = (booking: ReceiptData) => {
-    const tasks: string[] = [];
-    const start = new Date(booking.startDate);
-    const end = new Date(booking.endDate);
-    
-    // Rule: Check-in (control)
-    tasks.push(booking.startDate);
-    
-    // Rule: Every 3 days
-    let current = new Date(start);
-    current.setDate(current.getDate() + 3);
-    while (current < end) {
-      tasks.push(getLocalDateString(current));
-      current.setDate(current.getDate() + 3);
+  const cleaningBookingByCell = useMemo(() => {
+    const map = new Map<string, ReceiptData>();
+    for (const r of receipts) {
+      if (!r.calendarSlug || r.status === 'ANNULE') continue;
+      for (const d of getCleaningTaskDates(r)) {
+        const k = `${r.calendarSlug}|${d}`;
+        if (!map.has(k)) map.set(k, r);
+      }
     }
-    
-    // Rule: Check-out
-    tasks.push(booking.endDate);
-    
-    return [...new Set(tasks)]; // Unique dates
-  };
+    return map;
+  }, [receipts]);
 
   const getCleaningReport = (unitSlug: string, dateStr: string) => {
     return cleaningReports.find(r => r.calendarSlug === unitSlug && r.dateIntervention === dateStr);
@@ -643,20 +665,25 @@ export default function CalendarView({
                   {daysInMonth.map(date => {
                     const dateStr = getLocalDateString(date);
                     const booking = getBookingForUnitAndDay(unit.slug, date);
+                    const cleaningBooking =
+                      viewMode === 'cleaning'
+                        ? cleaningBookingByCell.get(`${unit.slug}|${dateStr}`) ?? null
+                        : null;
+                    const menageIdForCleaningOpen = cleaningBooking?.receiptId || 'MANUAL';
                     const isToday = date.toDateString() === new Date().toDateString();
                     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                     
                     const blockedDate = blockedDates.find(b => b.calendarSlug === unit.slug && b.date === dateStr);
                     const isBlocked = !!blockedDate;
 
-                    // Cleaning Logic
-                    const cleaningDates = booking ? getCleaningTasks(booking) : [];
-                    const isCalculatedCleaningDay = cleaningDates.includes(dateStr);
+                    // Cleaning Logic — même ligne de résa que pour le ménage le jour du check-out
+                    const isCalculatedCleaningDay = viewMode === 'cleaning' && !!cleaningBooking;
                     const report = getCleaningReport(unit.slug, dateStr);
-                    // Only show report if it's MANUAL or associated with a VALID receipt
-                    const isValidReport = report && (report.menageId === 'MANUAL' || receipts.some(r => r.receiptId === report.menageId));
-                    const currentReport = (isValidReport && report?.status !== 'ANNULÉ') ? report : null;
-                    const isCleaningDay = isCalculatedCleaningDay && (!report || report.status !== 'ANNULÉ') || !!currentReport;
+                    const currentReport =
+                      report && report.status !== 'ANNULÉ' ? report : null;
+                    const isCleaningDay =
+                      (isCalculatedCleaningDay && (!report || report.status !== 'ANNULÉ')) ||
+                      !!currentReport;
 
                     return (
                       <td 
@@ -665,7 +692,7 @@ export default function CalendarView({
                           if (viewMode === 'reservations' && !booking) {
                             setSelectedCell({ unitSlug: unit.slug, date: dateStr });
                           } else if (viewMode === 'cleaning') {
-                            onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr);
+                            onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                           }
                         }}
                         className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
@@ -708,7 +735,7 @@ export default function CalendarView({
                           <div 
                             onClick={(e) => {
                               e.stopPropagation();
-                              onOpenCleaning(booking?.receiptId || 'MANUAL', unit.slug, dateStr);
+                              onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                             }}
                             title={cellTitle}
                             className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
