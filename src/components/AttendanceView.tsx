@@ -33,6 +33,26 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+/**
+ * Clé yyyy-MM-DD alignée sur le calendrier local du navigateur (pour Firestore).
+ * À utiliser avec les dates créées via `new Date(y, m, d)`, jamais `toISOString().split('T')[0]`
+ * (UTC décale un jour hors GMT±0 — planning vs vue quotidienne incohérents).
+ */
+function localCalendarDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalCalendarDateKey(ymd: string): Date {
+  const [ys, ms, ds] = ymd.split('-');
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  return new Date(y, Math.max(0, m - 1), Math.max(1, day), 12, 0, 0, 0);
+}
+
 interface AttendanceViewProps {
   userProfile: UserProfile | null;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
@@ -44,7 +64,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [attendance, setAttendance] = useState<Record<string, AttendanceRecord>>({});
   const [planningData, setPlanningData] = useState<Record<string, AttendanceRecord>>({});
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() => localCalendarDateKey(new Date()));
   const [mode, setMode] = useState<'daily' | 'planning' | 'employees'>('daily');
   /** Modale entrée/sortie (remplace window.confirm — texte FR, même style que reçus / ménage) */
   const [presenceConfirm, setPresenceConfirm] = useState<
@@ -133,8 +153,8 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    const startStr = new Date(year, month, 1).toISOString().split('T')[0];
-    const endStr = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    const startStr = localCalendarDateKey(new Date(year, month, 1));
+    const endStr = localCalendarDateKey(new Date(year, month + 1, 0));
 
     const q = query(
       collection(db, 'attendance'), 
@@ -340,9 +360,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
             <div className="flex gap-2 ml-auto">
               <button 
                 onClick={() => {
-                  const d = new Date(selectedDate);
+                  const d = parseLocalCalendarDateKey(selectedDate);
                   d.setDate(d.getDate() - 1);
-                  setSelectedDate(d.toISOString().split('T')[0]);
+                  setSelectedDate(localCalendarDateKey(d));
                 }}
                 className="p-2 hover:bg-slate-50 rounded-lg transition-colors"
               >
@@ -350,9 +370,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
               </button>
               <button 
                 onClick={() => {
-                  const d = new Date(selectedDate);
+                  const d = parseLocalCalendarDateKey(selectedDate);
                   d.setDate(d.getDate() + 1);
-                  setSelectedDate(d.toISOString().split('T')[0]);
+                  setSelectedDate(localCalendarDateKey(d));
                 }}
                 className="p-2 hover:bg-slate-50 rounded-lg transition-colors"
               >
@@ -524,7 +544,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                       {emp.name}
                     </td>
                     {planningDays.map((d, i) => {
-                      const dateStr = d.toISOString().split('T')[0];
+                      const dateStr = localCalendarDateKey(d);
                       const record = planningData[`${emp.id}_${dateStr}`];
                       const isRepos = record?.status === 'PRÉVU_REPOS' || record?.status === 'REPOS';
                       const isToday = d.toDateString() === new Date().toDateString();
