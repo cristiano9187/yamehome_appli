@@ -1996,9 +1996,9 @@ export default function App() {
               <div className="flex flex-col gap-2">
                 <button 
                   onClick={handleNewReceipt}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <Plus size={16} />
+                  <Plus size={16} className={view === 'form' ? '' : 'text-blue-600'} />
                   Nouveau Reçu
                 </button>
 
@@ -2022,9 +2022,9 @@ export default function App() {
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <History size={16} />
+                  <History size={16} className={view === 'history' ? '' : 'text-indigo-500'} />
                   Historique
                 </button>
                 <button
@@ -2033,9 +2033,9 @@ export default function App() {
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'proInvoices' ? 'bg-[#2B4B8C] text-white shadow-lg shadow-[#2B4B8C]/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'proInvoices' ? 'bg-[#2B4B8C] text-white shadow-lg shadow-[#2B4B8C]/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <ScrollText size={16} />
+                  <ScrollText size={16} className={view === 'proInvoices' ? '' : 'text-sky-600'} />
                   Factures société
                 </button>
                 <button 
@@ -2044,9 +2044,9 @@ export default function App() {
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <CalendarIcon size={16} />
+                  <CalendarIcon size={16} className={view === 'calendar' ? '' : 'text-teal-600'} />
                   Calendrier
                 </button>
                 <button
@@ -2055,9 +2055,9 @@ export default function App() {
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prospects' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prospects' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <Search size={16} />
+                  <Search size={16} className={view === 'prospects' ? '' : 'text-violet-600'} />
                   Prospects
                 </button>
                 <button
@@ -2066,9 +2066,9 @@ export default function App() {
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prepaidTokens' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prepaidTokens' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <Zap size={16} />
+                  <Zap size={16} className={view === 'prepaidTokens' ? '' : 'text-amber-600'} />
                   Prépayé (kWh)
                 </button>
                 {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
@@ -2078,9 +2078,9 @@ export default function App() {
                       setShowMobileNav(false);
                       if (window.innerWidth < 768) setIsSidebarOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'costs' ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-900/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'costs' ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-900/20' : 'text-gray-600 hover:bg-gray-50'}`}
                   >
-                    <Wallet size={16} />
+                    <Wallet size={16} className={view === 'costs' ? '' : 'text-emerald-600'} />
                     Coûts & marges
                   </button>
                 )}
@@ -2091,9 +2091,9 @@ export default function App() {
                       setShowMobileNav(false);
                       if (window.innerWidth < 768) setIsSidebarOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                   >
-                    <Users size={16} />
+                    <Users size={16} className={view === 'users' ? '' : 'text-cyan-600'} />
                     Utilisateurs
                   </button>
                 )}
@@ -2104,9 +2104,9 @@ export default function App() {
                       setShowMobileNav(false);
                       if (window.innerWidth < 768) setIsSidebarOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'maintenance' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-400 hover:bg-gray-50'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'maintenance' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                   >
-                    <Shield size={16} />
+                    <Shield size={16} className={view === 'maintenance' ? '' : 'text-orange-600'} />
                     Maintenance
                   </button>
                 )}
