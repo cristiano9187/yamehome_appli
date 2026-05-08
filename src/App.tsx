@@ -219,7 +219,7 @@ export default function App() {
     createdAt: new Date().toISOString()
   });
 
-  // Chambres sans onduleur (Matera / Gallaghers) : ne pas conserver d’ancienne saisie onduleur
+  // Chambres sans onduleur / anti-délestage (Gallaghers) : ne pas conserver d’ancienne saisie backup
   useEffect(() => {
     if (!isCleaningMode || isCleaningReadOnly) return;
     if (!isOnduleurNonConcerne(cleaningReport.calendarSlug)) return;
@@ -1467,13 +1467,13 @@ export default function App() {
                           : ''
                       }`}
                     >
-                      <p className="text-[10px] text-amber-800 font-black uppercase tracking-widest">Onduleur / backup de courant</p>
+                      <p className="text-[10px] text-amber-800 font-black uppercase tracking-widest">Anti-délestage / onduleur (backup)</p>
                       {isOnduleurNonConcerne(cleaningReport.calendarSlug) ? (
                         <div className="space-y-1.5">
                           <p className="text-xs text-gray-600 leading-relaxed">
-                            <span className="font-bold text-gray-800">Non concerné</span> sur cette chambre (Matera chambre standard ou Gallaghers City) : pas d’onduleur installé à ce jour. Aucune saisie requise ici.
+                            <span className="font-bold text-gray-800">Non concerné</span> sur cette unité Gallaghers City : pas de dispositif anti-délestage / onduleur à ce jour. Aucune saisie requise ici.
                           </p>
-                          <p className="text-[10px] text-gray-500">Les autres appartements / studios du parc continuent d’indiquer le test onduleur et le niveau de batterie.</p>
+                          <p className="text-[10px] text-gray-500">Les autres logements (dont les chambres Matera YameHome Odza) indiquent si le backup fonctionne et le niveau des batteries.</p>
                         </div>
                       ) : (
                         <>

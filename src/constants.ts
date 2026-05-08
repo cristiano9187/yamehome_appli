@@ -67,12 +67,10 @@ export const SITES = [
 ];
 
 /**
- * Slugs d’unités (chambres) sans installation onduleur / backup — formulaire ménage : bloc grisé, pas de saisie.
- * Matera : chambres A/B. Gallaghers : toutes les chambres (standard simple + cuisine).
+ * Slugs d’unités (chambres) sans installation anti-délestage / onduleur / backup — formulaire ménage : bloc grisé, pas de saisie.
+ * Gallaghers City uniquement : chambres standard simple + cuisine. Les chambres Matera (Odza) sont équipées comme le reste du parc.
  */
 export const UNITS_SANS_ONDULEUR: readonly string[] = [
-  'matera-chambre-a',
-  'matera-chambre-b',
   'bgt-standard-a',
   'bgt-standard-b',
   'bgt-standard-c',
