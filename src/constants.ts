@@ -137,22 +137,22 @@ export const TARIFS: TarifMap = {
       '1-6': { prix: 35000, caution: 10000 }, '7-29': { prix: 30000, caution: 15000 }, '30+': { prix: 27000, caution: 30000 }
   },
   'MATERA YAMEHOME - APPARTEMENT DELUXE mode STUDIO': { 
-      address: 'Odza borne 10, Porte 201',
+      address: 'Odza borne 10, Entrée Ministre, Porte 201',
       units: ['matera-deluxe'],
       '1-6': { prix: 30000, caution: 10000 }, '7+': { prix: 25000, caution: 15000 }
   },
   'MATERA YAMEHOME - APPARTEMENT DELUXE': { 
-      address: 'Odza borne 10, Porte 201',
+      address: 'Odza borne 10, Entrée Ministre, Porte 201',
       units: ['matera-deluxe'],
       '1-6': { prix: 40000, caution: 10000 }, '7-29': { prix: 34000, caution: 15000 }, '30+': { prix: 30000, caution: 30000 }
   },
   'MATERA YAMEHOME - STUDIO AMERICAIN': {
-      address: 'Odza borne 10, Porte 103|203',
+      address: 'Odza borne 10, Entrée Ministre, Porte 103|203',
       units: ['matera-studio', 'matera-studio-superior'], 
       '1-6': { prix: 25000, caution: 5000 }, '7-29': { prix: 22500, caution: 10000 }, '30+': { prix: 20000, caution: 15000 }
   },
   'MATERA YAMEHOME - CHAMBRE STANDARD': {
-      address: 'Odza borne 10, Porte 104 A|B',
+      address: 'Odza borne 10, Entrée Ministre, Porte 104 A|B',
       units: ['matera-chambre-a', 'matera-chambre-b'],
       '1-2': { prix: 15000, caution: 5000 }, '3+': { prix: 13000, caution: 10000 }
   },
