@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 import { effectuéMériteAffichageAlerte } from '../cleaningReportUtils';
+import { getReceiptSegments } from '../utils/receiptSegments';
 import { 
   collection, 
   query, 
@@ -43,10 +44,8 @@ function ymdLocal(date: Date): string {
 }
 
 /**
- * Dates de passage ménage théoriques pour une réservation (check-in, +3j, check-out).
- * Le jour de départ (`endDate`) est inclus alors que `getBookingForUnitAndDay` l’exclut :
- * sans cette règle, la case checkout ne recevait pas le bon receiptId et le rapport
- * pouvait être considéré « orphelin » et masqué dans la grille.
+ * Dates de passage ménage théoriques pour **un segment** de réservation (check-in, +3j, check-out).
+ * Le jour de départ (`endDate`) est inclus alors que `getBookingForUnitAndDay` l’exclut.
  */
 function getCleaningTaskDates(booking: ReceiptData): string[] {
   const tasks: string[] = [];
@@ -64,6 +63,25 @@ function getCleaningTaskDates(booking: ReceiptData): string[] {
 
   tasks.push(booking.endDate);
   return [...new Set(tasks)];
+}
+
+/**
+ * Agrégation des passages ménage par unité pour un reçu (mono ou multi-segments).
+ */
+function getCleaningTaskDatesForReceipt(booking: ReceiptData): Array<{ slug: string; dateStr: string }> {
+  const out: Array<{ slug: string; dateStr: string }> = [];
+  for (const seg of getReceiptSegments(booking)) {
+    const pseudo: ReceiptData = {
+      ...booking,
+      calendarSlug: seg.calendarSlug,
+      startDate: seg.startDate,
+      endDate: seg.endDate,
+    };
+    for (const dateStr of getCleaningTaskDates(pseudo)) {
+      out.push({ slug: seg.calendarSlug, dateStr });
+    }
+  }
+  return out;
 }
 
 interface CalendarViewProps {
@@ -381,19 +399,20 @@ export default function CalendarView({
 
   const getBookingForUnitAndDay = (unitSlug: string, date: Date) => {
     const dateStr = getLocalDateString(date);
-    return receipts.find(r => 
-      r.calendarSlug === unitSlug && 
-      dateStr >= r.startDate && 
-      dateStr < r.endDate
-    );
+    return receipts.find((r) => {
+      if (r.status === 'ANNULE') return false;
+      return getReceiptSegments(r).some(
+        (s) => s.calendarSlug === unitSlug && dateStr >= s.startDate && dateStr < s.endDate
+      );
+    });
   };
 
   const cleaningBookingByCell = useMemo(() => {
     const map = new Map<string, ReceiptData>();
     for (const r of receipts) {
-      if (!r.calendarSlug || r.status === 'ANNULE') continue;
-      for (const d of getCleaningTaskDates(r)) {
-        const k = `${r.calendarSlug}|${d}`;
+      if (r.status === 'ANNULE') continue;
+      for (const { slug, dateStr } of getCleaningTaskDatesForReceipt(r)) {
+        const k = `${slug}|${dateStr}`;
         if (!map.has(k)) map.set(k, r);
       }
     }

@@ -8,6 +8,9 @@
  */
 
 import { db } from '../firebase';
+import { deleteAllReservationEventsForReceipt } from './publicCalendar';
+import type { ReceiptData } from '../types';
+import { getReceiptSegments } from './receiptSegments';
 import {
   collection,
   query,
@@ -53,24 +56,20 @@ export async function archivePastReservations(): Promise<ArchiveResult> {
     let batch = writeBatch(db);
     let ops = 0;
 
+    const archivedReceiptIds: string[] = [];
+
     for (const snap of snapshot.docs) {
       const data = snap.data();
 
-      // Écriture dans archives
       batch.set(doc(db, 'archives', snap.id), {
         ...data,
         archivedAt: new Date().toISOString(),
       });
       ops++;
 
-      // Nettoyage de public_calendar
-      if (data.receiptId) {
-        batch.delete(doc(db, 'public_calendar', data.receiptId));
-        ops++;
-        result.cleaned++;
-      }
-
       result.archived++;
+      const rid = data.receiptId as string | undefined;
+      if (rid) archivedReceiptIds.push(rid);
 
       if (ops >= BATCH_SIZE) {
         await batch.commit();
@@ -80,6 +79,11 @@ export async function archivePastReservations(): Promise<ArchiveResult> {
     }
 
     if (ops > 0) await batch.commit();
+
+    for (const rid of archivedReceiptIds) {
+      await deleteAllReservationEventsForReceipt(rid);
+      result.cleaned++;
+    }
   } catch (e: any) {
     result.errors.push(e?.message || String(e));
   }
@@ -116,19 +120,42 @@ export async function populatePublicCalendar(): Promise<SyncResult> {
     const items: Array<{ id: string; data: object }> = [];
 
     for (const snap of receiptsSnap.docs) {
-      const d = snap.data();
-      items.push({
-        id: d.receiptId || snap.id,
-        data: {
-          id: d.calendarSlug || '',
-          start: d.startDate || '',
-          end: d.endDate || '',
-          client: `${d.firstName || ''} ${d.lastName || ''}`.trim(),
-          ref_id: d.receiptId || snap.id,
-          type: 'reservation',
-          updatedAt: new Date().toISOString(),
-        },
-      });
+      const d = { id: snap.id, ...snap.data() } as ReceiptData;
+      const segments = getReceiptSegments(d);
+      const refId = d.receiptId || snap.id;
+      const client = `${d.firstName || ''} ${d.lastName || ''}`.trim();
+      const updatedAt = new Date().toISOString();
+
+      if (segments.length === 1) {
+        const s = segments[0];
+        items.push({
+          id: refId,
+          data: {
+            id: s.calendarSlug,
+            start: s.startDate,
+            end: s.endDate,
+            client,
+            ref_id: refId,
+            type: 'reservation',
+            updatedAt,
+          },
+        });
+      } else {
+        for (const s of segments) {
+          items.push({
+            id: `${refId}__${s.id}`,
+            data: {
+              id: s.calendarSlug,
+              start: s.startDate,
+              end: s.endDate,
+              client,
+              ref_id: refId,
+              type: 'reservation',
+              updatedAt,
+            },
+          });
+        }
+      }
     }
 
     for (const snap of blockedSnap.docs) {

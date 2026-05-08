@@ -2,6 +2,7 @@ import React from 'react';
 import { Mail, Globe, Phone, MessageCircle } from 'lucide-react';
 import { ReceiptData } from '../types';
 import { getRateForApartment, LOGO_BASE64, formatCurrency } from '../constants';
+import { getReceiptSegments, receiptHasMultipleSegments, totalNightsAcrossReceipt } from '../utils/receiptSegments';
 
 interface ReceiptPreviewProps {
   data: ReceiptData;
@@ -30,8 +31,11 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
     );
   }
 
-  const diffTime = new Date(data.endDate).getTime() - new Date(data.startDate).getTime();
-  const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
+  const segments = getReceiptSegments(data);
+  const multiStay = receiptHasMultipleSegments(data);
+  const nights = multiStay
+    ? totalNightsAcrossReceipt(data)
+    : Math.max(0, Math.ceil((new Date(data.endDate).getTime() - new Date(data.startDate).getTime()) / (1000 * 3600 * 24)));
   
   const rateInfo = getRateForApartment(data.apartmentName, nights);
   
@@ -43,7 +47,10 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
     : (data.isNegotiatedRate ? data.negotiatedPricePerNight : rateInfo.prix);
 
   const lodgingTotal = data.isCustomRate ? data.customLodgingTotal : (pricePerNight * nights);
-  
+
+  /** Caution : total enregistré sur le reçu (somme segments en multi-barème dans l’app). */
+  const cautionDisplay = multiStay ? data.cautionAmount : rateInfo.caution;
+
   const latePenalty = Math.round(pricePerNight / 2);
 
   const basePrice = rateInfo.prix;
@@ -173,7 +180,19 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
           <div className="space-y-1">
             <p className="truncate"><span className="font-bold">Logement:</span> {data.apartmentName}</p>
             <p className="truncate"><span className="font-bold">Lieu:</span> {rateInfo.address}</p>
-            <p><span className="font-bold">Séjour:</span> {nights} nuit(s) ({new Date(data.startDate).toLocaleDateString('fr-FR')} - {new Date(data.endDate).toLocaleDateString('fr-FR')})</p>
+            <p><span className="font-bold">Séjour :</span> {nights} nuit(s) — du {new Date(data.startDate).toLocaleDateString('fr-FR')} au {new Date(data.endDate).toLocaleDateString('fr-FR')}
+              {multiStay ? ' (plusieurs plages)' : ''}
+            </p>
+            {multiStay && (
+              <ul className="mt-1 pl-3 list-disc text-[10px] text-gray-600 space-y-0.5">
+                {segments.map((s) => (
+                  <li key={s.id}>
+                    {s.apartmentName} — {s.calendarSlug} — {new Date(s.startDate).toLocaleDateString('fr-FR')} →{' '}
+                    {new Date(s.endDate).toLocaleDateString('fr-FR')}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
@@ -202,7 +221,7 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
             </tr>
             <tr className="border-b">
               <td className="py-2">Caution (Remboursable)</td>
-              <td className="py-2 text-right font-semibold">{formatCurrency(rateInfo.caution)}</td>
+              <td className="py-2 text-right font-semibold">{formatCurrency(cautionDisplay)}</td>
             </tr>
             <tr className="bg-blue-50 font-bold">
               <td className="py-2 pl-2">Montant Total à Payer</td>

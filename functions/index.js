@@ -194,17 +194,22 @@ exports.archivePastReservations = onSchedule(
     for (const snap of snapshot.docs) {
       const data = snap.data();
 
-      // Écriture dans archives (upsert)
       batch.set(db.collection('archives').doc(snap.id), {
         ...data,
         archivedAt: new Date().toISOString(),
       });
       ops++;
 
-      // Retrait de public_calendar
       if (data.receiptId) {
-        batch.delete(db.collection('public_calendar').doc(data.receiptId));
-        ops++;
+        const calSnap = await db
+          .collection('public_calendar')
+          .where('ref_id', '==', data.receiptId)
+          .where('type', '==', 'reservation')
+          .get();
+        for (const docRef of calSnap.docs) {
+          batch.delete(docRef.ref);
+          ops++;
+        }
       }
 
       archived++;

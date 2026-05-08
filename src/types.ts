@@ -5,6 +5,20 @@ export interface Payment {
   method: string;
 }
 
+/**
+ * Une plage réservée dans un même reçu (multi-logements et/ou séjour split).
+ * `lodgingAllocated` : part indicative hébergement (XAF) pour PDF / analyse — les paiements restent au niveau du reçu.
+ */
+export interface ReceiptStaySegment {
+  /** Stable (sync public_calendar multi-docs : `{receiptId}__${id}`) */
+  id: string;
+  calendarSlug: string;
+  apartmentName: string;
+  startDate: string;
+  endDate: string;
+  lodgingAllocated?: number | null;
+}
+
 export interface ReceiptData {
   id?: string;
   receiptId: string;
@@ -16,6 +30,8 @@ export interface ReceiptData {
   apartmentName: string;
   startDate: string;
   endDate: string;
+  /** Si défini et non vide : plusieurs plages/unités pour le même reçu ; sinon segment unique dérivé des champs ci-dessus. */
+  staySegments?: ReceiptStaySegment[] | null;
   isCustomRate: boolean;
   customLodgingTotal: number;
   isNegotiatedRate: boolean;

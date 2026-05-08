@@ -30,9 +30,18 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu } from './constants';
-import { ReceiptData, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
+import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import { defaultCleaningChecklist, normalizeCleaningReport, validateCleaningReportForSubmit } from './cleaningReportUtils';
-import { upsertPublicCalendar, deletePublicCalendar } from './utils/publicCalendar';
+import { syncReservationPublicCalendar, deleteAllReservationEventsForReceipt } from './utils/publicCalendar';
+import {
+  getReceiptSegments,
+  newStaySegmentId,
+  totalNightsAcrossReceipt,
+  primarySegmentChronologically,
+  synthesizePersistedReceiptSummary,
+  sumCautionsForSegments,
+  findBookingConflictAcrossSegments,
+} from './utils/receiptSegments';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import DateRangePicker from './components/DateRangePicker';
@@ -124,6 +133,28 @@ const getLocalDateString = (date: Date = new Date()) => {
 const MAIN_ADMIN_EMAILS = new Set(['christian.yamepi@gmail.com', 'cyamepi@gmail.com']);
 const isMainAdminEmail = (email?: string | null) => MAIN_ADMIN_EMAILS.has((email || '').toLowerCase());
 const normalizeString = (value: string) => value.trim().toLowerCase();
+
+/** Slug physique pour un segment (unité unique implicite sinon calendrier sélectionné). */
+function resolveStaySegmentSlug(seg: ReceiptStaySegment): string {
+  const ud = TARIFS[seg.apartmentName]?.units;
+  if (ud && ud.length === 1) return ud[0]!;
+  return (seg.calendarSlug || '').trim();
+}
+
+/** Un seul segment : enregistrement « classique » sans tableau `staySegments`. */
+function flattenStaySegmentsIfSingleton(fd: ReceiptData): ReceiptData {
+  if (!fd.staySegments?.length) return fd;
+  if (fd.staySegments.length > 1) return fd;
+  const s = fd.staySegments[0];
+  return {
+    ...fd,
+    staySegments: undefined,
+    apartmentName: s.apartmentName,
+    calendarSlug: resolveStaySegmentSlug(s),
+    startDate: s.startDate,
+    endDate: s.endDate,
+  };
+}
 
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -374,7 +405,7 @@ export default function App() {
         const snap = await getDocs(q);
         if (!snap.empty) {
           const data = snap.docs[0].data() as ReceiptData;
-          setFormData(data);
+          setFormData(flattenStaySegmentsIfSingleton({ ...data }));
           setIsReadOnly(true);
         }
       } else if (mId) {
@@ -521,26 +552,70 @@ export default function App() {
 
   // --- CALCULATIONS ---
   const totals = useMemo(() => {
-    if (!formData.startDate || !formData.endDate || !formData.apartmentName) {
-      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0, cautionAmount: 0 };
-    }
-    
-    const start = new Date(formData.startDate);
-    const end = new Date(formData.endDate);
-    
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0, cautionAmount: 0 };
+    const zeroTotals = { nights: 0, grandTotal: 0, totalPaid: 0, remaining: 0, commissionAmount: 0, cautionAmount: 0 };
+    const multi =
+      !!formData.staySegments && Array.isArray(formData.staySegments) && formData.staySegments.length >= 2;
+
+    if (!multi) {
+      if (!formData.startDate || !formData.endDate || !formData.apartmentName) {
+        return zeroTotals;
+      }
+      const start = new Date(formData.startDate);
+      const end = new Date(formData.endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return zeroTotals;
+      }
+      const diffTime = end.getTime() - start.getTime();
+      const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
+      const rates = getRateForApartment(formData.apartmentName, nights);
+      const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
+      const totalLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+      const cautionAmount = rates.caution;
+      const grandTotal = totalLodging + cautionAmount;
+      const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+      let commissionAmount = 0;
+      if (formData.agentName && nights > 0) {
+        if (nights <= 14) {
+          commissionAmount = totalLodging * 0.10;
+        } else if (nights <= 30) {
+          commissionAmount = totalLodging * 0.08;
+        } else {
+          const avgPrice = totalLodging / nights;
+          commissionAmount = (avgPrice * 30) * 0.08;
+        }
+      }
+      return {
+        nights,
+        grandTotal,
+        totalPaid,
+        remaining: grandTotal - totalPaid,
+        commissionAmount,
+        cautionAmount
+      };
     }
 
-    const diffTime = end.getTime() - start.getTime();
-    const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
-    const rates = getRateForApartment(formData.apartmentName, nights);
+    const segList = formData.staySegments!;
+    if (
+      segList.some((s) => {
+        if (!s.apartmentName?.trim() || !s.startDate || !s.endDate || s.startDate >= s.endDate) return true;
+        const ud = TARIFS[s.apartmentName]?.units || [];
+        if (ud.length > 1 && !s.calendarSlug?.trim()) return true;
+        const sl = resolveStaySegmentSlug(s);
+        return !sl;
+      })
+    ) {
+      return zeroTotals;
+    }
+    const synth = { ...formData, staySegments: segList } as ReceiptData;
+    const nights = totalNightsAcrossReceipt(synth);
+    if (!nights) return zeroTotals;
+    const prim = primarySegmentChronologically(segList);
+    const rates = getRateForApartment(prim.apartmentName, nights);
     const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
     const totalLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
-    const cautionAmount = rates.caution;
+    const cautionAmount = sumCautionsForSegments(synth);
     const grandTotal = totalLodging + cautionAmount;
     const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
-    
     let commissionAmount = 0;
     if (formData.agentName && nights > 0) {
       if (nights <= 14) {
@@ -552,7 +627,6 @@ export default function App() {
         commissionAmount = (avgPrice * 30) * 0.08;
       }
     }
-
     return {
       nights,
       grandTotal,
@@ -562,14 +636,15 @@ export default function App() {
       cautionAmount
     };
   }, [
-    formData.startDate, 
-    formData.endDate, 
-    formData.apartmentName, 
-    formData.isNegotiatedRate, 
-    formData.negotiatedPricePerNight, 
-    formData.isCustomRate, 
-    formData.customLodgingTotal, 
-    formData.payments, 
+    formData.staySegments,
+    formData.startDate,
+    formData.endDate,
+    formData.apartmentName,
+    formData.isNegotiatedRate,
+    formData.negotiatedPricePerNight,
+    formData.isCustomRate,
+    formData.customLodgingTotal,
+    formData.payments,
     formData.agentName
   ]);
 
@@ -831,35 +906,66 @@ export default function App() {
 
   const saveToFirestore = async () => {
     if (isReadOnly) return;
-    if (!formData.apartmentName || !formData.lastName) {
+
+    let working = flattenStaySegmentsIfSingleton(formData);
+    const isMultiPersist = !!(working.staySegments && working.staySegments.length >= 2);
+
+    if (!working.lastName?.trim()) {
       setAlertType('error');
-      setAlertMessage("Remplir Nom et Logement");
+      setAlertMessage('Remplir au minimum le nom du client.');
       return;
     }
-    if (!formData.startDate || !formData.endDate) {
-      setAlertType('error');
-      setAlertMessage("Précisez les dates d'arrivée et de départ");
-      return;
-    }
-    
-    const apartmentData = TARIFS[formData.apartmentName];
-    const units = apartmentData?.units || [];
-    const finalSlug = units.length === 1 ? units[0] : formData.calendarSlug;
-    if (units.length > 1 && !finalSlug) {
-      setAlertType('error');
-      setAlertMessage("Précisez l'unité");
-      return;
+
+    if (!isMultiPersist) {
+      if (!working.apartmentName || !working.startDate || !working.endDate) {
+        setAlertType('error');
+        setAlertMessage('Remplir Nom, Logement et dates.');
+        return;
+      }
+      const apartmentDataMono = TARIFS[working.apartmentName];
+      const unitsMono = apartmentDataMono?.units || [];
+      const monoSlugCheck = unitsMono.length === 1 ? unitsMono[0] : working.calendarSlug;
+      if (unitsMono.length > 1 && !working.calendarSlug) {
+        setAlertType('error');
+        setAlertMessage("Précisez l'unité");
+        return;
+      }
+    } else {
+      const segList = working.staySegments!;
+      for (const s of segList) {
+        if (!s.apartmentName?.trim() || !s.startDate || !s.endDate) {
+          setAlertType('error');
+          setAlertMessage('Chaque segment doit avoir un logement et des dates (début / fin).');
+          return;
+        }
+        if (s.startDate >= s.endDate) {
+          setAlertType('error');
+          setAlertMessage(`Segment : la date de fin doit être après le début (${s.apartmentName}).`);
+          return;
+        }
+        const ud = TARIFS[s.apartmentName]?.units || [];
+        if (ud.length > 1 && !s.calendarSlug?.trim()) {
+          setAlertType('error');
+          setAlertMessage(`Précisez l'unité pour : ${s.apartmentName}`);
+          return;
+        }
+      }
     }
 
     const isMainAdmin = isMainAdminEmail(userProfile?.email);
     const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
-    
     const allowedSites = userProfile?.allowedSites || [];
-    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
-    
-    const isAllowed = allowedApartments.includes(formData.apartmentName);
-    
-    if (!isAllowed) {
+    const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap((site) => SITE_MAPPING[site] || []);
+
+    if (isMultiPersist) {
+      for (const s of working.staySegments!) {
+        if (!allowedApartments.includes(s.apartmentName)) {
+          setAlertType('error');
+          setAlertMessage(`Vous n'êtes pas autorisé à gérer le logement : ${s.apartmentName}`);
+          return;
+        }
+      }
+    } else if (!allowedApartments.includes(working.apartmentName!)) {
       setAlertType('error');
       setAlertMessage("Vous n'êtes pas autorisé à gérer cet appartement.");
       return;
@@ -867,9 +973,8 @@ export default function App() {
 
     setIsSaving(true);
     try {
-      const docId = formData.id || formData.receiptId;
+      const docId = working.id || working.receiptId;
 
-      // Helper for timeout to prevent hanging on weak networks
       const withTimeout = async (p: Promise<any>, ms: number = 10000) => {
         return Promise.race([
           p,
@@ -877,153 +982,172 @@ export default function App() {
         ]);
       };
 
-      // --- OVERLAP CHECK ---
-      // Get all apartment names that share this physical unit (slug)
-      const relatedApartments = Object.entries(TARIFS)
-        .filter(([_, data]) => data.units?.includes(finalSlug))
-        .map(([name, _]) => name);
-
-      // Query by slug (modern) AND by apartment names (legacy/fallback)
-      const qSlug = query(collection(db, 'receipts'), where('calendarSlug', '==', finalSlug));
-      
-      let snapAptDocs: any[] = [];
-      if (relatedApartments.length > 0) {
-        const qApt = query(collection(db, 'receipts'), where('apartmentName', 'in', relatedApartments));
-        const snapApt = await withTimeout(getDocs(qApt)) as any;
-        snapAptDocs = snapApt.docs;
+      /** Segments persistés avec `calendarSlug` résolu pour chaque ligne. */
+      let persistSegments: ReceiptStaySegment[] | undefined = undefined;
+      let overlapSegsInput: ReceiptData = working;
+      if (isMultiPersist) {
+        persistSegments = working.staySegments!.map((s) => ({
+          ...s,
+          id: s.id?.trim() ? s.id : newStaySegmentId(),
+          calendarSlug: resolveStaySegmentSlug(s),
+        }));
+        working = { ...working, staySegments: persistSegments };
+        overlapSegsInput = { ...working, staySegments: persistSegments };
       }
-      
-      const snapSlug = await withTimeout(getDocs(qSlug)) as any;
-      
-      // Merge results and remove duplicates
-      const allDocs = [...snapSlug.docs, ...snapAptDocs];
-      const docMap = new Map();
-      allDocs.forEach(d => docMap.set(d.id, { id: d.id, ...d.data() }));
-      
-      const existingBookings = Array.from(docMap.values()) as ReceiptData[];
-      const activeBookings = existingBookings.filter(b => b.status !== 'ANNULE');
-      
-      const newStart = formData.startDate;
-      const newEnd = formData.endDate;
-      
-      const overlap = activeBookings.find(b => {
-        // Skip current booking if updating
-        if (b.id === docId || b.receiptId === docId || b.receiptId === formData.receiptId) return false;
-        
-        // If both have slugs, they only conflict if slugs match
-        if (b.calendarSlug && finalSlug && b.calendarSlug !== finalSlug) return false;
-        
-        const bStart = b.startDate;
-        const bEnd = b.endDate;
-        
-        if (!bStart || !bEnd) return false;
 
-        // Overlap logic (exclusive of checkout day): (StartA < EndB) and (EndA > StartB)
-        return newStart < bEnd && newEnd > bStart;
-      });
-      
-      if (overlap) {
+      const overlapSegs = getReceiptSegments(overlapSegsInput);
+
+      const slugSet = new Set(overlapSegs.map((s) => s.calendarSlug).filter(Boolean));
+      const docMap = new Map<string, ReceiptData>();
+
+      for (const finalSlugLoop of slugSet) {
+        const relatedApartments = Object.entries(TARIFS)
+          .filter(([_, data]) => data.units?.includes(finalSlugLoop))
+          .map(([name]) => name);
+
+        const snapSlug = await withTimeout(
+          getDocs(query(collection(db, 'receipts'), where('calendarSlug', '==', finalSlugLoop))) as Promise<any>
+        );
+        let allDocsRaw: any[] = [...snapSlug.docs];
+        if (relatedApartments.length > 0) {
+          for (let i = 0; i < relatedApartments.length; i += 30) {
+            const chunk = relatedApartments.slice(i, i + 30);
+            const qApt = query(collection(db, 'receipts'), where('apartmentName', 'in', chunk));
+            const snapApt = await withTimeout(getDocs(qApt) as Promise<any>);
+            allDocsRaw = allDocsRaw.concat(snapApt.docs);
+          }
+        }
+
+        allDocsRaw.forEach((d: any) => docMap.set(d.id, { id: d.id, ...d.data() }));
+      }
+
+      const activeBookings = Array.from(docMap.values()).filter((b) => b.status !== 'ANNULE');
+      const conflict = findBookingConflictAcrossSegments(
+        docId,
+        working.receiptId,
+        overlapSegs,
+        activeBookings
+      );
+
+      if (conflict) {
         setIsSaving(false);
-        const overlapName = `${overlap.firstName} ${overlap.lastName}`.trim() || 'un autre client';
+        const conflictName = `${conflict.firstName} ${conflict.lastName}`.trim() || 'un autre client';
+        const otherSegs = getReceiptSegments(conflict);
+        const o = otherSegs[0];
         setAlertType('error');
-        setAlertMessage(`CONFLIT DE RÉSERVATION : Le logement "${finalSlug}" est déjà réservé par ${overlapName} du ${overlap.startDate} au ${overlap.endDate}. Veuillez annuler ou déplacer l'ancienne réservation avant de continuer.`);
+        setAlertMessage(
+          `CONFLIT DE RÉSERVATION : chevauchement avec ${conflictName} (${conflict.receiptId}) sur au moins une unité / plage (${o?.calendarSlug} ${o?.startDate}→${o?.endDate}). Annulez ou modifiez l’autre réservation.`
+        );
         return;
       }
 
-      // --- BLOCKED DATES CHECK ---
-      const qBlocked = query(collection(db, 'blocked_dates'), where('calendarSlug', '==', finalSlug));
-      const snapBlocked = await withTimeout(getDocs(qBlocked)) as any;
-      const blockedDates = snapBlocked.docs.map((d: any) => d.data() as BlockedDate);
-      
-      const blocked = blockedDates.find(b => {
-        return b.date >= newStart && b.date < newEnd;
-      });
-      
-      if (blocked) {
-        setIsSaving(false);
-        setAlertType('error');
-        setAlertMessage(`DATE BLOQUÉE : Le logement "${finalSlug}" est bloqué pour maintenance le ${blocked.date}. Veuillez choisir une autre date ou un autre logement.`);
-        return;
+      for (const s of overlapSegs) {
+        const qBlocked = query(collection(db, 'blocked_dates'), where('calendarSlug', '==', s.calendarSlug));
+        const snapBlocked = await withTimeout(getDocs(qBlocked) as Promise<any>);
+        const blockedDates = snapBlocked.docs.map((d: any) => d.data() as BlockedDate);
+        const blocked = blockedDates.find((bd) => bd.date >= s.startDate && bd.date < s.endDate);
+        if (blocked) {
+          setIsSaving(false);
+          setAlertType('error');
+          setAlertMessage(
+            `DATE BLOQUÉE : "${s.calendarSlug}" est bloqué le ${blocked.date} (coupe votre plage du ${s.startDate} au ${s.endDate}).`
+          );
+          return;
+        }
       }
 
-      await withTimeout(setDoc(doc(db, 'receipts', docId), {
-        ...formData,
+      const summary = synthesizePersistedReceiptSummary(overlapSegsInput);
+
+      let finalTopSlug: string;
+      if (!isMultiPersist) {
+        const apartmentDataMono = TARIFS[working.apartmentName!];
+        const unitsMono = apartmentDataMono?.units || [];
+        finalTopSlug = unitsMono.length === 1 ? unitsMono[0]! : working.calendarSlug!;
+      } else {
+        finalTopSlug = summary.calendarSlug || persistSegments![0].calendarSlug;
+      }
+
+      const receiptPayload: ReceiptData = {
+        ...working,
+        ...summary,
+        staySegments: isMultiPersist ? persistSegments : undefined,
+        calendarSlug: finalTopSlug,
         id: docId,
-        calendarSlug: finalSlug,
+        receiptId: working.receiptId,
         authorUid: user?.uid,
-        createdAt: formData.createdAt || new Date().toISOString(),
-        status: formData.status || 'VALIDE'
-      }));
+        createdAt: working.createdAt || new Date().toISOString(),
+        status: working.status || 'VALIDE'
+      };
 
-      // Keep client and agent directories in sync with new/updated receipts.
-      await Promise.all([
-        upsertClientFromReceipt(formData),
-        upsertAgentFromReceipt(formData)
-      ]);
+      await withTimeout(
+        setDoc(doc(db, 'receipts', docId), stripUndefinedForFirestore(receiptPayload as unknown as Record<string, unknown>))
+      );
 
-      // --- AUTOMATIC CLEANING GENERATION ---
-      // Generate a cleaning report for the checkout date (endDate)
-      if (formData.status !== 'ANNULE') {
-        const cleaningReportId = `CR-${formData.receiptId}-${finalSlug}-${formData.endDate}`;
-        await withTimeout(setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
-          menageId: formData.receiptId,
-          calendarSlug: finalSlug,
-          dateIntervention: formData.endDate,
-          agentEtape1: '',
-          agentEtape2: '',
-          status: 'PRÉVU',
-          feedback: '',
-          damages: '',
-          ...defaultCleaningChecklist,
-          createdAt: new Date().toISOString()
-        }, { merge: true }));
+      await Promise.all([upsertClientFromReceipt(receiptPayload), upsertAgentFromReceipt(receiptPayload)]);
+
+      // --- AUTOMATIC CLEANING GENERATION (un rapport par segment de séjour)
+      if (receiptPayload.status !== 'ANNULE') {
+        for (const seg of getReceiptSegments(receiptPayload)) {
+          const cleaningReportId = `CR-${receiptPayload.receiptId}-${seg.calendarSlug}-${seg.endDate}`;
+          await withTimeout(
+            setDoc(
+              doc(db, 'cleaning_reports', cleaningReportId),
+              {
+                menageId: receiptPayload.receiptId,
+                calendarSlug: seg.calendarSlug,
+                dateIntervention: seg.endDate,
+                agentEtape1: '',
+                agentEtape2: '',
+                status: 'PRÉVU',
+                feedback: '',
+                damages: '',
+                ...defaultCleaningChecklist,
+                createdAt: new Date().toISOString()
+              },
+              { merge: true }
+            )
+          );
+        }
       }
 
       if (sourceProspectId) {
-        await withTimeout(updateDoc(doc(db, 'prospects', sourceProspectId), {
-          status: 'CONVERTI',
-          convertedReceiptId: formData.receiptId,
-          updatedAt: new Date().toISOString()
-        }));
+        await withTimeout(
+          updateDoc(doc(db, 'prospects', sourceProspectId), {
+            status: 'CONVERTI',
+            convertedReceiptId: receiptPayload.receiptId,
+            updatedAt: new Date().toISOString()
+          })
+        );
       }
 
-      // Sync public_calendar (vue publique pour yamehome.com / n8n)
-      if (formData.status !== 'ANNULE') {
-        await upsertPublicCalendar({
-          id: finalSlug,
-          start: formData.startDate,
-          end: formData.endDate,
-          client: `${formData.firstName} ${formData.lastName}`.trim(),
-          ref_id: formData.receiptId,
-          type: 'reservation',
-          updatedAt: new Date().toISOString(),
-        });
-      }
+      await syncReservationPublicCalendar(receiptPayload);
+      setFormData(receiptPayload);
 
-      // Ensure data is synchronized with the server
       try {
         await withTimeout(waitForPendingWrites(db), 5000);
       } catch (e) {
-        console.warn("Server sync timeout, data will sync in background");
+        console.warn('Server sync timeout, data will sync in background');
       }
 
-      setSaveStatus('success'); 
+      setSaveStatus('success');
       setAlertType('success');
-      setAlertMessage("Reçu enregistré avec succès !");
+      setAlertMessage('Reçu enregistré avec succès !');
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
       setSourceProspectId(null);
       setShowMobileNav(false);
-    } catch (error: any) { 
+    } catch (error: any) {
       if (error.message === 'TIMEOUT') {
         setAlertType('error');
-        setAlertMessage("DÉLAI DÉPASSÉ : La connexion est trop lente. Vos données sont peut-être enregistrées localement et seront synchronisées dès que possible.");
+        setAlertMessage(
+          'DÉLAI DÉPASSÉ : La connexion est trop lente. Vos données sont peut-être enregistrées localement et seront synchronisées dès que possible.'
+        );
       } else {
         handleFirestoreError(error, OperationType.WRITE, 'receipts');
-        setSaveStatus('error'); 
+        setSaveStatus('error');
       }
-    } finally { 
-      setIsSaving(false); 
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1080,6 +1204,118 @@ export default function App() {
       email: matchedClient.email || ''
     }));
     setClientSearch(`${matchedClient.firstName} ${matchedClient.lastName}`.trim());
+  };
+
+  const selectableApartments = useMemo(() => {
+    if (!userProfile) return [] as string[];
+    if (userProfile.role === 'admin' || isMainAdminEmail(userProfile.email)) return Object.keys(TARIFS);
+    return (userProfile.allowedSites || []).flatMap((site) => SITE_MAPPING[site] || []);
+  }, [userProfile]);
+
+  const stayMultiUi = !!(formData.staySegments?.length);
+
+  const enableStayMultiMode = () => {
+    if (isReadOnly) return;
+    if (!formData.apartmentName || !formData.startDate || !formData.endDate) {
+      setAlertType('info');
+      setAlertMessage('Renseignez d’abord un logement et les dates dans le mode simple, puis réactivez le mode multi-plages.');
+      return;
+    }
+    const ud = TARIFS[formData.apartmentName]?.units || [];
+    const slugMono = ud.length === 1 ? ud[0]! : formData.calendarSlug || '';
+    if (ud.length > 1 && !formData.calendarSlug) {
+      setAlertType('error');
+      setAlertMessage("Précisez l’unité avant d’ajouter plusieurs plages.");
+      return;
+    }
+    const first: ReceiptStaySegment = {
+      id: newStaySegmentId(),
+      apartmentName: formData.apartmentName,
+      calendarSlug: slugMono,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      lodgingAllocated: formData.isCustomRate ? formData.customLodgingTotal : null,
+    };
+    const second: ReceiptStaySegment = {
+      id: newStaySegmentId(),
+      apartmentName: '',
+      calendarSlug: '',
+      startDate: formData.endDate,
+      endDate: formData.endDate,
+      lodgingAllocated: null,
+    };
+    const nextSegs = [first, second];
+    setFormData((prev) => ({
+      ...prev,
+      staySegments: nextSegs,
+      ...synthesizePersistedReceiptSummary({ ...prev, staySegments: nextSegs }),
+    }));
+  };
+
+  const disableStayMultiMode = () => {
+    setFormData((prev) => {
+      const segs = prev.staySegments;
+      if (!segs?.length) return { ...prev, staySegments: undefined };
+      return flattenStaySegmentsIfSingleton({ ...prev, staySegments: [segs[0]] });
+    });
+  };
+
+  const updateStaySegmentRow = (index: number, patch: Partial<ReceiptStaySegment>) => {
+    setFormData((prev) => {
+      const arr = [...(prev.staySegments || [])];
+      const merged = { ...arr[index], ...patch };
+      arr[index] = merged;
+      const ud = TARIFS[merged.apartmentName]?.units;
+      if (ud && ud.length === 1) {
+        arr[index].calendarSlug = ud[0]!;
+      }
+      const next = { ...prev, staySegments: arr };
+      if (arr.length >= 2) {
+        return { ...next, ...synthesizePersistedReceiptSummary(next as ReceiptData) };
+      }
+      return next;
+    });
+  };
+
+  const addStaySegmentRow = () => {
+    setFormData((prev) => {
+      const arr = [...(prev.staySegments || [])];
+      const last = arr[arr.length - 1];
+      const anchorEnd = last?.endDate || prev.endDate || getLocalDateString();
+      arr.push({
+        id: newStaySegmentId(),
+        apartmentName: last?.apartmentName || prev.apartmentName || '',
+        calendarSlug: last?.calendarSlug || prev.calendarSlug || '',
+        startDate: anchorEnd,
+        endDate: anchorEnd,
+        lodgingAllocated: null,
+      });
+      const next = { ...prev, staySegments: arr };
+      return arr.length >= 2 ? { ...next, ...synthesizePersistedReceiptSummary(next as ReceiptData) } : next;
+    });
+  };
+
+  const removeStaySegmentRow = (index: number) => {
+    setFormData((prev) => {
+      const arr = [...(prev.staySegments || [])];
+      arr.splice(index, 1);
+      if (arr.length === 0) {
+        return { ...prev, staySegments: undefined };
+      }
+      const next = { ...prev, staySegments: arr };
+      if (arr.length === 1) {
+        const f = arr[0];
+        return {
+          ...next,
+          staySegments: undefined,
+          apartmentName: f.apartmentName,
+          calendarSlug: resolveStaySegmentSlug(f),
+          startDate: f.startDate,
+          endDate: f.endDate,
+        };
+      }
+      return { ...next, ...synthesizePersistedReceiptSummary(next as ReceiptData) };
+    });
   };
 
   // Hôtes filtrés selon la ville du logement sélectionné
@@ -1272,15 +1508,17 @@ export default function App() {
 
       // Ne pas faire échouer l’annulation si aucun rapport ménage n’existe (merge seul champ + règles Firestore).
       try {
-        const cleaningReportId = `CR-${formData.receiptId}-${formData.calendarSlug}-${formData.endDate}`;
-        await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
-          status: 'ANNULÉ'
-        }, { merge: true });
+        for (const seg of getReceiptSegments(formData)) {
+          const cleaningReportId = `CR-${formData.receiptId}-${seg.calendarSlug}-${seg.endDate}`;
+          await setDoc(doc(db, 'cleaning_reports', cleaningReportId), {
+            status: 'ANNULÉ'
+          }, { merge: true });
+        }
       } catch (eClean) {
         console.warn('[annulation] synchro rapport ménage ignorée:', eClean);
       }
 
-      await deletePublicCalendar(formData.receiptId);
+      await deleteAllReservationEventsForReceipt(formData.receiptId);
 
       setShowCancelConfirm(false);
       setReceiptReturnTarget(null);
@@ -1955,20 +2193,49 @@ export default function App() {
                     <span className="text-[10px] font-black uppercase tracking-widest text-white">Logement &amp; Dates de séjour</span>
                   </div>
                   <div className="p-4 space-y-3">
+                    {!isReadOnly && (
+                      <div className="flex flex-col gap-2 rounded-xl border border-violet-200/80 bg-white/80 p-3">
+                        <p className="text-[10px] text-violet-900 font-bold uppercase tracking-wider">
+                          Plusieurs logements ou séjour enchaîné (Booking, etc.)
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {!stayMultiUi ? (
+                            <button
+                              type="button"
+                              onClick={enableStayMultiMode}
+                              className="text-[10px] font-black uppercase tracking-widest bg-violet-600 text-white px-3 py-2 rounded-lg hover:bg-violet-700"
+                            >
+                              Activer le mode multi-plages
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={disableStayMultiMode}
+                              className="text-[10px] font-black uppercase tracking-widest bg-white border border-violet-300 text-violet-800 px-3 py-2 rounded-lg hover:bg-violet-50"
+                            >
+                              Repasser en un seul logement
+                            </button>
+                          )}
+                        </div>
+                        {stayMultiUi && (
+                          <p className="text-[9px] text-violet-700 leading-snug">
+                            Chaque ligne = une réservation réservable au calendrier. Les montants globaux (
+                            tarifs, paiements, caution agrégée) restent sous la même fiche ; la répartition
+                            ligne par ligne est facultative ci-dessous.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {!stayMultiUi ? (
+                      <>
                     <select disabled={isReadOnly} name="apartmentName" value={formData.apartmentName}
                       className="w-full bg-white border border-violet-200 rounded-xl p-3 text-xs outline-none focus:border-violet-500 transition-all disabled:opacity-60 appearance-none font-bold"
                       onChange={handleChange}>
                       <option value="">-- Choisir Appartement --</option>
-                      {Object.keys(TARIFS)
-                        .filter(key => {
-                          if (!userProfile) return false;
-                          const isMainAdmin = isMainAdminEmail(userProfile.email);
-                          if (userProfile.role === 'admin' || isMainAdmin) return true;
-                          const allowedSites = userProfile.allowedSites || [];
-                          const allowedApartments = allowedSites.flatMap(site => SITE_MAPPING[site] || []);
-                          return allowedApartments.includes(key);
-                        })
-                        .map(key => <option key={key} value={key}>{key}</option>)}
+                      {selectableApartments.map((key) => (
+                        <option key={key} value={key}>{key}</option>
+                      ))}
                     </select>
                     {TARIFS[formData.apartmentName]?.units && TARIFS[formData.apartmentName].units!.length > 1 && (
                       <select disabled={isReadOnly} name="calendarSlug" value={formData.calendarSlug} onChange={handleChange}
@@ -1983,6 +2250,108 @@ export default function App() {
                       disabled={isReadOnly}
                       onChange={(start, end) => setFormData(prev => ({ ...prev, startDate: start, endDate: end }))}
                     />
+                      </>
+                    ) : (
+                      <div className="space-y-3">
+                        {(formData.staySegments || []).map((seg, idx) => {
+                          const ud = seg.apartmentName ? TARIFS[seg.apartmentName]?.units : undefined;
+                          return (
+                            <div
+                              key={seg.id}
+                              className="rounded-xl border border-violet-200 bg-white p-3 space-y-2 shadow-sm"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-[10px] font-black text-violet-800 uppercase tracking-widest">
+                                  Plage #{idx + 1}
+                                </span>
+                                {!isReadOnly && (formData.staySegments || []).length >= 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeStaySegmentRow(idx)}
+                                    className="text-[9px] font-black uppercase text-red-600 hover:underline"
+                                  >
+                                    Supprimer
+                                  </button>
+                                )}
+                              </div>
+                              <select
+                                disabled={isReadOnly}
+                                value={seg.apartmentName}
+                                onChange={(e) => updateStaySegmentRow(idx, { apartmentName: e.target.value, calendarSlug: '' })}
+                                className="w-full bg-violet-50/80 border border-violet-200 rounded-xl p-2.5 text-[11px] font-bold outline-none focus:border-violet-500 disabled:opacity-60"
+                              >
+                                <option value="">-- Logement --</option>
+                                {selectableApartments.map((key) => (
+                                  <option key={key} value={key}>{key}</option>
+                                ))}
+                              </select>
+                              {ud && ud.length > 1 && (
+                                <select
+                                  disabled={isReadOnly}
+                                  value={seg.calendarSlug}
+                                  onChange={(e) => updateStaySegmentRow(idx, { calendarSlug: e.target.value })}
+                                  className="w-full bg-white border border-violet-300 rounded-xl p-2.5 text-[11px] font-bold text-violet-800 outline-none focus:border-violet-500 disabled:opacity-60"
+                                >
+                                  <option value="">-- Unité --</option>
+                                  {ud.map((u) => (
+                                    <option key={u} value={u}>{u}</option>
+                                  ))}
+                                </select>
+                              )}
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[9px] font-bold text-violet-600 uppercase block mb-0.5">Début</label>
+                                  <input
+                                    type="date"
+                                    disabled={isReadOnly}
+                                    value={seg.startDate}
+                                    onChange={(e) => updateStaySegmentRow(idx, { startDate: e.target.value })}
+                                    className="w-full bg-white border border-violet-200 rounded-lg p-2 text-[11px] font-mono disabled:opacity-60"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-violet-600 uppercase block mb-0.5">Fin (départ)</label>
+                                  <input
+                                    type="date"
+                                    disabled={isReadOnly}
+                                    value={seg.endDate}
+                                    onChange={(e) => updateStaySegmentRow(idx, { endDate: e.target.value })}
+                                    className="w-full bg-white border border-violet-200 rounded-lg p-2 text-[11px] font-mono disabled:opacity-60"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-violet-600 uppercase block mb-0.5">
+                                  Part hébergement (FCFA, optionnel)
+                                </label>
+                                <input
+                                  type="number"
+                                  disabled={isReadOnly}
+                                  value={seg.lodgingAllocated ?? ''}
+                                  placeholder="Répartition indicative"
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    updateStaySegmentRow(idx, {
+                                      lodgingAllocated: v === '' ? null : parseFloat(v) || 0,
+                                    });
+                                  }}
+                                  className="w-full bg-violet-50/50 border border-violet-100 rounded-lg p-2 text-[11px] font-mono disabled:opacity-60"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={addStaySegmentRow}
+                            className="w-full py-2.5 rounded-xl border-2 border-dashed border-violet-300 text-violet-700 text-[10px] font-black uppercase tracking-widest hover:bg-violet-50"
+                          >
+                            + Ajouter une plage logement / dates
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2005,6 +2374,12 @@ export default function App() {
                     </div>
                     {formData.isCustomRate && <input disabled={isReadOnly} type="number" name="customLodgingTotal" value={formData.customLodgingTotal || ''} className="w-full bg-white border border-amber-300 rounded-xl p-3 text-xs outline-none focus:border-amber-500 transition-all font-mono font-bold" placeholder="Total Hébergement (FCFA)" onChange={handleChange} />}
                     {formData.isNegotiatedRate && <input disabled={isReadOnly} type="number" name="negotiatedPricePerNight" value={formData.negotiatedPricePerNight || ''} className="w-full bg-white border border-amber-300 rounded-xl p-3 text-xs outline-none focus:border-amber-500 transition-all font-mono font-bold" placeholder="Prix par nuit (FCFA)" onChange={handleChange} />}
+                    {stayMultiUi && (
+                      <p className="text-[10px] text-amber-900/90 leading-snug bg-amber-100/80 border border-amber-200/80 rounded-lg p-2">
+                        Mode multi-plages : les <strong>nuits sont cumulées</strong> sur toutes les lignes. La <strong>caution</strong> est la{' '}
+                        <strong>somme</strong> des cautions barémiques calculées pour chaque segment (selon ses nuitées et son type de logement).
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -2257,13 +2632,13 @@ export default function App() {
                 setAlertMessage(msg);
               }}
               onEdit={(receipt) => {
-                setFormData(receipt);
+                setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
               }}
               onPrint={(receipt) => {
-                setFormData(receipt);
+                setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
@@ -2288,7 +2663,7 @@ export default function App() {
               currentDate={calendarDate}
               onDateChange={setCalendarDate}
               onEdit={(receipt) => {
-                setFormData(receipt);
+                setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
                 setIsReadOnly(true);
                 setReceiptReturnTarget('calendar');
                 setView('form');

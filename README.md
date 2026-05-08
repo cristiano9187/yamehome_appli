@@ -8,6 +8,10 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/469b45b3-ddc0-4c8a-9d44-563700ba9c68
 
+## Documentation produit
+
+- [Reçus multi-logements et séjours split](docs/recu-multi-logements.md) — règles caution, calendrier, `public_calendar`, rétrocompatibilité.
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
