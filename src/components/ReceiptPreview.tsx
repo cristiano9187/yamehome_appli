@@ -22,6 +22,16 @@ function normalizePhone(raw: string): { tel: string; wa: string } {
   return { tel: international, wa: waDigits };
 }
 
+/**
+ * Sur le PDF, les libellés « … APPARTEMENT … STUDIO » sont souvent coupés avant « mode studio ».
+ * Si le nom contient STUDIO, on remplace « Appartement » / « Appartements » par « APT » pour l’affichage uniquement.
+ */
+function formatApartmentNameForPdfDisplay(name: string): string {
+  if (!name.trim()) return name;
+  if (!name.toUpperCase().includes('STUDIO')) return name;
+  return name.replace(/\bappartements?\b/gi, 'APT');
+}
+
 const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
   if (!data.lastName && !data.apartmentName) {
     return (
@@ -64,6 +74,8 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
 
   const isAppartement = data.apartmentName.toUpperCase().includes('APPARTEMENT') && !data.apartmentName.toUpperCase().includes('STUDIO');
   const isStudio = data.apartmentName.toUpperCase().includes('STUDIO');
+
+  const logementDisplay = formatApartmentNameForPdfDisplay(data.apartmentName);
   
   const kwPerNightEco = isAppartement ? 8 : 6;
   const totalKwEco = kwPerNightEco * nights;
@@ -178,7 +190,9 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
         <div className="border rounded-lg p-3 bg-gray-50 text-[11px]">
           <h3 className="text-[#2B4B8C] font-bold border-b mb-2 uppercase pb-1">Réservation</h3>
           <div className="space-y-1">
-            <p className="truncate"><span className="font-bold">Logement:</span> {data.apartmentName}</p>
+            <p className="break-words leading-snug">
+              <span className="font-bold">Logement:</span> {logementDisplay}
+            </p>
             <p className="truncate"><span className="font-bold">Lieu:</span> {rateInfo.address}</p>
             <p><span className="font-bold">Séjour :</span> {nights} nuit(s) — du {new Date(data.startDate).toLocaleDateString('fr-FR')} au {new Date(data.endDate).toLocaleDateString('fr-FR')}
               {multiStay ? ' (plusieurs plages)' : ''}
@@ -186,9 +200,9 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
             {multiStay && (
               <ul className="mt-1 pl-3 list-disc text-[10px] text-gray-600 space-y-0.5">
                 {segments.map((s) => (
-                  <li key={s.id}>
-                    {s.apartmentName} — {s.calendarSlug} — {new Date(s.startDate).toLocaleDateString('fr-FR')} →{' '}
-                    {new Date(s.endDate).toLocaleDateString('fr-FR')}
+                  <li key={s.id} className="break-words">
+                    {formatApartmentNameForPdfDisplay(s.apartmentName)} — {s.calendarSlug} —{' '}
+                    {new Date(s.startDate).toLocaleDateString('fr-FR')} → {new Date(s.endDate).toLocaleDateString('fr-FR')}
                   </li>
                 ))}
               </ul>
