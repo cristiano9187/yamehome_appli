@@ -387,7 +387,7 @@ export default function CalendarView({
     });
   }, [userProfile]);
 
-  // Alternating booking colors per unit — even index = light shade, odd = dark shade
+  // Alternating booking colors per unit row — clé par ligne (slug), pas seulement receipt.id
   const COLOR_VARIANTS: Record<string, [string, string]> = {
     'bg-emerald-500': ['bg-emerald-400', 'bg-emerald-700'],
     'bg-blue-500':    ['bg-blue-400',    'bg-blue-700'],
@@ -396,24 +396,48 @@ export default function CalendarView({
     'bg-gray-500':    ['bg-gray-400',    'bg-gray-700'],
   };
 
+  /** Date de début du segment sur cette unité (tri / alternance par ligne du planning). */
   const bookingIndexMap = useMemo(() => {
+    const segmentStartOnSlug = (receipt: ReceiptData, unitSlug: string): string => {
+      const seg = getReceiptSegments(receipt).find((s) => s.calendarSlug === unitSlug);
+      return seg?.startDate || receipt.startDate || '';
+    };
+
     const map = new Map<string, number>();
     const byUnit = new Map<string, ReceiptData[]>();
+
     for (const r of receipts) {
-      if (!byUnit.has(r.calendarSlug)) byUnit.set(r.calendarSlug, []);
-      byUnit.get(r.calendarSlug)!.push(r);
+      const slugSeenForReceipt = new Set<string>();
+      for (const s of getReceiptSegments(r)) {
+        const slug = (s.calendarSlug || '').trim();
+        if (!slug || slugSeenForReceipt.has(slug)) continue;
+        slugSeenForReceipt.add(slug);
+        if (!byUnit.has(slug)) byUnit.set(slug, []);
+        byUnit.get(slug)!.push(r);
+      }
     }
-    for (const [, bookings] of byUnit) {
-      bookings.sort((a, b) => a.startDate.localeCompare(b.startDate));
-      bookings.forEach((b, i) => { if (b.id) map.set(b.id, i); });
+
+    for (const [unitSlug, bookings] of byUnit) {
+      const uniq = Array.from(new Map(bookings.map((b) => [b.id || b.receiptId, b])).values());
+      uniq.sort((a, b) => {
+        const cmp = segmentStartOnSlug(a, unitSlug).localeCompare(segmentStartOnSlug(b, unitSlug));
+        if (cmp !== 0) return cmp;
+        return (a.receiptId || '').localeCompare(b.receiptId || '');
+      });
+      uniq.forEach((b, i) => {
+        const id = b.id || b.receiptId;
+        if (id) map.set(`${unitSlug}|${id}`, i);
+      });
     }
+
     return map;
   }, [receipts]);
 
-  const getBookingColor = (baseColor: string, bookingId: string | undefined) => {
+  const getBookingColor = (baseColor: string, booking: ReceiptData, unitSlug: string) => {
     const variants = COLOR_VARIANTS[baseColor];
+    const bookingId = booking.id || booking.receiptId;
     if (!variants || !bookingId) return baseColor;
-    return variants[(bookingIndexMap.get(bookingId) ?? 0) % 2];
+    return variants[(bookingIndexMap.get(`${unitSlug}|${bookingId}`) ?? 0) % 2];
   };
 
   const groupedUnits = useMemo(() => {
@@ -884,7 +908,7 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white min-h-0 px-1`}
+                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking, unit.slug)} text-white min-h-0 px-1`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
