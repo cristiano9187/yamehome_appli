@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { db } from '../firebase';
-import { ReceiptData, CleaningReport, UserProfile, BlockedDate } from '../types';
+import {
+  ReceiptData,
+  CleaningReport,
+  UserProfile,
+  BlockedDate,
+  ReceiptStaySegment,
+  GuestCheckInRecord,
+} from '../types';
 import { TARIFS, SITES, SITE_MAPPING } from '../constants';
 const AttendanceView = lazy(() => import('./AttendanceView'));
 import { 
@@ -18,7 +25,8 @@ import {
   Lock,
   Unlock,
   AlertTriangle,
-  Menu
+  Menu,
+  BadgeCheck,
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 import { effectuéMériteAffichageAlerte } from '../cleaningReportUtils';
@@ -30,10 +38,12 @@ import {
   where,
   addDoc,
   deleteDoc,
-  doc
+  doc,
+  updateDoc,
 } from 'firebase/firestore';
 import { upsertPublicCalendar, deletePublicCalendar } from '../utils/publicCalendar';
 import { motion, AnimatePresence } from 'motion/react';
+import { isCameroonStrictlyBefore18h, formatCameroonDateTimeVerbose } from '../utils/cameroonTime';
 
 /** YYYY-MM-DD (local) */
 function ymdLocal(date: Date): string {
@@ -84,6 +94,37 @@ function getCleaningTaskDatesForReceipt(booking: ReceiptData): Array<{ slug: str
   return out;
 }
 
+function getActiveSegmentForCell(
+  booking: ReceiptData,
+  unitSlug: string,
+  dateStr: string
+): ReceiptStaySegment | null {
+  return (
+    getReceiptSegments(booking).find(
+      (s) =>
+        s.calendarSlug === unitSlug &&
+        dateStr >= s.startDate &&
+        dateStr < s.endDate
+    ) ?? null
+  );
+}
+
+function userCanManageUnitOnCalendar(
+  userProfile: UserProfile | null,
+  unitSlug: string
+): boolean {
+  if (!userProfile) return false;
+  const isMainAdmin =
+    userProfile.email?.toLowerCase() === 'christian.yamepi@gmail.com' ||
+    userProfile.email?.toLowerCase() === 'cyamepi@gmail.com';
+  const isAdmin = userProfile.role === 'admin' || isMainAdmin;
+  const allowedSites = userProfile.allowedSites || [];
+  const allowedApartments = isAdmin
+    ? Object.keys(TARIFS)
+    : allowedSites.flatMap((site) => SITE_MAPPING[site] || []);
+  return allowedApartments.some((apt) => TARIFS[apt]?.units?.includes(unitSlug));
+}
+
 interface CalendarViewProps {
   onEdit: (receipt: ReceiptData) => void;
   onOpenCleaning: (menageId: string, slug: string, date: string) => void;
@@ -122,7 +163,12 @@ export default function CalendarView({
   const [cleaningReports, setCleaningReports] = useState<CleaningReport[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBooking, setSelectedBooking] = useState<ReceiptData | null>(null);
+  const [selectedBookingContext, setSelectedBookingContext] = useState<{
+    receipt: ReceiptData;
+    segment: ReceiptStaySegment;
+  } | null>(null);
+  const [checkInDraft, setCheckInDraft] = useState({ kwh: '', idPiece: '' as '' | 'OUI' | 'NON', comment: '' });
+  const [checkInSubmitting, setCheckInSubmitting] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   
@@ -135,6 +181,10 @@ export default function CalendarView({
     window.addEventListener('pointerdown', handleClickOutside);
     return () => window.removeEventListener('pointerdown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setCheckInDraft({ kwh: '', idPiece: '', comment: '' });
+  }, [selectedBookingContext?.receipt.id, selectedBookingContext?.segment.id]);
 
   // Restore scroll position on mount
   useEffect(() => {
@@ -520,6 +570,78 @@ export default function CalendarView({
     }
   };
 
+  const handleValidateGuestCheckIn = async () => {
+    const ctx = selectedBookingContext;
+    if (!ctx || !ctx.receipt.id || checkInSubmitting) return;
+
+    if (!userCanManageUnitOnCalendar(userProfile, ctx.segment.calendarSlug)) {
+      onAlert("Vous n'êtes pas autorisé à enregistrer un check-in pour ce logement.", 'error');
+      return;
+    }
+
+    const existing = ctx.receipt.checkInsBySegmentId?.[ctx.segment.id];
+    if (existing) {
+      onAlert('Le check-in est déjà enregistré pour ce bloc de séjour.', 'info');
+      return;
+    }
+
+    const now = new Date();
+    const kwhMandatory = isCameroonStrictlyBefore18h(now);
+    let kwhCompteurPrepaye: number | null = null;
+    const kwhTrim = checkInDraft.kwh.trim();
+
+    if (kwhMandatory) {
+      if (!kwhTrim) {
+        onAlert('Entrée journée : le relevé kWh du compteur prépayé est obligatoire (avant 18h au Cameroun).', 'error');
+        return;
+      }
+      const parsed = Number(kwhTrim.replace(',', '.'));
+      if (Number.isNaN(parsed) || parsed < 0) {
+        onAlert('Indiquez un nombre de kWh valide (≥ 0).', 'error');
+        return;
+      }
+      kwhCompteurPrepaye = parsed;
+    } else if (kwhTrim) {
+      const parsed = Number(kwhTrim.replace(',', '.'));
+      if (Number.isNaN(parsed) || parsed < 0) {
+        onAlert('Indiquez un nombre de kWh valide (≥ 0) ou laissez vide pour une entrée nocturne.', 'error');
+        return;
+      }
+      kwhCompteurPrepaye = parsed;
+    }
+
+    if (checkInDraft.idPiece !== 'OUI' && checkInDraft.idPiece !== 'NON') {
+      onAlert('Indiquez si la pièce d’identité a été contrôlée (Oui / Non).', 'error');
+      return;
+    }
+
+    const record: GuestCheckInRecord = {
+      validatedAt: now.toISOString(),
+      kwhCompteurPrepaye,
+      idPieceControlee: checkInDraft.idPiece,
+      commentaire: checkInDraft.comment.trim(),
+      authorUid: userProfile?.uid || '',
+    };
+
+    setCheckInSubmitting(true);
+    try {
+      await updateDoc(doc(db, 'receipts', ctx.receipt.id), {
+        [`checkInsBySegmentId.${ctx.segment.id}`]: record,
+      });
+      onAlert('Check-in enregistré (heure du Cameroun).', 'success');
+    } catch (e: any) {
+      console.error(e);
+      onAlert(
+        e?.message?.includes?.('permission-denied')
+          ? 'Permission refusée. Vérifiez vos droits Firestore.'
+          : 'Erreur lors de l’enregistrement du check-in.',
+        'error'
+      );
+    } finally {
+      setCheckInSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
@@ -527,6 +649,17 @@ export default function CalendarView({
       </div>
     );
   }
+
+  const detailCtx = selectedBookingContext;
+  const detailReceipt = detailCtx?.receipt;
+  const detailSegment = detailCtx?.segment;
+  const detailCheckIn =
+    detailReceipt && detailSegment
+      ? detailReceipt.checkInsBySegmentId?.[detailSegment.id]
+      : undefined;
+  const detailCanManageCheckIn =
+    !!detailSegment && userCanManageUnitOnCalendar(userProfile, detailSegment.calendarSlug);
+  const kwhRequiredNow = isCameroonStrictlyBefore18h(new Date());
 
   return (
     <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
@@ -695,6 +828,15 @@ export default function CalendarView({
                     const blockedDate = blockedDates.find(b => b.calendarSlug === unit.slug && b.date === dateStr);
                     const isBlocked = !!blockedDate;
 
+                    const activeSegment =
+                      booking && viewMode === 'reservations'
+                        ? getActiveSegmentForCell(booking, unit.slug, dateStr)
+                        : null;
+                    const isFirstNightOfSegment =
+                      !!activeSegment && dateStr === activeSegment.startDate;
+                    const segmentCheckIn =
+                      activeSegment && booking?.checkInsBySegmentId?.[activeSegment.id];
+
                     // Cleaning Logic — même ligne de résa que pour le ménage le jour du check-out
                     const isCalculatedCleaningDay = viewMode === 'cleaning' && !!cleaningBooking;
                     const report = getCleaningReport(unit.slug, dateStr);
@@ -727,15 +869,25 @@ export default function CalendarView({
                           <div 
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedBooking(booking);
+                              const seg = getActiveSegmentForCell(booking, unit.slug, dateStr);
+                              if (seg) setSelectedBookingContext({ receipt: booking, segment: seg });
+                              else onAlert('Segment de séjour introuvable pour cette cellule.', 'error');
                             }}
-                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white`}
+                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative`}
                           >
+                            {isFirstNightOfSegment && segmentCheckIn && (
+                              <div
+                                className="absolute top-0.5 left-0.5 z-10 flex items-center justify-center rounded-sm bg-white/95 p-px shadow-sm"
+                                title={`Check-in enregistré — ${formatCameroonDateTimeVerbose(new Date(segmentCheckIn.validatedAt))} (heure Cameroun)`}
+                              >
+                                <BadgeCheck size={11} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
+                              </div>
+                            )}
                             <span className="text-[9px] font-black uppercase tracking-tighter truncate px-1">
                               {booking.lastName}
                             </span>
                             {booking.internalNotes && (
-                              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-400 rounded-full border border-white shadow-sm" title="Note interne" />
+                              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-400 rounded-full border border-white shadow-sm z-10" title="Note interne" />
                             )}
                           </div>
                         )}
@@ -885,67 +1037,159 @@ export default function CalendarView({
           </div>
         )}
 
-        {selectedBooking && (
+        {detailCtx && detailReceipt && detailSegment && (
           <motion.div 
             initial={{ x: 400 }}
             animate={{ x: 0 }}
             exit={{ x: 400 }}
-            className="fixed right-0 top-0 bottom-0 w-96 bg-white border-l border-gray-200 shadow-2xl z-50 flex flex-col"
+            className="fixed right-0 top-0 bottom-0 w-[min(100vw,28rem)] max-w-full bg-white border-l border-gray-200 shadow-2xl z-50 flex flex-col"
           >
-            <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+            <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center shrink-0">
               <h3 className="text-sm font-black uppercase tracking-widest">Détails Réservation</h3>
-              <button onClick={() => setSelectedBooking(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all">
+              <button onClick={() => setSelectedBookingContext(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all">
                 <X size={20} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-8">
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
                     <UserIcon size={24} />
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-lg font-black uppercase tracking-tighter text-gray-900">
-                      {selectedBooking.firstName} {selectedBooking.lastName}
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-lg font-black uppercase tracking-tighter text-gray-900 truncate">
+                      {detailReceipt.firstName} {detailReceipt.lastName}
                     </span>
-                    {selectedBooking.phone
-                      ? <PhoneLinks phone={selectedBooking.phone} />
+                    {detailReceipt.phone
+                      ? <PhoneLinks phone={detailReceipt.phone} />
                       : <span className="text-xs text-gray-400">Pas de tél</span>}
                   </div>
                 </div>
 
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-4">
                   <div className="flex items-start gap-3">
-                    <Home size={16} className="text-gray-400 mt-1" />
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Logement</span>
-                      <AptBadge name={selectedBooking.apartmentName || ''} />
+                    <Home size={16} className="text-gray-400 mt-1 shrink-0" />
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Bloc logement (check-in)</span>
+                      <AptBadge name={detailSegment.apartmentName || ''} />
+                      <span className="text-[10px] font-mono text-gray-500 truncate">{detailSegment.calendarSlug}</span>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
-                    <CalendarIcon size={16} className="text-gray-400 mt-1" />
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Séjour</span>
+                    <CalendarIcon size={16} className="text-gray-400 mt-1 shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Dates sur cet appartement</span>
                       <span className="text-xs font-bold text-gray-900">
-                        Du {new Date(selectedBooking.startDate).toLocaleDateString('fr-FR')} au {new Date(selectedBooking.endDate).toLocaleDateString('fr-FR')}
+                        Du {new Date(detailSegment.startDate).toLocaleDateString('fr-FR')} au {new Date(detailSegment.endDate).toLocaleDateString('fr-FR')}
+                      </span>
+                      <span className="text-[10px] text-gray-400 mt-1">
+                        Récap. reçu : {new Date(detailReceipt.startDate).toLocaleDateString('fr-FR')} — {new Date(detailReceipt.endDate).toLocaleDateString('fr-FR')}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                  <BadgeCheck size={14} className="text-emerald-600" />
+                  Check-in client (ce logement)
+                </h4>
+                <p className="text-[10px] text-gray-500 leading-snug">
+                  Heure enregistrée au fuseau <span className="font-semibold">Africa/Douala</span> (affichage ci-dessous). kWh obligatoire si validation avant 18h au Cameroun.
+                </p>
+
+                {detailCheckIn ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-2 text-xs">
+                    <div className="flex justify-between gap-2 flex-wrap">
+                      <span className="font-black uppercase tracking-widest text-[10px] text-emerald-800">Enregistré</span>
+                      <span className="font-mono font-bold text-emerald-900">
+                        {formatCameroonDateTimeVerbose(new Date(detailCheckIn.validatedAt))}
+                      </span>
+                    </div>
+                    <p><span className="text-gray-500">kWh compteur :</span>{' '}
+                      <span className="font-bold">{detailCheckIn.kwhCompteurPrepaye ?? '—'}</span>
+                    </p>
+                    <p><span className="text-gray-500">Pièce d’identité contrôlée :</span>{' '}
+                      <span className="font-bold">{detailCheckIn.idPieceControlee}</span>
+                    </p>
+                    {detailCheckIn.commentaire.trim() ? (
+                      <p className="text-gray-700 whitespace-pre-wrap border-t border-emerald-200/80 pt-2 mt-2">{detailCheckIn.commentaire}</p>
+                    ) : null}
+                  </div>
+                ) : detailCanManageCheckIn ? (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        kWh affichés sur le compteur prépayé {kwhRequiredNow ? '(obligatoire)' : '(facultatif, entrée ≥ 18h CM)'}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={checkInDraft.kwh}
+                        onChange={(e) => setCheckInDraft((d) => ({ ...d, kwh: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono"
+                        placeholder={kwhRequiredNow ? 'ex. 124.5' : 'Laisser vide si non renseigné'}
+                      />
+                    </label>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 block mb-1">Pièce d’identité contrôlée</span>
+                      <div className="flex gap-2">
+                        {(['OUI', 'NON'] as const).map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setCheckInDraft((d) => ({ ...d, idPiece: v }))}
+                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                              checkInDraft.idPiece === v
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {v === 'OUI' ? 'Oui' : 'Non'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Commentaire libre</span>
+                      <textarea
+                        value={checkInDraft.comment}
+                        onChange={(e) => setCheckInDraft((d) => ({ ...d, comment: e.target.value }))}
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs resize-none"
+                        placeholder="Optionnel…"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={checkInSubmitting}
+                      onClick={handleValidateGuestCheckIn}
+                      className="w-full bg-emerald-600 text-white font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-60 transition-all"
+                    >
+                      {checkInSubmitting ? '…' : 'Valider le check-in'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-[10px] font-bold uppercase text-amber-800">
+                    Pas encore enregistré — vous n’avez pas les droits pour ce logement ou votre profil est incomplet.
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-4">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400">Notes & Observations</h4>
                 <div className="bg-blue-50/50 rounded-2xl p-6 border border-blue-100">
                   <p className="text-xs text-blue-900 italic leading-relaxed">
-                    {selectedBooking.observations || "Aucune observation particulière pour ce séjour."}
+                    {detailReceipt.observations || "Aucune observation particulière pour ce séjour."}
                   </p>
                 </div>
               </div>
 
-              {selectedBooking.internalNotes && (
+              {detailReceipt.internalNotes && (
                 <div className="space-y-4">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-2">
                     <Lock size={10} />
@@ -953,18 +1197,18 @@ export default function CalendarView({
                   </h4>
                   <div className="bg-amber-50 rounded-2xl p-6 border border-amber-200">
                     <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
-                      {selectedBooking.internalNotes}
+                      {detailReceipt.internalNotes}
                     </p>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="p-8 border-t border-gray-100 bg-gray-50">
+            <div className="p-6 md:p-8 border-t border-gray-100 bg-gray-50 shrink-0">
               <button 
                 onClick={() => {
-                  onEdit(selectedBooking);
-                  setSelectedBooking(null);
+                  onEdit(detailReceipt);
+                  setSelectedBookingContext(null);
                 }}
                 className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all"
               >

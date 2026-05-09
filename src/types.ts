@@ -19,6 +19,17 @@ export interface ReceiptStaySegment {
   lodgingAllocated?: number | null;
 }
 
+/** Check-in client saisi depuis le planning (une entrée par segment / changement de logement). */
+export interface GuestCheckInRecord {
+  /** Instant exact (ISO) ; affichage en heure du Cameroun (Africa/Douala) */
+  validatedAt: string;
+  /** kWh relevés sur le compteur prépayé ; obligatoire si validation avant 18h au Cameroun */
+  kwhCompteurPrepaye: number | null;
+  idPieceControlee: 'OUI' | 'NON';
+  commentaire: string;
+  authorUid?: string;
+}
+
 export interface ReceiptData {
   id?: string;
   receiptId: string;
@@ -32,6 +43,8 @@ export interface ReceiptData {
   endDate: string;
   /** Si défini et non vide : plusieurs plages/unités pour le même reçu ; sinon segment unique dérivé des champs ci-dessus. */
   staySegments?: ReceiptStaySegment[] | null;
+  /** Check-in validé par l’employé, clé = `ReceiptStaySegment.id` */
+  checkInsBySegmentId?: Record<string, GuestCheckInRecord> | null;
   isCustomRate: boolean;
   customLodgingTotal: number;
   isNegotiatedRate: boolean;
