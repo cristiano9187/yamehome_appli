@@ -252,7 +252,7 @@ export default function CalendarView({
     );
 
     const unsubReceipts = onSnapshot(qReceipts, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ReceiptData[];
+      const data = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })) as ReceiptData[];
       // Filter out only those that are explicitly ANNULE, keeping VALIDE and those without status
       setReceipts(data.filter(r => r.status !== 'ANNULE'));
     });
@@ -389,14 +389,18 @@ export default function CalendarView({
 
   // Alternating booking colors per unit row — clé par ligne (slug), pas seulement receipt.id
   const COLOR_VARIANTS: Record<string, [string, string]> = {
-    'bg-emerald-500': ['bg-emerald-400', 'bg-emerald-700'],
+    'bg-emerald-500': ['bg-emerald-300', 'bg-emerald-800'],
     'bg-blue-500':    ['bg-blue-400',    'bg-blue-700'],
     'bg-orange-500':  ['bg-orange-400',  'bg-orange-700'],
     'bg-purple-500':  ['bg-purple-400',  'bg-purple-700'],
     'bg-gray-500':    ['bg-gray-400',    'bg-gray-700'],
   };
 
-  /** Alternance clair/foncé : uniquement parmi les séjours dont le segment **chevauche le mois affiché** (sinon d’anciens blocs hors mois désynchronisent les parités visibles comme DIANA vs MENDO). */
+  /**
+   * Alternance clair/foncé par **segment** sur la ligne (slug), parmi les segments qui croisent le mois.
+   * Un même reçu avec deux passages sur Émeraude = deux entrées distinctes ; l’ancien code ne comptait
+   * qu’une fois le document par logement (`slugSeen`), donc zéro alternance dans ce cas.
+   */
   const bookingIndexMap = useMemo(() => {
     const vy = currentDate.getFullYear();
     const vm = currentDate.getMonth();
@@ -404,58 +408,57 @@ export default function CalendarView({
     const ld = new Date(vy, vm + 1, 0).getDate();
     const monthLastStr = `${vy}-${String(vm + 1).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
 
-    const segmentStartOnSlug = (receipt: ReceiptData, unitSlug: string): string => {
-      const seg = getReceiptSegments(receipt).find(
-        (s) => (s.calendarSlug || '').trim() === unitSlug
-      );
-      return seg?.startDate || receipt.startDate || '';
-    };
+    /** Plage réservée [start,end) intersecte au moins une nuit du mois affiché */
+    const segTouchesMonth = (seg: ReceiptStaySegment) =>
+      !!(seg.startDate &&
+        seg.endDate &&
+        seg.startDate <= monthLastStr &&
+        seg.endDate > monthFirstStr);
 
-    /** Segment réservé [start,end) intersecte au moins une nuit du mois affiché. */
-    const segmentTouchesViewedMonth = (receipt: ReceiptData, unitSlug: string): boolean => {
-      const seg = getReceiptSegments(receipt).find(
-        (s) => (s.calendarSlug || '').trim() === unitSlug
-      );
-      if (!seg?.startDate || !seg.endDate) return false;
-      return seg.startDate <= monthLastStr && seg.endDate > monthFirstStr;
-    };
-
-    const map = new Map<string, number>();
-    const byUnit = new Map<string, ReceiptData[]>();
+    type SegmentRef = { unitSlug: string; booking: ReceiptData; segment: ReceiptStaySegment };
+    const bucket = new Map<string, SegmentRef[]>();
 
     for (const r of receipts) {
-      const slugSeenForReceipt = new Set<string>();
-      for (const s of getReceiptSegments(r)) {
-        const slug = (s.calendarSlug || '').trim();
-        if (!slug || slugSeenForReceipt.has(slug)) continue;
-        slugSeenForReceipt.add(slug);
-        if (!byUnit.has(slug)) byUnit.set(slug, []);
-        byUnit.get(slug)!.push(r);
+      for (const seg of getReceiptSegments(r)) {
+        const unitSlug = (seg.calendarSlug || '').trim();
+        if (!unitSlug || !segTouchesMonth(seg) || !seg.id) continue;
+        const ref: SegmentRef = { unitSlug, booking: r, segment: seg };
+        if (!bucket.has(unitSlug)) bucket.set(unitSlug, []);
+        bucket.get(unitSlug)!.push(ref);
       }
     }
 
-    for (const [unitSlug, bookings] of byUnit) {
-      const uniq = Array.from(new Map(bookings.map((b) => [b.id || b.receiptId, b])).values());
-      const inMonth = uniq.filter((b) => segmentTouchesViewedMonth(b, unitSlug));
-      inMonth.sort((a, b) => {
-        const cmp = segmentStartOnSlug(a, unitSlug).localeCompare(segmentStartOnSlug(b, unitSlug));
-        if (cmp !== 0) return cmp;
-        return (a.receiptId || '').localeCompare(b.receiptId || '');
+    const map = new Map<string, number>();
+    for (const [unitSlug, refs] of bucket) {
+      refs.sort((a, b) => {
+        const chron = a.segment.startDate.localeCompare(b.segment.startDate);
+        if (chron !== 0) return chron;
+        const idA = a.booking.id || a.booking.receiptId || '';
+        const idB = b.booking.id || b.booking.receiptId || '';
+        const byDoc = idA.localeCompare(idB);
+        if (byDoc !== 0) return byDoc;
+        return (a.segment.id || '').localeCompare(b.segment.id || '');
       });
-      inMonth.forEach((b, i) => {
-        const id = b.id || b.receiptId;
-        if (id) map.set(`${unitSlug}|${id}`, i % 2);
+      refs.forEach((ref, i) => {
+        const bid = ref.booking.id || ref.booking.receiptId;
+        if (!bid) return;
+        map.set(`${unitSlug}|${bid}|${ref.segment.id}`, i % 2);
       });
     }
 
     return map;
   }, [receipts, currentDate.getMonth(), currentDate.getFullYear()]);
 
-  const getBookingColor = (baseColor: string, booking: ReceiptData, unitSlug: string) => {
+  const getBookingColor = (
+    baseColor: string,
+    booking: ReceiptData,
+    unitSlug: string,
+    segmentId: string | undefined
+  ) => {
     const variants = COLOR_VARIANTS[baseColor];
     const bookingId = booking.id || booking.receiptId;
-    if (!variants || !bookingId) return baseColor;
-    return variants[(bookingIndexMap.get(`${unitSlug}|${bookingId}`) ?? 0) % 2];
+    if (!variants || !bookingId || !segmentId) return baseColor;
+    return variants[(bookingIndexMap.get(`${unitSlug}|${bookingId}|${segmentId}`) ?? 0) % 2];
   };
 
   const groupedUnits = useMemo(() => {
@@ -929,7 +932,7 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking, unit.slug)} text-white min-h-0 px-1`}
+                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking, unit.slug, activeSegment?.id)} text-white min-h-0 px-1`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
