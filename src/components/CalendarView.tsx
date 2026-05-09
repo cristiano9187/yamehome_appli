@@ -748,7 +748,7 @@ export default function CalendarView({
               onScrollChange?.(target.scrollLeft);
             }}
           >
-            <table className="w-full border-collapse table-fixed min-w-[1500px]">
+            <table className="w-full border-collapse table-fixed min-w-[2600px]">
             <thead className="sticky top-0 z-30">
               <tr className="bg-zinc-900 text-white">
                 <th className="w-[80px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-2 md:p-4 text-left text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gray-400">
@@ -761,7 +761,7 @@ export default function CalendarView({
                     <th 
                       key={date.toISOString()} 
                       id={isToday ? 'calendar-today-column' : undefined}
-                      className={`w-16 border-b border-white/10 p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
+                      className={`w-[5.5rem] min-w-[5.5rem] border-b border-white/10 p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
                     >
                       <div className="flex flex-col items-center">
                         <span className={`text-[10px] font-black ${isToday ? 'text-blue-400' : 'text-white'}`}>
@@ -884,17 +884,17 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white min-h-0 px-1.5`}
+                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white min-h-0 px-1`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
-                                className="absolute top-0.5 left-0.5 z-10 flex items-center justify-center rounded-sm bg-white/95 p-0.5 shadow-sm"
+                                className="absolute top-0.5 left-0.5 z-10 flex items-center justify-center rounded-sm bg-white/95 p-px shadow-sm"
                                 title={`Check-in enregistré — ${formatCameroonDateTimeVerbose(new Date(segmentCheckIn.validatedAt))} (heure Cameroun)`}
                               >
-                                <BadgeCheck size={12} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
+                                <BadgeCheck size={11} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
                               </div>
                             )}
-                            <span className="text-[10px] font-black uppercase tracking-tight truncate text-center w-full px-0.5">
+                            <span className="text-[10px] leading-tight font-black uppercase tracking-tight text-center w-full min-w-0 whitespace-nowrap overflow-hidden text-ellipsis px-0.5">
                               {booking.lastName}
                             </span>
                             {booking.internalNotes && (
@@ -920,7 +920,7 @@ export default function CalendarView({
                               onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                             }}
                             title={cellTitle}
-                            className={`absolute inset-1 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
+                            className={`absolute inset-x-px inset-y-3 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
                               currentReport 
                                 ? currentReport.status === 'EFFECTUÉ' 
                                     ? (showOrangeOnEffectué
