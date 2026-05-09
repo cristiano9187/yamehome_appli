@@ -396,11 +396,28 @@ export default function CalendarView({
     'bg-gray-500':    ['bg-gray-400',    'bg-gray-700'],
   };
 
-  /** Date de début du segment sur cette unité (tri / alternance par ligne du planning). */
+  /** Alternance clair/foncé : uniquement parmi les séjours dont le segment **chevauche le mois affiché** (sinon d’anciens blocs hors mois désynchronisent les parités visibles comme DIANA vs MENDO). */
   const bookingIndexMap = useMemo(() => {
+    const vy = currentDate.getFullYear();
+    const vm = currentDate.getMonth();
+    const monthFirstStr = `${vy}-${String(vm + 1).padStart(2, '0')}-01`;
+    const ld = new Date(vy, vm + 1, 0).getDate();
+    const monthLastStr = `${vy}-${String(vm + 1).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
+
     const segmentStartOnSlug = (receipt: ReceiptData, unitSlug: string): string => {
-      const seg = getReceiptSegments(receipt).find((s) => s.calendarSlug === unitSlug);
+      const seg = getReceiptSegments(receipt).find(
+        (s) => (s.calendarSlug || '').trim() === unitSlug
+      );
       return seg?.startDate || receipt.startDate || '';
+    };
+
+    /** Segment réservé [start,end) intersecte au moins une nuit du mois affiché. */
+    const segmentTouchesViewedMonth = (receipt: ReceiptData, unitSlug: string): boolean => {
+      const seg = getReceiptSegments(receipt).find(
+        (s) => (s.calendarSlug || '').trim() === unitSlug
+      );
+      if (!seg?.startDate || !seg.endDate) return false;
+      return seg.startDate <= monthLastStr && seg.endDate > monthFirstStr;
     };
 
     const map = new Map<string, number>();
@@ -419,19 +436,20 @@ export default function CalendarView({
 
     for (const [unitSlug, bookings] of byUnit) {
       const uniq = Array.from(new Map(bookings.map((b) => [b.id || b.receiptId, b])).values());
-      uniq.sort((a, b) => {
+      const inMonth = uniq.filter((b) => segmentTouchesViewedMonth(b, unitSlug));
+      inMonth.sort((a, b) => {
         const cmp = segmentStartOnSlug(a, unitSlug).localeCompare(segmentStartOnSlug(b, unitSlug));
         if (cmp !== 0) return cmp;
         return (a.receiptId || '').localeCompare(b.receiptId || '');
       });
-      uniq.forEach((b, i) => {
+      inMonth.forEach((b, i) => {
         const id = b.id || b.receiptId;
-        if (id) map.set(`${unitSlug}|${id}`, i);
+        if (id) map.set(`${unitSlug}|${id}`, i % 2);
       });
     }
 
     return map;
-  }, [receipts]);
+  }, [receipts, currentDate.getMonth(), currentDate.getFullYear()]);
 
   const getBookingColor = (baseColor: string, booking: ReceiptData, unitSlug: string) => {
     const variants = COLOR_VARIANTS[baseColor];
@@ -476,7 +494,10 @@ export default function CalendarView({
     return receipts.find((r) => {
       if (r.status === 'ANNULE') return false;
       return getReceiptSegments(r).some(
-        (s) => s.calendarSlug === unitSlug && dateStr >= s.startDate && dateStr < s.endDate
+        (s) =>
+          (s.calendarSlug || '').trim() === unitSlug &&
+          dateStr >= s.startDate &&
+          dateStr < s.endDate
       );
     });
   };
