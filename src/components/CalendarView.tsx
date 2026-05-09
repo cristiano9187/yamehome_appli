@@ -873,28 +873,28 @@ export default function CalendarView({
                             onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                           }
                         }}
-                        className={`border-r border-b border-gray-50 h-[4.5rem] min-h-[4.5rem] relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
+                        className={`border-r border-b border-gray-50 h-[9rem] min-h-[9rem] relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
                         {viewMode === 'reservations' && isBlocked && (
                           <div className="absolute inset-0 bg-red-50/50 flex items-center justify-center overflow-hidden">
                             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #ef4444, #ef4444 10px, transparent 10px, transparent 20px)' }} />
-                            <Lock size={14} className="text-red-400 relative z-10" />
+                            <Lock size={18} className="text-red-400 relative z-10" />
                           </div>
                         )}
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-y-1 inset-x-0 mx-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative py-0.5`}
+                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
                                 className="absolute top-0.5 left-0.5 z-10 flex items-center justify-center rounded-sm bg-white/95 p-px shadow-sm"
                                 title={`Check-in enregistré — ${formatCameroonDateTimeVerbose(new Date(segmentCheckIn.validatedAt))} (heure Cameroun)`}
                               >
-                                <BadgeCheck size={11} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
+                                <BadgeCheck size={14} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
                               </div>
                             )}
-                            <span className="text-[10px] font-black uppercase tracking-tighter truncate px-1">
+                            <span className="text-xs font-black uppercase tracking-tight truncate px-1.5">
                               {booking.lastName}
                             </span>
                             {booking.internalNotes && (
@@ -920,7 +920,7 @@ export default function CalendarView({
                               onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                             }}
                             title={cellTitle}
-                            className={`absolute inset-y-1 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
+                            className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
                               currentReport 
                                 ? currentReport.status === 'EFFECTUÉ' 
                                     ? (showOrangeOnEffectué
@@ -935,7 +935,7 @@ export default function CalendarView({
                                   : 'bg-transparent border-gray-200 text-gray-300 opacity-20 hover:opacity-100 hover:bg-white hover:border-blue-300'
                             }`}
                           >
-                            <ClipboardCheck size={14} />
+                            <ClipboardCheck size={18} />
                             {currentReport && (
                               <div
                                 className={`absolute -top-1 -right-1 w-2 h-2 rounded-full animate-pulse ${
