@@ -156,6 +156,27 @@ function flattenStaySegmentsIfSingleton(fd: ReceiptData): ReceiptData {
   };
 }
 
+/**
+ * Remplit les `calendarSlug` implicites (logement à une seule unité physique) avant de chercher les
+ * chevauchements dans Firestore. Sans cela `slugSet` peut rester vide : aucune requête → doublons possibles.
+ */
+function enrichReceiptSlugsForConflictQueries(r: ReceiptData): ReceiptData {
+  if (r.staySegments?.length) {
+    return {
+      ...r,
+      staySegments: r.staySegments.map((seg) => ({
+        ...seg,
+        calendarSlug: resolveStaySegmentSlug(seg),
+      })),
+    };
+  }
+  const ud = r.apartmentName ? TARIFS[r.apartmentName]?.units || [] : [];
+  if (ud.length === 1 && !r.calendarSlug?.trim()) {
+    return { ...r, calendarSlug: ud[0]! };
+  }
+  return r;
+}
+
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -995,9 +1016,18 @@ export default function App() {
         overlapSegsInput = { ...working, staySegments: persistSegments };
       }
 
+      overlapSegsInput = enrichReceiptSlugsForConflictQueries(overlapSegsInput);
       const overlapSegs = getReceiptSegments(overlapSegsInput);
 
       const slugSet = new Set(overlapSegs.map((s) => s.calendarSlug).filter(Boolean));
+      if (slugSet.size === 0) {
+        setIsSaving(false);
+        setAlertType('error');
+        setAlertMessage(
+          "Impossible de vérifier les disponibilités : unité de logement non identifiée. Précisez l'unité (slug calendrier) ou le bon appartement."
+        );
+        return;
+      }
       const docMap = new Map<string, ReceiptData>();
 
       for (const finalSlugLoop of slugSet) {
@@ -1036,7 +1066,7 @@ export default function App() {
         const o = otherSegs[0];
         setAlertType('error');
         setAlertMessage(
-          `CONFLIT DE RÉSERVATION : chevauchement avec ${conflictName} (${conflict.receiptId}) sur au moins une unité / plage (${o?.calendarSlug} ${o?.startDate}→${o?.endDate}). Annulez ou modifiez l’autre réservation.`
+          `CONFLIT DE RÉSERVATION : le logement est déjà réservé sur ces dates (chevauchement avec « ${conflictName} », reçu ${conflict.receiptId}, ${o?.calendarSlug ?? ''} ${o?.startDate}→${o?.endDate}). Ne créez pas un second reçu : ouvrez le reçu existant pour ajouter un versement ou modifier les dates / le logement.`
         );
         return;
       }
