@@ -850,13 +850,22 @@ export default function CalendarView({
                       <td 
                         key={date.toISOString()} 
                         onClick={() => {
-                          if (viewMode === 'reservations' && !booking) {
-                            setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                          if (viewMode === 'reservations') {
+                            if (booking) {
+                              const seg = getActiveSegmentForCell(booking, unit.slug, dateStr);
+                              if (seg) {
+                                setSelectedBookingContext({ receipt: booking, segment: seg });
+                              } else {
+                                onAlert('Segment de séjour introuvable pour cette cellule.', 'error');
+                              }
+                            } else {
+                              setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                            }
                           } else if (viewMode === 'cleaning') {
                             onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                           }
                         }}
-                        className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
+                        className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
                         {viewMode === 'reservations' && isBlocked && (
                           <div className="absolute inset-0 bg-red-50/50 flex items-center justify-center overflow-hidden">
@@ -867,13 +876,7 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const seg = getActiveSegmentForCell(booking, unit.slug, dateStr);
-                              if (seg) setSelectedBookingContext({ receipt: booking, segment: seg });
-                              else onAlert('Segment de séjour introuvable pour cette cellule.', 'error');
-                            }}
-                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center cursor-pointer transition-all hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative`}
+                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
