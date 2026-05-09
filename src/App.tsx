@@ -2641,6 +2641,12 @@ export default function App() {
                 </div>
                 <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-all"><LogOut size={16}/></button>
               </div>
+              <p
+                className="text-[9px] text-gray-300 font-mono text-center leading-tight select-all"
+                title="Identifiant du build déployé (comparez au hash court du dernier commit sur GitHub)"
+              >
+                build {__BUILD_REVISION__}
+              </p>
             </div>
           </motion.div>
         )}

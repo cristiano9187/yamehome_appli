@@ -14,6 +14,12 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      // Injected at CI build time (GitHub Actions sets GITHUB_SHA). Shows in app footer to verify live deploy.
+      __BUILD_REVISION__: JSON.stringify(
+        process.env.GITHUB_SHA?.slice(0, 7) ||
+          process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ||
+          'local',
+      ),
     },
     resolve: {
       alias: {
