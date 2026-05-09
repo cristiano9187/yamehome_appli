@@ -28,6 +28,8 @@ export interface GuestCheckInRecord {
   idPieceControlee: 'OUI' | 'NON';
   commentaire: string;
   authorUid?: string;
+  /** Nom affiché de l’agent (même logique que l’usage des jetons prépayés). */
+  authorDisplayName?: string | null;
 }
 
 export interface ReceiptData {

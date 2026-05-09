@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import {
   ReceiptData,
   CleaningReport,
@@ -615,12 +615,20 @@ export default function CalendarView({
       return;
     }
 
+    const authorDisplayName =
+      (auth.currentUser?.displayName ||
+        userProfile?.displayName ||
+        userProfile?.email ||
+        'Agent')
+        .trim() || 'Agent';
+
     const record: GuestCheckInRecord = {
       validatedAt: now.toISOString(),
       kwhCompteurPrepaye,
       idPieceControlee: checkInDraft.idPiece,
       commentaire: checkInDraft.comment.trim(),
-      authorUid: userProfile?.uid || '',
+      authorUid: auth.currentUser?.uid || userProfile?.uid || '',
+      authorDisplayName,
     };
 
     setCheckInSubmitting(true);
@@ -865,7 +873,7 @@ export default function CalendarView({
                             onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                           }
                         }}
-                        className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
+                        className={`border-r border-b border-gray-50 h-[4.5rem] min-h-[4.5rem] relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
                         {viewMode === 'reservations' && isBlocked && (
                           <div className="absolute inset-0 bg-red-50/50 flex items-center justify-center overflow-hidden">
@@ -876,7 +884,7 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-y-2 inset-x-0 mx-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative`}
+                            className={`absolute inset-y-1 inset-x-0 mx-1 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.02] shadow-sm ${getBookingColor(unit.color, booking.id)} text-white relative py-0.5`}
                           >
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
@@ -886,7 +894,7 @@ export default function CalendarView({
                                 <BadgeCheck size={11} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
                               </div>
                             )}
-                            <span className="text-[9px] font-black uppercase tracking-tighter truncate px-1">
+                            <span className="text-[10px] font-black uppercase tracking-tighter truncate px-1">
                               {booking.lastName}
                             </span>
                             {booking.internalNotes && (
@@ -912,7 +920,7 @@ export default function CalendarView({
                               onOpenCleaning(menageIdForCleaningOpen, unit.slug, dateStr);
                             }}
                             title={cellTitle}
-                            className={`absolute inset-y-2 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
+                            className={`absolute inset-y-1 inset-x-2 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 border ${
                               currentReport 
                                 ? currentReport.status === 'EFFECTUÉ' 
                                     ? (showOrangeOnEffectué
@@ -1112,6 +1120,12 @@ export default function CalendarView({
                         {formatCameroonDateTimeVerbose(new Date(detailCheckIn.validatedAt))}
                       </span>
                     </div>
+                    <p>
+                      <span className="text-gray-500">Enregistré par :</span>{' '}
+                      <span className="font-bold">
+                        {detailCheckIn.authorDisplayName?.trim() || '—'}
+                      </span>
+                    </p>
                     <p><span className="text-gray-500">kWh compteur :</span>{' '}
                       <span className="font-bold">{detailCheckIn.kwhCompteurPrepaye ?? '—'}</span>
                     </p>
