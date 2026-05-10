@@ -240,6 +240,9 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
   const totalRevenueForMargin = bookingTotals.sumEncaissedLodging + revenueManual;
   const totalExpense = expenseManual;
   const grossMargin = totalRevenueForMargin - totalExpense;
+  /** Après chargement : marge strictement négative → style d’alerte (évite un flash si totaux pas encore là). */
+  const marginIsNegativeStyle =
+    !loadingBookings && !loadingEntries && grossMargin < 0;
 
   const categoryOptions =
     kind === 'EXPENSE'
@@ -715,16 +718,36 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
             </div>
             <p className="text-xl font-black text-gray-900 tabular-nums">{formatCurrency(totalExpense)}</p>
           </div>
-          <div className="bg-gradient-to-br from-[#0f766e] to-emerald-900 rounded-2xl p-5 text-white shadow-lg">
-            <div className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-2">Marge brute (mois)</div>
-            <p className="text-2xl font-black tabular-nums">
+          <div
+            className={
+              marginIsNegativeStyle
+                ? 'bg-gradient-to-br from-rose-800 to-neutral-950 rounded-2xl p-5 text-white shadow-lg ring-1 ring-rose-900/40'
+                : 'bg-gradient-to-br from-[#0f766e] to-emerald-900 rounded-2xl p-5 text-white shadow-lg'
+            }
+          >
+            <div
+              className={
+                marginIsNegativeStyle
+                  ? 'text-[10px] font-black uppercase tracking-widest text-rose-200 mb-2'
+                  : 'text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-2'
+              }
+            >
+              Marge brute (mois)
+            </div>
+            <p className={`text-2xl font-black tabular-nums ${marginIsNegativeStyle ? 'text-white' : ''}`}>
               {loadingBookings || loadingEntries ? (
                 <Loader2 className="animate-spin inline" size={22} />
               ) : (
                 formatCurrency(grossMargin)
               )}
             </p>
-            <p className="text-[10px] text-emerald-200 mt-2 opacity-90 leading-snug">
+            <p
+              className={
+                marginIsNegativeStyle
+                  ? 'text-[10px] text-rose-200/90 mt-2 leading-snug'
+                  : 'text-[10px] text-emerald-200 mt-2 opacity-90 leading-snug'
+              }
+            >
               Entrées séjour ({formatCurrency(bookingTotals.sumEncaissedLodging)}) + autres revenus ({formatCurrency(revenueManual)}) − dépenses (
               {formatCurrency(totalExpense)})
             </p>
