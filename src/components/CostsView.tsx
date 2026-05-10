@@ -25,8 +25,10 @@ import {
 import {
   Menu,
   Wallet,
-  TrendingUp,
   TrendingDown,
+  TrendingUp,
+  Banknote,
+  Target,
   Trash2,
   Loader2,
   ChevronLeft,
@@ -65,6 +67,27 @@ function currentYm(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Comme sur le PDF « TOTAL REÇU » ; repli sur la somme des versements si champ absent. */
+function totalPaidEffective(r: ReceiptData): number {
+  const v = Number(r.totalPaid);
+  if (Number.isFinite(v) && v >= 0) return v;
+  return (r.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+}
+
+/**
+ * Revenu séjour « comptable » (hors caution remboursable) : cohérent avec grandTotal − caution.
+ * Les versements au-delà du plafond sont traités comme caution / dépôt, pas comme chiffre d’affaires locatif.
+ */
+function lodgingRevenueCeiling(r: ReceiptData): number {
+  const gt = Number(r.grandTotal) || 0;
+  const cau = Number(r.cautionAmount) || 0;
+  return Math.max(0, gt - cau);
+}
+
+function encaissedLodgingRevenue(r: ReceiptData): number {
+  return Math.min(totalPaidEffective(r), lodgingRevenueCeiling(r));
+}
+
 const EXPENSE_LABELS: Record<string, string> = {
   SALARY: 'Salaire',
   RENT: 'Loyer',
@@ -89,7 +112,14 @@ interface CostsViewProps {
 export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdmin }: CostsViewProps) {
   const [monthYm, setMonthYm] = useState(currentYm);
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
-  const [bookingTotal, setBookingTotal] = useState<number>(0);
+  const [bookingTotals, setBookingTotals] = useState({
+    /** Σ versements enregistrés (équivalent TOTAL REÇU par reçu) */
+    sumTotalPaid: 0,
+    /** Σ min(versements, plafond séjour) — hors caution */
+    sumEncaissedLodging: 0,
+    /** Σ plafond séjour si tout était soldé — hors caution */
+    sumPotentialLodging: 0,
+  });
   const [loadingBookings, setLoadingBookings] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -147,12 +177,18 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     getDocs(rq)
       .then((snap) => {
         if (cancelled) return;
-        let sum = 0;
+        let sumTotalPaid = 0;
+        let sumEncaissedLodging = 0;
+        let sumPotentialLodging = 0;
         snap.docs.forEach((d) => {
           const r = d.data() as ReceiptData;
-          sum += Number(r.grandTotal) || 0;
+          const paid = totalPaidEffective(r);
+          const cap = lodgingRevenueCeiling(r);
+          sumTotalPaid += paid;
+          sumEncaissedLodging += encaissedLodgingRevenue(r);
+          sumPotentialLodging += cap;
         });
-        setBookingTotal(sum);
+        setBookingTotals({ sumTotalPaid, sumEncaissedLodging, sumPotentialLodging });
       })
       .catch(() => {
         if (!cancelled) {
@@ -207,9 +243,10 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     [entries]
   );
 
-  const totalRevenue = bookingTotal + revenueManual;
+  /** Marge : revenu locatif déjà encaissé (hors caution) + revenus saisis manuellement − dépenses */
+  const totalRevenueForMargin = bookingTotals.sumEncaissedLodging + revenueManual;
   const totalExpense = expenseManual;
-  const grossMargin = totalRevenue - totalExpense;
+  const grossMargin = totalRevenueForMargin - totalExpense;
 
   const categoryOptions =
     kind === 'EXPENSE'
@@ -596,9 +633,11 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
 
       <div className="p-4 md:p-8 max-w-6xl mx-auto w-full space-y-8 pb-16">
         <p className="text-xs text-gray-500 leading-relaxed bg-white/80 rounded-2xl border border-gray-100 px-4 py-3">
-          Les <strong>revenus réservations</strong> sont la somme des <code className="text-[10px] bg-gray-100 px-1 rounded">grandTotal</code> des reçus{' '}
-          <strong>valides</strong> dont la <strong>date de fin de séjour</strong> tombe dans le mois choisi (approximation simple).
-          Complétez avec les dépenses et ventes saisies ci-dessous.
+          Sur la base des reçus <strong>VALIDE</strong> dont la <strong>date de fin de séjour</strong> tombe dans le mois&nbsp;: le bloc « total encaissé » additionne les{' '}
+          <strong>VERSEMENTS</strong> enregistrés (équivalent <strong>TOTAL REÇU</strong> par reçu). La partie <strong>revenu locatif hors caution</strong> prend au plus le
+          séjour&nbsp;: <code className="text-[10px] bg-gray-100 px-1 rounded">min(total encaissé, grandTotal − caution)</code> — la caution n’est pas comptabilisée comme
+          chiffre d’affaires. Le « potentiel séjour » est la somme des plafonds séjour si tout était réglé. La marge utilise le <strong>séjour déjà encaissé</strong> + autres
+          revenus saisis − dépenses.
         </p>
 
         <div className="bg-gradient-to-br from-amber-50 to-orange-50/80 rounded-3xl border border-amber-100/80 shadow-sm p-5 md:p-6 space-y-4">
@@ -647,13 +686,38 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="bg-white rounded-2xl border border-emerald-100 p-5 shadow-sm">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-2">
-              <TrendingUp size={14} /> Réservations (reçus)
+              <Banknote size={14} /> Total encaissé (VERSEMENTS)
             </div>
             <p className="text-xl font-black text-gray-900 tabular-nums">
-              {loadingBookings ? '…' : formatCurrency(bookingTotal)}
+              {loadingBookings ? '…' : formatCurrency(bookingTotals.sumTotalPaid)}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
+              Σ des versements comme sur le reçu (TOTAL REÇU), caution comprise dans les paiements mais non retenue comme CA locatif ci-contre.
+            </p>
+          </div>
+          <div className="bg-white rounded-2xl border border-teal-100 p-5 shadow-sm">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-teal-800 mb-2">
+              <TrendingUp size={14} /> Séjour encaissé (hors caution)
+            </div>
+            <p className="text-xl font-black text-gray-900 tabular-nums">
+              {loadingBookings ? '…' : formatCurrency(bookingTotals.sumEncaissedLodging)}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
+              Part du séjour réellement couverte par les versements, plafonnée à grandTotal − caution (caution non comptée comme CA).
+            </p>
+          </div>
+          <div className="bg-white rounded-2xl border border-cyan-100 p-5 shadow-sm">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-cyan-800 mb-2">
+              <Target size={14} /> Potentiel séjour (hors caution)
+            </div>
+            <p className="text-xl font-black text-gray-900 tabular-nums">
+              {loadingBookings ? '…' : formatCurrency(bookingTotals.sumPotentialLodging)}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
+              Si tous les montants séjour étaient encaissés (excluant la caution remboursable).
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
@@ -677,8 +741,9 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
                 formatCurrency(grossMargin)
               )}
             </p>
-            <p className="text-[10px] text-emerald-200 mt-2 opacity-90">
-              Revenus totaux ({formatCurrency(totalRevenue)}) − dépenses ({formatCurrency(totalExpense)})
+            <p className="text-[10px] text-emerald-200 mt-2 opacity-90 leading-snug">
+              Séjour encaissé hors caution ({formatCurrency(bookingTotals.sumEncaissedLodging)}) + autres revenus ({formatCurrency(revenueManual)}) − dépenses (
+              {formatCurrency(totalExpense)})
             </p>
           </div>
         </div>
