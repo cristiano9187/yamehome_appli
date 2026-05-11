@@ -8,7 +8,6 @@ import {
   deleteDoc,
   updateDoc,
   doc,
-  getDocs,
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -25,8 +24,9 @@ import {
 import {
   Menu,
   Wallet,
-  TrendingUp,
   TrendingDown,
+  TrendingUp,
+  Target,
   Trash2,
   Loader2,
   ChevronLeft,
@@ -65,6 +65,34 @@ function currentYm(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Date ISO affichée sur 2 lignes (compact mobile, comme un mini-tableau). */
+function splitIsoDateLines(iso: string): { year: string; monthDay: string } {
+  const m = /^(\d{4})-(\d{2}-\d{2})$/.exec(iso.trim());
+  if (m) return { year: m[1], monthDay: m[2] };
+  return { year: iso, monthDay: '' };
+}
+
+/** Versements enregistrés (repli somme paiements si besoin), uniquement pour borner la part « séjour ». */
+function totalPaidEffective(r: ReceiptData): number {
+  const v = Number(r.totalPaid);
+  if (Number.isFinite(v) && v >= 0) return v;
+  return (r.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+}
+
+/**
+ * Revenu séjour « comptable » (hors caution remboursable) : cohérent avec grandTotal − caution.
+ * Les versements au-delà du plafond sont traités comme caution / dépôt, pas comme chiffre d’affaires locatif.
+ */
+function lodgingRevenueCeiling(r: ReceiptData): number {
+  const gt = Number(r.grandTotal) || 0;
+  const cau = Number(r.cautionAmount) || 0;
+  return Math.max(0, gt - cau);
+}
+
+function encaissedLodgingRevenue(r: ReceiptData): number {
+  return Math.min(totalPaidEffective(r), lodgingRevenueCeiling(r));
+}
+
 const EXPENSE_LABELS: Record<string, string> = {
   SALARY: 'Salaire',
   RENT: 'Loyer',
@@ -89,7 +117,12 @@ interface CostsViewProps {
 export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdmin }: CostsViewProps) {
   const [monthYm, setMonthYm] = useState(currentYm);
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
-  const [bookingTotal, setBookingTotal] = useState<number>(0);
+  const [bookingTotals, setBookingTotals] = useState({
+    /** Σ min(versements, plafond séjour) — entrées résa = séjour uniquement, caution exclue */
+    sumEncaissedLodging: 0,
+    /** Σ plafond séjour si tout était soldé — hors caution */
+    sumPotentialLodging: 0,
+  });
   const [loadingBookings, setLoadingBookings] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -135,8 +168,8 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     });
   }, []);
 
+  /** Reçus du mois : même écoute temps réel que finance_entries pour que les cartes se recalculent tout seuls. */
   useEffect(() => {
-    let cancelled = false;
     setLoadingBookings(true);
     const rq = query(
       collection(db, 'receipts'),
@@ -144,28 +177,26 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
       where('endDate', '>=', start),
       where('endDate', '<=', end)
     );
-    getDocs(rq)
-      .then((snap) => {
-        if (cancelled) return;
-        let sum = 0;
+    const unsub = onSnapshot(
+      rq,
+      (snap) => {
+        let sumEncaissedLodging = 0;
+        let sumPotentialLodging = 0;
         snap.docs.forEach((d) => {
           const r = d.data() as ReceiptData;
-          sum += Number(r.grandTotal) || 0;
+          sumEncaissedLodging += encaissedLodgingRevenue(r);
+          sumPotentialLodging += lodgingRevenueCeiling(r);
         });
-        setBookingTotal(sum);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          console.error('CostsView: receipts query failed — créez l’index composites ou vérifiez les règles.');
-          onAlert('Impossible de charger les revenus réservations (index Firestore ou réseau).', 'error');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBookings(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+        setBookingTotals({ sumEncaissedLodging, sumPotentialLodging });
+        setLoadingBookings(false);
+      },
+      () => {
+        console.error('CostsView: receipts query failed — créez l’index composites ou vérifiez les règles.');
+        setLoadingBookings(false);
+        onAlert('Impossible de charger les revenus réservations (index Firestore ou réseau).', 'error');
+      }
+    );
+    return () => unsub();
   }, [start, end]);
 
   useEffect(() => {
@@ -207,9 +238,13 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     [entries]
   );
 
-  const totalRevenue = bookingTotal + revenueManual;
+  /** Marge : entrées résas (séjour hors caution uniquement) + autres revenus saisis − dépenses */
+  const totalRevenueForMargin = bookingTotals.sumEncaissedLodging + revenueManual;
   const totalExpense = expenseManual;
-  const grossMargin = totalRevenue - totalExpense;
+  const grossMargin = totalRevenueForMargin - totalExpense;
+  /** Après chargement : marge strictement négative → style d’alerte (évite un flash si totaux pas encore là). */
+  const marginIsNegativeStyle =
+    !loadingBookings && !loadingEntries && grossMargin < 0;
 
   const categoryOptions =
     kind === 'EXPENSE'
@@ -574,7 +609,7 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
               Coûts & marges
             </h2>
             <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-              Revenus réservations + saisies — vue mensuelle
+              Entrées séjour (hors caution) + saisies — vue mensuelle
             </p>
           </div>
         </div>
@@ -594,11 +629,13 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
         </div>
       </header>
 
-      <div className="p-4 md:p-8 max-w-6xl mx-auto w-full space-y-8 pb-16">
+      <div className="p-4 md:p-8 max-w-6xl mx-auto w-full min-w-0 space-y-8 pb-16 overflow-x-hidden">
         <p className="text-xs text-gray-500 leading-relaxed bg-white/80 rounded-2xl border border-gray-100 px-4 py-3">
-          Les <strong>revenus réservations</strong> sont la somme des <code className="text-[10px] bg-gray-100 px-1 rounded">grandTotal</code> des reçus{' '}
-          <strong>valides</strong> dont la <strong>date de fin de séjour</strong> tombe dans le mois choisi (approximation simple).
-          Complétez avec les dépenses et ventes saisies ci-dessous.
+          Reçus <strong>VALIDE</strong>, <strong>date de fin de séjour</strong> dans le mois. Les{' '}
+          <strong>entrées réservations</strong> utilisent uniquement la part <strong>séjour</strong>, jamais la caution&nbsp;:{' '}
+          <code className="text-[10px] bg-gray-100 px-1 rounded">min(versements, grandTotal − caution)</code>. Ainsi un client qui règle d’un coup séjour{' '}
+          <em>et</em> caution ne gonfle pas vos revenus — le surplus au-delà du plafond séjour est ignoré comme entrée CA. « Potentiel séjour » = somme des plafonds
+          séjour si tout était réglé. <strong>Marge</strong>&nbsp;: entrées séjour + autres revenus saisis − dépenses.
         </p>
 
         <div className="bg-gradient-to-br from-amber-50 to-orange-50/80 rounded-3xl border border-amber-100/80 shadow-sm p-5 md:p-6 space-y-4">
@@ -647,13 +684,28 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-2xl border border-emerald-100 p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-2">
-              <TrendingUp size={14} /> Réservations (reçus)
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="bg-white rounded-2xl border border-teal-200 ring-1 ring-teal-100 p-5 shadow-sm">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-teal-800 mb-2">
+              <TrendingUp size={14} /> Entrées résas (séjour encaissé)
             </div>
             <p className="text-xl font-black text-gray-900 tabular-nums">
-              {loadingBookings ? '…' : formatCurrency(bookingTotal)}
+              {loadingBookings ? '…' : formatCurrency(bookingTotals.sumEncaissedLodging)}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
+              Uniquement le séjour déjà couvert par les versements, plafonné à grandTotal − caution — la partie caution n’entre pas ici même si elle est dans le TOTAL REÇU
+              du PDF.
+            </p>
+          </div>
+          <div className="bg-white rounded-2xl border border-cyan-100 p-5 shadow-sm">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-cyan-800 mb-2">
+              <Target size={14} /> Potentiel séjour (hors caution)
+            </div>
+            <p className="text-xl font-black text-gray-900 tabular-nums">
+              {loadingBookings ? '…' : formatCurrency(bookingTotals.sumPotentialLodging)}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
+              Si tous les montants séjour étaient encaissés (excluant la caution remboursable).
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
@@ -668,17 +720,38 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
             </div>
             <p className="text-xl font-black text-gray-900 tabular-nums">{formatCurrency(totalExpense)}</p>
           </div>
-          <div className="bg-gradient-to-br from-[#0f766e] to-emerald-900 rounded-2xl p-5 text-white shadow-lg">
-            <div className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-2">Marge brute (mois)</div>
-            <p className="text-2xl font-black tabular-nums">
+          <div
+            className={
+              marginIsNegativeStyle
+                ? 'bg-gradient-to-br from-rose-800 to-neutral-950 rounded-2xl p-5 text-white shadow-lg ring-1 ring-rose-900/40'
+                : 'bg-gradient-to-br from-[#0f766e] to-emerald-900 rounded-2xl p-5 text-white shadow-lg'
+            }
+          >
+            <div
+              className={
+                marginIsNegativeStyle
+                  ? 'text-[10px] font-black uppercase tracking-widest text-rose-200 mb-2'
+                  : 'text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-2'
+              }
+            >
+              Marge brute (mois)
+            </div>
+            <p className={`text-2xl font-black tabular-nums ${marginIsNegativeStyle ? 'text-white' : ''}`}>
               {loadingBookings || loadingEntries ? (
                 <Loader2 className="animate-spin inline" size={22} />
               ) : (
                 formatCurrency(grossMargin)
               )}
             </p>
-            <p className="text-[10px] text-emerald-200 mt-2 opacity-90">
-              Revenus totaux ({formatCurrency(totalRevenue)}) − dépenses ({formatCurrency(totalExpense)})
+            <p
+              className={
+                marginIsNegativeStyle
+                  ? 'text-[10px] text-rose-200/90 mt-2 leading-snug'
+                  : 'text-[10px] text-emerald-200 mt-2 opacity-90 leading-snug'
+              }
+            >
+              Entrées séjour ({formatCurrency(bookingTotals.sumEncaissedLodging)}) + autres revenus ({formatCurrency(revenueManual)}) − dépenses (
+              {formatCurrency(totalExpense)})
             </p>
           </div>
         </div>
@@ -826,11 +899,12 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
         </div>
 
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-4 md:p-6 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Lignes du mois</h3>
+          <div className="px-4 py-3 md:p-6 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="text-xs md:text-sm font-black uppercase tracking-widest text-gray-900">Lignes du mois</h3>
             {loadingEntries && <Loader2 className="animate-spin text-gray-400" size={18} />}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop / large écran : tableau (à partir de lg pour éviter tableau trop large en portrait) */}
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
                 <tr>
@@ -908,6 +982,97 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile & tablette portrait : petits blocs (même esprit que Historique des reçus) */}
+          <div className="lg:hidden bg-[#F5F5F4] p-3 space-y-3">
+            {entries.map((row) => {
+              const logementLine = formatLogementCell(row);
+              const { year, monthDay } = splitIsoDateLines(row.date);
+              const salaryName =
+                row.category === 'SALARY' && row.employeeId
+                  ? employees.find((e) => e.id === row.employeeId)?.name ?? row.employeeId
+                  : null;
+              return (
+                <div
+                  key={row.id}
+                  className={`rounded-2xl border bg-white p-4 shadow-sm space-y-3 min-w-0 ${
+                    editingEntry?.id === row.id
+                      ? 'border-emerald-300 ring-2 ring-emerald-100'
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <div className="font-mono text-[10px] tabular-nums font-bold text-gray-500 leading-tight text-center shrink-0 select-none">
+                          <span className="block">{year}</span>
+                          {monthDay ? <span className="block text-gray-400 font-semibold">{monthDay}</span> : null}
+                        </div>
+                        <span
+                          className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${
+                            row.kind === 'REVENUE' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {row.kind === 'REVENUE' ? 'Revenu' : 'Dépense'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-black uppercase tracking-tight text-gray-900 leading-snug line-clamp-3" title={row.title}>
+                        {row.title}
+                      </p>
+                      {salaryName && <p className="text-[10px] text-gray-400 font-bold">{salaryName}</p>}
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      {canModifyRow(row) && (
+                        <button
+                          type="button"
+                          onClick={() => beginEdit(row)}
+                          className={`p-2 rounded-xl transition-colors ${
+                            editingEntry?.id === row.id
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          }`}
+                          title="Modifier"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                      )}
+                      {canModifyRow(row) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(row)}
+                          className="p-2 rounded-xl bg-gray-50 text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
+                    <div className="min-w-0">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Catégorie</span>
+                      <span className="text-xs font-bold text-gray-800 leading-snug">{labelCat(row)}</span>
+                    </div>
+                    <div className="min-w-0 text-right">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Montant</span>
+                      <span className="text-sm font-black font-mono tabular-nums text-gray-900">{formatCurrency(row.amount)}</span>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Logement</span>
+                    <p className="text-[11px] text-gray-700 leading-snug break-words">{logementLine}</p>
+                  </div>
+                </div>
+              );
+            })}
+            {entries.length === 0 && !loadingEntries && (
+              <div className="rounded-2xl border border-gray-200 bg-white py-12 px-4 text-center text-gray-400 text-xs shadow-sm">
+                Aucune ligne saisie pour ce mois.
+              </div>
+            )}
           </div>
         </div>
       </div>
