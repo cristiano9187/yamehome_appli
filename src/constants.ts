@@ -263,18 +263,16 @@ export const FINANCE_QUICK_INTERNET_AMOUNT = 60_000;
  */
 export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
   orangeMoney: {
-    merchantCode: '1000001',
-    /** True tant que le code n’est pas celui validé définitivement par Orange. */
-    provisional: true,
-  },
-  mtnMoMo: {
     merchantCode: '1002038',
-    merchantDisplayName: 'YAMEHOME',
+    provisional: false,
+  },
+  /** Pas de numéro MTN tant que l’opérateur ne l’a pas transmis — texte affiché sur le reçu uniquement. */
+  mtnMoMo: {
+    pendingNotice:
+      'Numéro marchand MTN non encore attribué — sera communiqué sur vos prochains reçus sous peu.',
   },
   ribLine: 'RIB bancaire fourni sur demande.',
   cashLine: 'Espèces sur place.',
-  /** Court rappel sous MTN (à retirer une fois le code agréé par l’opérateur). */
-  mtnPendingNotice: 'Identification marchand MTN à confirmer dans les prochains jours.',
 } as const;
 
 /** Chemins locaux (SVG légers) — pastilles génériques couleur + sigle, sans reproduction des logos déposés. */
