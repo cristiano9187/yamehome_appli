@@ -263,53 +263,66 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
                     Moyens de paiement officiels
                   </p>
                   <div className="space-y-1.5">
-                    <div className="flex gap-1.5 items-start">
-                      <div className="flex shrink-0 gap-0.5 mt-0.5">
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                      <div className="flex gap-1.5 items-start min-w-0 max-w-full">
                         <img
                           src={RECEIPT_PAYMENT_BADGE_SRC.orange}
                           alt=""
                           width={18}
                           height={18}
-                          className="rounded-sm object-contain"
+                          className="shrink-0 mt-0.5 rounded-sm object-contain"
                         />
+                        <span className="leading-snug min-w-0">
+                          <strong className="text-gray-900">Orange Money</strong>
+                          {' · code marchand'}{' '}
+                          <span className="font-mono font-bold">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}
+                          </span>
+                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.provisional ? (
+                            <em className="text-gray-600 not-italic text-[8px] ml-0.5">(provisoire)</em>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5 items-start min-w-0 max-w-full">
                         <img
                           src={RECEIPT_PAYMENT_BADGE_SRC.mtn}
+                          alt=""
+                          width={18}
+                          height={18}
+                          className="shrink-0 mt-0.5 rounded-sm object-contain"
+                        />
+                        <span className="leading-snug min-w-0">
+                          <strong className="text-gray-900">MTN MoMo</strong>
+                          {' ('}
+                          <span className="italic text-gray-700">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}
+                          </span>
+                          {')'}
+                          {' · '}
+                          <span className="font-semibold">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                      <div className="flex shrink-0 gap-0.5 items-center text-[#2B4B8C] mt-0.5" aria-hidden>
+                        <Landmark size={17} strokeWidth={2} />
+                        <img
+                          src={RECEIPT_PAYMENT_BADGE_SRC.paypal}
                           alt=""
                           width={18}
                           height={18}
                           className="rounded-sm object-contain"
                         />
                       </div>
-                      <span className="leading-snug">
-                        <strong className="text-gray-900">Orange Money</strong>
-                        {' · code marchand'}{' '}
-                        <span className="font-mono font-bold">
-                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}
-                        </span>
-                        {' · '}
-                        <strong className="text-gray-900">MTN MoMo</strong>
-                        {' ('}
-                        <span className="italic text-gray-700">
-                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}
-                        </span>
-                        {')'}
-                        {' · '}
-                        <span className="font-semibold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}</span>
-                        {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.provisional ? (
-                          <em className="text-gray-600 not-italic text-[8px] ml-0.5">(provisoire)</em>
-                        ) : null}
-                      </span>
-                    </div>
-                    <div className="flex gap-1.5 items-start">
-                      <div className="flex shrink-0 gap-0.5 text-[#2B4B8C] mt-0.5" aria-hidden>
-                        <Landmark size={17} strokeWidth={2} />
-                        <Banknote size={17} className="text-emerald-700" strokeWidth={2} />
-                      </div>
-                      <span className="leading-snug">
+                      <span className="leading-snug min-w-0">
                         {RECEIPT_OFFICIAL_PAYMENT_METHODS.ribLine.replace(/\.$/, '')}
-                        {' · '}
-                        {RECEIPT_OFFICIAL_PAYMENT_METHODS.cashLine}
                       </span>
+                      <div className="flex gap-1.5 items-start min-w-0">
+                        <Banknote size={17} className="shrink-0 text-emerald-700 mt-0.5" strokeWidth={2} aria-hidden />
+                        <span className="leading-snug">{RECEIPT_OFFICIAL_PAYMENT_METHODS.cashLine}</span>
+                      </div>
                     </div>
                   </div>
                 </td>
