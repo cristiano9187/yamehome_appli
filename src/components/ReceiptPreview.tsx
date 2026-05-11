@@ -6,7 +6,7 @@ import { getReceiptSegments, receiptHasMultipleSegments, totalNightsAcrossReceip
 
 interface ReceiptPreviewProps {
   data: ReceiptData;
-  /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut recommandé tant que les codes MTN ne sont pas officiels. */
+  /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
 }
 
@@ -290,12 +290,8 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
                       />
                       <span>
                         <strong className="text-gray-900">MTN Mobile Money</strong>
-                        {' — '}code marchand{' '}
-                        <span className="font-mono font-bold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantCode}</span>
-                        {' — '}
-                        <span className="font-semibold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantDisplayName}</span>
-                        <span className="block text-[8px] text-gray-500 mt-0.5 italic">
-                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnPendingNotice}
+                        <span className="block text-[9px] text-gray-600 mt-0.5 leading-snug italic">
+                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}
                         </span>
                       </span>
                     </li>

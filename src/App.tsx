@@ -248,8 +248,8 @@ export default function App() {
   
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
-  /** Bloc Orange / MTN / RIB / espèces sur le PDF — désactivé par défaut (codes MTN encore indicatifs). */
-  const [showReceiptPaymentMethods, setShowReceiptPaymentMethods] = useState(false);
+  /** Bloc Orange / MTN / RIB / espèces sur le PDF — activé par défaut (désactivable avant impression). */
+  const [showReceiptPaymentMethods, setShowReceiptPaymentMethods] = useState(true);
   const [isCleaningReadOnly, setIsCleaningReadOnly] = useState(false);
   const [showCleaningConfirm, setShowCleaningConfirm] = useState(false);
   const [showDeleteCleaningConfirm, setShowDeleteCleaningConfirm] = useState(false);
