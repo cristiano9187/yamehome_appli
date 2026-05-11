@@ -277,13 +277,10 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
   mtnPendingNotice: 'Identification marchand MTN à confirmer dans les prochains jours.',
 } as const;
 
-/**
- * Icônes de marque pour le reçu — provenance Simple Icons (CC0), chargées en CDN.
- * Les logos Orange / MTN restent la propriété de leurs titulaires.
- */
-export const RECEIPT_PAYMENT_BRAND_ICON_URL = {
-  orange: 'https://cdn.simpleicons.org/orange/FF7900',
-  mtn: 'https://cdn.simpleicons.org/mtn/FFCB05',
+/** Chemins locaux (SVG légers) — pastilles génériques couleur + sigle, sans reproduction des logos déposés. */
+export const RECEIPT_PAYMENT_BADGE_SRC = {
+  orange: '/receipt-payment/orange-momo-badge.svg',
+  mtn: '/receipt-payment/mtn-momo-badge.svg',
 } as const;
 
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
