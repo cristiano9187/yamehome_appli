@@ -2615,16 +2615,43 @@ export default function App() {
                 {/* Legacy closing div for Options section */}
                 <div>
                   
-                  {/* Mobile-only Preview Button */}
                   {!isReadOnly && (
-                    <button
-                      type="button"
-                      onClick={() => setIsSidebarOpen(false)}
-                      className="md:hidden w-full bg-blue-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-                    >
-                      <Eye size={16} />
-                      Voir l'aperçu
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsSidebarOpen(false)}
+                        className="md:hidden w-full bg-blue-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                      >
+                        <Eye size={16} />
+                        Voir l'aperçu
+                      </button>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={showReceiptPaymentMethods}
+                        aria-label={
+                          showReceiptPaymentMethods
+                            ? 'Masquer les moyens de paiement sur le reçu'
+                            : 'Afficher les moyens de paiement sur le reçu'
+                        }
+                        onClick={() => setShowReceiptPaymentMethods((v) => !v)}
+                        className={`md:hidden w-full mt-2 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest border-2 flex items-center justify-center gap-2 transition-colors ${
+                          showReceiptPaymentMethods
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <CreditCard size={16} className="shrink-0" aria-hidden />
+                        <span className="text-center leading-tight px-1">
+                          {showReceiptPaymentMethods
+                            ? 'Moyens de paiement sur le reçu : affichés'
+                            : 'Moyens de paiement sur le reçu : masqués'}
+                        </span>
+                      </button>
+                      <p className="md:hidden text-[9px] text-gray-500 text-center mt-1.5 leading-snug px-1">
+                        Sur ordinateur : même réglage dans la barre au-dessus du reçu (icône carte).
+                      </p>
+                    </>
                   )}
                 </div>
               </form>
