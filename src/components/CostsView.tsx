@@ -8,7 +8,6 @@ import {
   deleteDoc,
   updateDoc,
   doc,
-  getDocs,
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -169,8 +168,8 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     });
   }, []);
 
+  /** Reçus du mois : même écoute temps réel que finance_entries pour que les cartes se recalculent tout seuls. */
   useEffect(() => {
-    let cancelled = false;
     setLoadingBookings(true);
     const rq = query(
       collection(db, 'receipts'),
@@ -178,9 +177,9 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
       where('endDate', '>=', start),
       where('endDate', '<=', end)
     );
-    getDocs(rq)
-      .then((snap) => {
-        if (cancelled) return;
+    const unsub = onSnapshot(
+      rq,
+      (snap) => {
         let sumEncaissedLodging = 0;
         let sumPotentialLodging = 0;
         snap.docs.forEach((d) => {
@@ -189,19 +188,15 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
           sumPotentialLodging += lodgingRevenueCeiling(r);
         });
         setBookingTotals({ sumEncaissedLodging, sumPotentialLodging });
-      })
-      .catch(() => {
-        if (!cancelled) {
-          console.error('CostsView: receipts query failed — créez l’index composites ou vérifiez les règles.');
-          onAlert('Impossible de charger les revenus réservations (index Firestore ou réseau).', 'error');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBookings(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+        setLoadingBookings(false);
+      },
+      () => {
+        console.error('CostsView: receipts query failed — créez l’index composites ou vérifiez les règles.');
+        setLoadingBookings(false);
+        onAlert('Impossible de charger les revenus réservations (index Firestore ou réseau).', 'error');
+      }
+    );
+    return () => unsub();
   }, [start, end]);
 
   useEffect(() => {
