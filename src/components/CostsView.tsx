@@ -897,11 +897,12 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
         </div>
 
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-4 md:p-6 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Lignes du mois</h3>
+          <div className="px-4 py-3 md:p-6 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="text-xs md:text-sm font-black uppercase tracking-widest text-gray-900">Lignes du mois</h3>
             {loadingEntries && <Loader2 className="animate-spin text-gray-400" size={18} />}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop : tableau */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
                 <tr>
@@ -979,6 +980,80 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile : liste compacte (comme l&apos;historique des reçus) */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {entries.map((row) => {
+              const logementLine = formatLogementCell(row);
+              return (
+                <div
+                  key={row.id}
+                  className={`px-3 py-2.5 flex gap-2 items-start ${editingEntry?.id === row.id ? 'bg-emerald-50/60' : ''}`}
+                >
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-mono text-[10px] tabular-nums font-bold text-gray-500">{row.date}</span>
+                      <span
+                        className={`text-[9px] font-black uppercase px-1.5 py-px rounded-full shrink-0 ${
+                          row.kind === 'REVENUE' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {row.kind === 'REVENUE' ? 'Revenu' : 'Dépense'}
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight truncate max-w-[10rem]">
+                        {labelCat(row)}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-gray-900 leading-snug line-clamp-2" title={row.title}>
+                      {row.title}
+                    </p>
+                    {row.category === 'SALARY' && row.employeeId && (
+                      <p className="text-[10px] text-gray-400 leading-tight">
+                        {employees.find((e) => e.id === row.employeeId)?.name ?? row.employeeId}
+                      </p>
+                    )}
+                    {logementLine !== '—' && (
+                      <p className="text-[10px] text-gray-500 leading-snug line-clamp-2" title={logementLine}>
+                        {logementLine}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-0">
+                      {canModifyRow(row) && (
+                        <button
+                          type="button"
+                          onClick={() => beginEdit(row)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            editingEntry?.id === row.id
+                              ? 'text-emerald-700 bg-emerald-100'
+                              : 'text-gray-400 hover:text-emerald-700 hover:bg-emerald-50'
+                          }`}
+                          title="Modifier"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                      )}
+                      {canModifyRow(row) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(row)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-xs font-black font-mono tabular-nums text-gray-900">{formatCurrency(row.amount)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {entries.length === 0 && !loadingEntries && (
+              <div className="px-3 py-10 text-center text-gray-400 text-xs">Aucune ligne saisie pour ce mois.</div>
+            )}
           </div>
         </div>
       </div>
