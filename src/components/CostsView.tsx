@@ -72,11 +72,16 @@ function splitIsoDateLines(iso: string): { year: string; monthDay: string } {
   return { year: iso, monthDay: '' };
 }
 
-/** Versements enregistrés (repli somme paiements si besoin), uniquement pour borner la part « séjour ». */
+/**
+ * Versements pris en compte pour le plafond « séjour ».
+ * On prend le max(`totalPaid`, Σ paiements) : en base les deux peuvent diverger (merge partiel, anciennes écritures)
+ * — évite de sous-compter alors que les lignes `payments` du reçu sont à jour.
+ */
 function totalPaidEffective(r: ReceiptData): number {
+  const sumPayments = (r.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const v = Number(r.totalPaid);
-  if (Number.isFinite(v) && v >= 0) return v;
-  return (r.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const fromField = Number.isFinite(v) && v >= 0 ? v : 0;
+  return Math.max(fromField, sumPayments);
 }
 
 /**
@@ -631,11 +636,11 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
 
       <div className="p-4 md:p-8 max-w-6xl mx-auto w-full min-w-0 space-y-8 pb-16 overflow-x-hidden">
         <p className="text-xs text-gray-500 leading-relaxed bg-white/80 rounded-2xl border border-gray-100 px-4 py-3">
-          Reçus <strong>VALIDE</strong>, <strong>date de fin de séjour</strong> dans le mois. Les{' '}
-          <strong>entrées réservations</strong> utilisent uniquement la part <strong>séjour</strong>, jamais la caution&nbsp;:{' '}
-          <code className="text-[10px] bg-gray-100 px-1 rounded">min(versements, grandTotal − caution)</code>. Ainsi un client qui règle d’un coup séjour{' '}
-          <em>et</em> caution ne gonfle pas vos revenus — le surplus au-delà du plafond séjour est ignoré comme entrée CA. « Potentiel séjour » = somme des plafonds
-          séjour si tout était réglé. <strong>Marge</strong>&nbsp;: entrées séjour + autres revenus saisis − dépenses.
+          Reçus <strong>VALIDE</strong>, rattachés au mois selon la <strong>date de fin de séjour</strong> (<code className="text-[10px] bg-gray-100 px-1 rounded">endDate</code>) — pas selon la date du versement&nbsp;: un encaissement en mai pour un checkout en juin compte dans{' '}
+          <strong>juin</strong>. Les <strong>entrées réservations</strong> utilisent la part <strong>séjour</strong> seule&nbsp;:{' '}
+          <code className="text-[10px] bg-gray-100 px-1 rounded">min(max(totalPaid, Σ versements), grandTotal − caution)</code>{' '}
+          (les versements sont lus sur le reçu&nbsp;; caution exclue du plafond CA séjour). « Potentiel séjour » = somme des plafonds séjour si tout était réglé.{' '}
+          <strong>Marge</strong>&nbsp;: entrées séjour + autres revenus saisis − dépenses. Les montants se mettent à jour dès que Firestore change (écoute temps réel).
         </p>
 
         <div className="bg-gradient-to-br from-amber-50 to-orange-50/80 rounded-3xl border border-amber-100/80 shadow-sm p-5 md:p-6 space-y-4">
