@@ -280,6 +280,8 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
 export const RECEIPT_PAYMENT_BADGE_SRC = {
   orange: '/receipt-payment/orange-momo-badge.svg',
   mtn: '/receipt-payment/mtn-momo-badge.svg',
+  /** Pastille générique (initiales), pas le logo PayPal déposé. */
+  paypal: '/receipt-payment/paypal-badge.svg',
 } as const;
 
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
