@@ -275,6 +275,8 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
                         <strong className="text-gray-900">Orange Money</strong>
                         {' — '}code marchand{' '}
                         <span className="font-mono font-bold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}</span>
+                        {' — '}
+                        <span className="font-semibold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}</span>
                         {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.provisional ? (
                           <em className="text-gray-600 not-italic text-[8px] ml-1">(provisoire)</em>
                         ) : null}
@@ -290,6 +292,8 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
                       />
                       <span>
                         <strong className="text-gray-900">MTN Mobile Money</strong>
+                        {' — '}
+                        <span className="font-semibold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantAccountName}</span>
                         <span className="block text-[9px] text-gray-600 mt-0.5 leading-snug italic">
                           {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}
                         </span>
