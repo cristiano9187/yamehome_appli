@@ -257,6 +257,32 @@ export function getFinanceQuickRentDefaultAmount(unitSlug: string): number {
 /** Internet — dépense récurrente saisie rapide (facture / charges). */
 export const FINANCE_QUICK_INTERNET_AMOUNT = 60_000;
 
+/**
+ * Moyens de paiement officiels affichés sur le reçu (à côté du « Reste à payer »).
+ * Mettre à jour les codes avec la direction lorsque MTN / Orange confirment les identifiants définitifs.
+ */
+export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
+  orangeMoney: {
+    merchantCode: '1000001',
+    /** True tant que le code n’est pas celui validé définitivement par Orange. */
+    provisional: true,
+  },
+  mtnMoMo: {
+    merchantCode: '1002038',
+    merchantDisplayName: 'YAMEHOME',
+  },
+  ribLine: 'RIB bancaire fourni sur demande.',
+  cashLine: 'Espèces sur place.',
+  /** Court rappel sous MTN (à retirer une fois le code agréé par l’opérateur). */
+  mtnPendingNotice: 'Identification marchand MTN à confirmer dans les prochains jours.',
+} as const;
+
+/** Chemins locaux (SVG légers) — pastilles génériques couleur + sigle, sans reproduction des logos déposés. */
+export const RECEIPT_PAYMENT_BADGE_SRC = {
+  orange: '/receipt-payment/orange-momo-badge.svg',
+  mtn: '/receipt-payment/mtn-momo-badge.svg',
+} as const;
+
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
 export function getPrepaidEligibleUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
   return getAllUnitRowsFromTarifs().filter(({ apartmentName }) => {

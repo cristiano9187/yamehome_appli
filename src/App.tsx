@@ -83,6 +83,7 @@ import {
   Wallet,
   ScrollText,
   ArrowLeft,
+  CreditCard,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -247,6 +248,8 @@ export default function App() {
   
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
   const [isReadOnly, setIsReadOnly] = useState(urlParams.has('id'));
+  /** Bloc Orange / MTN / RIB / espèces sur le PDF — désactivé par défaut (codes MTN encore indicatifs). */
+  const [showReceiptPaymentMethods, setShowReceiptPaymentMethods] = useState(false);
   const [isCleaningReadOnly, setIsCleaningReadOnly] = useState(false);
   const [showCleaningConfirm, setShowCleaningConfirm] = useState(false);
   const [showDeleteCleaningConfirm, setShowDeleteCleaningConfirm] = useState(false);
@@ -2909,6 +2912,32 @@ export default function App() {
               </div>
 
               <div className="flex flex-nowrap items-center justify-end gap-1 sm:gap-1.5 md:gap-3 w-full md:w-auto md:shrink-0 border-t border-gray-100/80 pt-2 md:border-0 md:pt-0 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showReceiptPaymentMethods}
+                  aria-label={
+                    showReceiptPaymentMethods
+                      ? 'Masquer les moyens de paiement sur le reçu'
+                      : 'Afficher les moyens de paiement sur le reçu'
+                  }
+                  onClick={() => setShowReceiptPaymentMethods((v) => !v)}
+                  className={`inline-flex items-center justify-center gap-1 h-10 shrink-0 px-2 sm:px-2.5 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight sm:tracking-widest transition-all touch-manipulation border ${
+                    showReceiptPaymentMethods
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                  title={
+                    showReceiptPaymentMethods
+                      ? 'Masquer le bloc moyens de paiement sur le reçu et le PDF'
+                      : 'Afficher le bloc moyens de paiement (Orange / MTN / RIB / espèces) sur le reçu et le PDF'
+                  }
+                >
+                  <CreditCard size={15} className="shrink-0" aria-hidden />
+                  <span className="hidden sm:inline max-w-[7rem] truncate md:max-w-none">
+                    {showReceiptPaymentMethods ? 'Paiements affichés' : 'Paiements masqués'}
+                  </span>
+                </button>
                 {!isReadOnly ? (
                   <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5 md:gap-2 ml-auto">
                     <button 
@@ -3028,7 +3057,7 @@ export default function App() {
                       </div>
                     )}
                     <div className="mobile-receipt-zoom origin-top transition-transform will-change-transform">
-                      <ReceiptPreview data={debouncedFormData} />
+                      <ReceiptPreview data={debouncedFormData} showPaymentMethods={showReceiptPaymentMethods} />
                     </div>
                   </div>
                 </motion.div>
