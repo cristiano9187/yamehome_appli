@@ -1,7 +1,7 @@
 import React from 'react';
-import { Mail, Globe, Phone, MessageCircle } from 'lucide-react';
+import { Mail, Globe, Phone, MessageCircle, Landmark, Banknote } from 'lucide-react';
 import { ReceiptData } from '../types';
-import { getRateForApartment, LOGO_BASE64, formatCurrency } from '../constants';
+import { getRateForApartment, LOGO_BASE64, formatCurrency, RECEIPT_OFFICIAL_PAYMENT_METHODS, RECEIPT_PAYMENT_BRAND_ICON_URL } from '../constants';
 import { getReceiptSegments, receiptHasMultipleSegments, totalNightsAcrossReceipt } from '../utils/receiptSegments';
 
 interface ReceiptPreviewProps {
@@ -254,9 +254,66 @@ const ReceiptPreview = React.memo(({ data }: ReceiptPreviewProps) => {
               <td className="py-2 pl-2">TOTAL REÇU</td>
               <td className="text-right pr-2 text-base">{totalPaid.toLocaleString()} XAF</td>
             </tr>
-            <tr className="border-t-2 border-gray-300">
-              <td className="py-2 pl-2 font-bold text-red-600 uppercase text-xs">Reste à Payer</td>
-              <td className="text-right pr-2 font-bold text-red-600 text-lg">{formatCurrency(remaining)}</td>
+            <tr className="border-t-2 border-gray-300 align-top bg-gray-50/80">
+              <td className="py-3 pl-2 align-top text-[9px] text-gray-800 leading-snug pr-3">
+                <p className="font-bold text-[#2B4B8C] uppercase text-[10px] mb-2 tracking-wide">
+                  Moyens de paiement officiels
+                </p>
+                <ul className="space-y-2.5">
+                  <li className="flex gap-2 items-start">
+                    <img
+                      src={RECEIPT_PAYMENT_BRAND_ICON_URL.orange}
+                      alt=""
+                      width={20}
+                      height={20}
+                      className="shrink-0 mt-0.5 rounded-sm object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span>
+                      <strong className="text-gray-900">Orange Money</strong>
+                      {' — '}code marchand{' '}
+                      <span className="font-mono font-bold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}</span>
+                      {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.provisional ? (
+                        <em className="text-gray-600 not-italic text-[8px] ml-1">(provisoire)</em>
+                      ) : null}
+                    </span>
+                  </li>
+                  <li className="flex gap-2 items-start">
+                    <img
+                      src={RECEIPT_PAYMENT_BRAND_ICON_URL.mtn}
+                      alt=""
+                      width={20}
+                      height={20}
+                      className="shrink-0 mt-0.5 rounded-sm object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span>
+                      <strong className="text-gray-900">MTN Mobile Money</strong>
+                      {' — '}code marchand{' '}
+                      <span className="font-mono font-bold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantCode}</span>
+                      {' — '}
+                      <span className="font-semibold">{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantDisplayName}</span>
+                      <span className="block text-[8px] text-gray-500 mt-0.5 italic">
+                        {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnPendingNotice}
+                      </span>
+                    </span>
+                  </li>
+                  <li className="flex gap-2 items-start">
+                    <Landmark size={18} className="shrink-0 text-[#2B4B8C] mt-0.5" strokeWidth={2} aria-hidden />
+                    <span>{RECEIPT_OFFICIAL_PAYMENT_METHODS.ribLine}</span>
+                  </li>
+                  <li className="flex gap-2 items-start">
+                    <Banknote size={18} className="shrink-0 text-emerald-700 mt-0.5" strokeWidth={2} aria-hidden />
+                    <span>{RECEIPT_OFFICIAL_PAYMENT_METHODS.cashLine}</span>
+                  </li>
+                </ul>
+              </td>
+              <td className="py-3 pr-2 align-middle text-right whitespace-nowrap border-l border-gray-200">
+                <div className="inline-block text-right pl-3">
+                  <div className="font-bold text-red-600 uppercase text-xs leading-tight">Reste à Payer</div>
+                  <div className="font-bold text-red-600 text-lg tabular-nums">{formatCurrency(remaining)}</div>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
