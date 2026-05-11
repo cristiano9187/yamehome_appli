@@ -264,12 +264,13 @@ export const FINANCE_QUICK_INTERNET_AMOUNT = 60_000;
 export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
   orangeMoney: {
     merchantCode: '1002038',
+    /** Libellé compte marchand tel qu’affiché sur le reçu. */
+    merchantAccountName: 'YAMEHOME',
     provisional: false,
   },
-  /** Pas de numéro MTN tant que l’opérateur ne l’a pas transmis — texte affiché sur le reçu uniquement. */
   mtnMoMo: {
-    pendingNotice:
-      'Numéro marchand MTN non encore attribué — sera communiqué sur vos prochains reçus sous peu.',
+    merchantAccountName: 'YAMEHOME',
+    pendingNotice: 'Numéro marchand MTN sera communiqué sous peu.',
   },
   ribLine: 'RIB bancaire fourni sur demande.',
   cashLine: 'Espèces sur place.',
