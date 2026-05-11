@@ -278,9 +278,10 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
                           <span className="font-mono font-bold">
                             {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}
                           </span>
-                          {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.provisional ? (
-                            <em className="text-gray-600 not-italic text-[8px] ml-0.5">(provisoire)</em>
-                          ) : null}
+                          {' · '}
+                          <span className="font-semibold">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
+                          </span>
                         </span>
                       </div>
                       <div className="flex gap-1.5 items-start min-w-0 max-w-full">
