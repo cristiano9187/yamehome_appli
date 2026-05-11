@@ -269,7 +269,7 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
   },
   mtnMoMo: {
     merchantAccountName: 'YAMEHOME',
-    pendingNotice: 'Numéro marchand MTN sera communiqué sous peu.',
+    pendingNotice: 'En attente',
   },
   ribLine: 'RIB bancaire ou PayPal — communiqués sur demande.',
   cashLine: 'Espèces sur place.',
