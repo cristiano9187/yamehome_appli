@@ -66,6 +66,13 @@ function currentYm(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Date ISO affichée sur 2 lignes (compact mobile, comme un mini-tableau). */
+function splitIsoDateLines(iso: string): { year: string; monthDay: string } {
+  const m = /^(\d{4})-(\d{2}-\d{2})$/.exec(iso.trim());
+  if (m) return { year: m[1], monthDay: m[2] };
+  return { year: iso, monthDay: '' };
+}
+
 /** Versements enregistrés (repli somme paiements si besoin), uniquement pour borner la part « séjour ». */
 function totalPaidEffective(r: ReceiptData): number {
   const v = Number(r.totalPaid);
@@ -627,7 +634,7 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
         </div>
       </header>
 
-      <div className="p-4 md:p-8 max-w-6xl mx-auto w-full space-y-8 pb-16">
+      <div className="p-4 md:p-8 max-w-6xl mx-auto w-full min-w-0 space-y-8 pb-16 overflow-x-hidden">
         <p className="text-xs text-gray-500 leading-relaxed bg-white/80 rounded-2xl border border-gray-100 px-4 py-3">
           Reçus <strong>VALIDE</strong>, <strong>date de fin de séjour</strong> dans le mois. Les{' '}
           <strong>entrées réservations</strong> utilisent uniquement la part <strong>séjour</strong>, jamais la caution&nbsp;:{' '}
@@ -901,8 +908,8 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
             <h3 className="text-xs md:text-sm font-black uppercase tracking-widest text-gray-900">Lignes du mois</h3>
             {loadingEntries && <Loader2 className="animate-spin text-gray-400" size={18} />}
           </div>
-          {/* Desktop : tableau */}
-          <div className="hidden md:block overflow-x-auto">
+          {/* Desktop / large écran : tableau (à partir de lg pour éviter tableau trop large en portrait) */}
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
                 <tr>
@@ -982,77 +989,94 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
             </table>
           </div>
 
-          {/* Mobile : liste compacte (comme l&apos;historique des reçus) */}
-          <div className="md:hidden divide-y divide-gray-100">
+          {/* Mobile & tablette portrait : petits blocs (même esprit que Historique des reçus) */}
+          <div className="lg:hidden bg-[#F5F5F4] p-3 space-y-3">
             {entries.map((row) => {
               const logementLine = formatLogementCell(row);
+              const { year, monthDay } = splitIsoDateLines(row.date);
+              const salaryName =
+                row.category === 'SALARY' && row.employeeId
+                  ? employees.find((e) => e.id === row.employeeId)?.name ?? row.employeeId
+                  : null;
               return (
                 <div
                   key={row.id}
-                  className={`px-3 py-2.5 flex gap-2 items-start ${editingEntry?.id === row.id ? 'bg-emerald-50/60' : ''}`}
+                  className={`rounded-2xl border bg-white p-4 shadow-sm space-y-3 min-w-0 ${
+                    editingEntry?.id === row.id
+                      ? 'border-emerald-300 ring-2 ring-emerald-100'
+                      : 'border-gray-200'
+                  }`}
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="font-mono text-[10px] tabular-nums font-bold text-gray-500">{row.date}</span>
-                      <span
-                        className={`text-[9px] font-black uppercase px-1.5 py-px rounded-full shrink-0 ${
-                          row.kind === 'REVENUE' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {row.kind === 'REVENUE' ? 'Revenu' : 'Dépense'}
-                      </span>
-                      <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight truncate max-w-[10rem]">
-                        {labelCat(row)}
-                      </span>
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <div className="font-mono text-[10px] tabular-nums font-bold text-gray-500 leading-tight text-center shrink-0 select-none">
+                          <span className="block">{year}</span>
+                          {monthDay ? <span className="block text-gray-400 font-semibold">{monthDay}</span> : null}
+                        </div>
+                        <span
+                          className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${
+                            row.kind === 'REVENUE' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {row.kind === 'REVENUE' ? 'Revenu' : 'Dépense'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-black uppercase tracking-tight text-gray-900 leading-snug line-clamp-3" title={row.title}>
+                        {row.title}
+                      </p>
+                      {salaryName && <p className="text-[10px] text-gray-400 font-bold">{salaryName}</p>}
                     </div>
-                    <p className="text-xs font-bold text-gray-900 leading-snug line-clamp-2" title={row.title}>
-                      {row.title}
-                    </p>
-                    {row.category === 'SALARY' && row.employeeId && (
-                      <p className="text-[10px] text-gray-400 leading-tight">
-                        {employees.find((e) => e.id === row.employeeId)?.name ?? row.employeeId}
-                      </p>
-                    )}
-                    {logementLine !== '—' && (
-                      <p className="text-[10px] text-gray-500 leading-snug line-clamp-2" title={logementLine}>
-                        {logementLine}
-                      </p>
-                    )}
-                  </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-0">
+                    <div className="flex gap-1.5 shrink-0">
                       {canModifyRow(row) && (
                         <button
                           type="button"
                           onClick={() => beginEdit(row)}
-                          className={`p-1.5 rounded-lg transition-colors ${
+                          className={`p-2 rounded-xl transition-colors ${
                             editingEntry?.id === row.id
-                              ? 'text-emerald-700 bg-emerald-100'
-                              : 'text-gray-400 hover:text-emerald-700 hover:bg-emerald-50'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                           }`}
                           title="Modifier"
                         >
-                          <Edit2 size={15} />
+                          <Edit2 size={16} />
                         </button>
                       )}
                       {canModifyRow(row) && (
                         <button
                           type="button"
                           onClick={() => handleDelete(row)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-2 rounded-xl bg-gray-50 text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors"
                           title="Supprimer"
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={16} />
                         </button>
                       )}
                     </div>
-                    <span className="text-xs font-black font-mono tabular-nums text-gray-900">{formatCurrency(row.amount)}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
+                    <div className="min-w-0">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Catégorie</span>
+                      <span className="text-xs font-bold text-gray-800 leading-snug">{labelCat(row)}</span>
+                    </div>
+                    <div className="min-w-0 text-right">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Montant</span>
+                      <span className="text-sm font-black font-mono tabular-nums text-gray-900">{formatCurrency(row.amount)}</span>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1 block">Logement</span>
+                    <p className="text-[11px] text-gray-700 leading-snug break-words">{logementLine}</p>
                   </div>
                 </div>
               );
             })}
             {entries.length === 0 && !loadingEntries && (
-              <div className="px-3 py-10 text-center text-gray-400 text-xs">Aucune ligne saisie pour ce mois.</div>
+              <div className="rounded-2xl border border-gray-200 bg-white py-12 px-4 text-center text-gray-400 text-xs shadow-sm">
+                Aucune ligne saisie pour ce mois.
+              </div>
             )}
           </div>
         </div>
