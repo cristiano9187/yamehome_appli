@@ -227,11 +227,12 @@ export function getFinanceCostsRentQuickFillUnitRows(): { unitSlug: string; apar
   );
 }
 
-/** Saisie rapide Coûts — montants défaut salaires (hints Paola / Madeleine / Idriss → nom employé). */
+/** Saisie rapide Coûts — montants défaut salaires (hints → sous-chaîne du nom employé actif). */
 export const FINANCE_QUICK_SALARY_AMOUNT_BY_HINT: Record<string, number> = {
   paola: 120_000,
   madeleine: 70_000,
-  idriss: 95_000,
+  idriss: 107_500,
+  sioma: 75_000,
 };
 
 /** Autres unités Yaoundé sans montant listé : valeur par défaut avant édition au crayon. */
@@ -243,8 +244,8 @@ export const FINANCE_QUICK_RENT_AMOUNT_BY_UNIT_SLUG: Record<string, number> = {
   'rieti-emeraude': 150_000,
   'modena-haut-standing': 160_000,
   'matera-deluxe': 200_000,
-  'matera-studio': 130_000,
-  'matera-studio-superior': 130_000,
+  'matera-studio': 125_000,
+  'matera-studio-superior': 125_000,
   'matera-chambre-a': 125_000,
   'matera-chambre-b': 125_000,
 };

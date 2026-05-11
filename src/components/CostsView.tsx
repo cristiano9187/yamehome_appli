@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 
 /** Aligné sur les employés actifs — prénom suffit si le nom contient la clé (insensible à la casse). */
-const QUICK_SALARY_NAME_HINTS = ['paola', 'madeleine', 'idriss'] as const;
+const QUICK_SALARY_NAME_HINTS = ['paola', 'madeleine', 'idriss', 'sioma'] as const;
 
 /** Note commune — doublons titres ; montants = défauts modifiables au crayon. */
 const QUICK_FILL_NOTE =
