@@ -266,7 +266,6 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
     merchantCode: '1002038',
     /** Libellé compte marchand tel qu’affiché sur le reçu. */
     merchantAccountName: 'YAMEHOME',
-    provisional: false,
   },
   mtnMoMo: {
     merchantAccountName: 'YAMEHOME',
