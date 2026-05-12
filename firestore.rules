@@ -85,6 +85,17 @@ service cloud.firestore {
           get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.financeAccess == true);
     }
 
+    /** Rail « Échéances » : super-admins ou flag obligationsAccess (hors menu Coûts). */
+    function canAccessObligations() {
+      return isMainAdminEmailToken() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          'obligationsAccess' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.obligationsAccess == true) ||
+        (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          'obligationsAccess' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+          get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.obligationsAccess == true);
+    }
+
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
@@ -102,23 +113,25 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess', 'obligationsAccess']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
              (!('allowedApartments' in data) || data.allowedApartments is list) &&
-             (!('financeAccess' in data) || data.financeAccess is bool);
+             (!('financeAccess' in data) || data.financeAccess is bool) &&
+             (!('obligationsAccess' in data) || data.obligationsAccess is bool);
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess', 'obligationsAccess']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
              (!('allowedApartments' in data) || data.allowedApartments is list) &&
              (!('linkedEmployeeId' in data) || data.linkedEmployeeId == null || data.linkedEmployeeId is string) &&
-             (!('financeAccess' in data) || data.financeAccess is bool);
+             (!('financeAccess' in data) || data.financeAccess is bool) &&
+             (!('obligationsAccess' in data) || data.obligationsAccess is bool);
     }
 
     function isAuthorizedForApartment(apartmentName) {
@@ -226,6 +239,69 @@ service cloud.firestore {
         data.authorUid is string && data.authorUid == request.auth.uid &&
         data.createdAt is string &&
         data.updatedAt is string;
+    }
+
+    function isValidObligationTemplate(data) {
+      return data.keys().hasAll(['title', 'category', 'dueDayOfMonth', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['title', 'category', 'dueDayOfMonth', 'expectedAmount', 'unitSlug', 'apartmentName', 'active', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.category in ['RENT', 'UTILITIES', 'INTERNET', 'SALARY', 'OTHER'] &&
+        data.dueDayOfMonth is int && data.dueDayOfMonth >= 1 && data.dueDayOfMonth <= 31 &&
+        (!('expectedAmount' in data) || data.expectedAmount == null || (data.expectedAmount is number && data.expectedAmount >= 0 && data.expectedAmount < 1000000000000)) &&
+        (!('unitSlug' in data) || data.unitSlug == null || (data.unitSlug is string && data.unitSlug.size() > 0 && data.unitSlug.size() <= 120)) &&
+        (!('apartmentName' in data) || data.apartmentName == null || (data.apartmentName is string && data.apartmentName.size() > 0 && data.apartmentName.size() <= 200)) &&
+        (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
+        data.active is bool &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string;
+    }
+
+    function isValidObligationOccurrence(data) {
+      return data.keys().hasAll(['templateId', 'periodYm', 'dueDate', 'status', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['templateId', 'periodYm', 'dueDate', 'displayTitle', 'expectedAmountOverride', 'status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.templateId is string && data.templateId.size() > 0 &&
+        data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
+        data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        (!('displayTitle' in data) || data.displayTitle == null || (data.displayTitle is string && data.displayTitle.size() > 0 && data.displayTitle.size() <= 200)) &&
+        (!('expectedAmountOverride' in data) || data.expectedAmountOverride == null || (data.expectedAmountOverride is number && data.expectedAmountOverride >= 0 && data.expectedAmountOverride < 1000000000000)) &&
+        data.status in ['PENDING', 'PAID'] &&
+        (!('paidAt' in data) || data.paidAt == null || data.paidAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
+        (!('paidAmount' in data) || data.paidAmount == null || (data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount < 1000000000000)) &&
+        (!('proofStoragePath' in data) || data.proofStoragePath == null || (data.proofStoragePath is string && data.proofStoragePath.size() > 0 && data.proofStoragePath.size() <= 500)) &&
+        (!('proofDownloadUrl' in data) || data.proofDownloadUrl == null || (data.proofDownloadUrl is string && data.proofDownloadUrl.size() > 0 && data.proofDownloadUrl.size() <= 2048)) &&
+        (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string;
+    }
+
+    function isValidObligationOneOff(data) {
+      return data.keys().hasAll(['periodYm', 'title', 'category', 'dueDate', 'status', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['periodYm', 'title', 'category', 'dueDate', 'expectedAmount', 'status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.category in ['RENT', 'UTILITIES', 'INTERNET', 'SALARY', 'OTHER'] &&
+        data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        (!('expectedAmount' in data) || data.expectedAmount == null || (data.expectedAmount is number && data.expectedAmount >= 0 && data.expectedAmount < 1000000000000)) &&
+        data.status in ['PENDING', 'PAID'] &&
+        (!('paidAt' in data) || data.paidAt == null || data.paidAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
+        (!('paidAmount' in data) || data.paidAmount == null || (data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount < 1000000000000)) &&
+        (!('proofStoragePath' in data) || data.proofStoragePath == null || (data.proofStoragePath is string && data.proofStoragePath.size() > 0 && data.proofStoragePath.size() <= 500)) &&
+        (!('proofDownloadUrl' in data) || data.proofDownloadUrl == null || (data.proofDownloadUrl is string && data.proofDownloadUrl.size() > 0 && data.proofDownloadUrl.size() <= 2048)) &&
+        (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string;
+    }
+
+    function isValidObligationOccurrenceSuppression(data) {
+      return data.keys().hasAll(['templateId', 'periodYm', 'createdAt', 'authorUid']) &&
+        data.keys().hasOnly(['templateId', 'periodYm', 'createdAt', 'authorUid']) &&
+        data.templateId is string && data.templateId.size() > 0 &&
+        data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string;
     }
 
     function isValidPrepaidElectricityToken(data) {
@@ -465,6 +541,46 @@ service cloud.firestore {
       );
       allow create, update: if isAdmin() && isValidUnitElectricitySettings(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /obligation_templates/{templateId} {
+      allow read: if canAccessObligations();
+      allow create: if canAccessObligations() && isValidObligationTemplate(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if canAccessObligations() && isValidObligationTemplate(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid;
+      allow delete: if canAccessObligations() && (isAdmin() || resource.data.authorUid == request.auth.uid);
+    }
+
+    match /obligation_occurrences/{occId} {
+      allow read: if canAccessObligations();
+      allow create: if canAccessObligations() && isValidObligationOccurrence(request.resource.data) &&
+        occId == request.resource.data.templateId + '__' + request.resource.data.periodYm &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if canAccessObligations() && isValidObligationOccurrence(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid &&
+        resource.data.templateId == request.resource.data.templateId &&
+        resource.data.periodYm == request.resource.data.periodYm;
+      allow delete: if canAccessObligations();
+    }
+
+    match /obligation_occurrence_suppressions/{supId} {
+      allow read: if canAccessObligations();
+      allow create: if canAccessObligations() && isValidObligationOccurrenceSuppression(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        supId == request.resource.data.templateId + '__' + request.resource.data.periodYm;
+      allow delete: if canAccessObligations();
+      allow update: if false;
+    }
+
+    match /obligation_one_offs/{oneOffId} {
+      allow read: if canAccessObligations();
+      allow create: if canAccessObligations() && isValidObligationOneOff(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if canAccessObligations() && isValidObligationOneOff(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid &&
+        resource.data.periodYm == request.resource.data.periodYm;
+      allow delete: if canAccessObligations();
     }
 
     match /finance_entries/{entryId} {

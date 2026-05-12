@@ -156,6 +156,8 @@ export interface UserProfile {
   linkedEmployeeId?: string | null;
   /** Vue Coûts / marges — accordé via Gestion des accès (whitelist) ou champ users */
   financeAccess?: boolean;
+  /** Rail PC « Échéances » (obligations récurrentes) — hors menu Coûts */
+  obligationsAccess?: boolean;
 }
 
 export interface AuthorizedEmail {
@@ -168,6 +170,8 @@ export interface AuthorizedEmail {
   linkedEmployeeId?: string | null;
   /** Accès à la vue Coûts / marges (sans être admin complet) */
   financeAccess?: boolean;
+  /** Accès au rail « Échéances » (tracking mensuel, pièces jointes Storage) */
+  obligationsAccess?: boolean;
 }
 
 export interface Employee {
@@ -346,6 +350,68 @@ export interface FinanceEntry {
   unitSlug?: string | null;
   /** Nom du bâtiment TARIFS — renseigné avec unitSlug pour affichage / filtres */
   apartmentName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+/** Modèle d’une charge récurrente — collection `obligation_templates`. */
+export type ObligationCategory = 'RENT' | 'UTILITIES' | 'INTERNET' | 'SALARY' | 'OTHER';
+
+export interface ObligationTemplate {
+  id?: string;
+  title: string;
+  category: ObligationCategory;
+  /** Jour du mois (1–31) ; borné au dernier jour du mois si besoin */
+  dueDayOfMonth: number;
+  /** Montant attendu en XAF ; null si variable */
+  expectedAmount: number | null;
+  unitSlug: string | null;
+  apartmentName: string | null;
+  active: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+/** Occurrence mensuelle — id doc `${templateId}__${periodYm}` ; collection `obligation_occurrences`. */
+export type ObligationOccurrenceStatus = 'PENDING' | 'PAID';
+
+export interface ObligationOccurrence {
+  id?: string;
+  templateId: string;
+  periodYm: string;
+  dueDate: string;
+  /** Libellé affiché pour ce mois uniquement (sinon celui du modèle). */
+  displayTitle?: string | null;
+  /** Montant prévu pour ce mois uniquement (sinon celui du modèle). */
+  expectedAmountOverride?: number | null;
+  status: ObligationOccurrenceStatus;
+  paidAt: string | null;
+  paidAmount: number | null;
+  proofStoragePath: string | null;
+  proofDownloadUrl: string | null;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+/** Charge ponctuelle (un seul mois) — collection `obligation_one_offs`. */
+export interface ObligationOneOff {
+  id?: string;
+  periodYm: string;
+  title: string;
+  category: ObligationCategory;
+  dueDate: string;
+  expectedAmount: number | null;
+  status: ObligationOccurrenceStatus;
+  paidAt: string | null;
+  paidAmount: number | null;
+  proofStoragePath: string | null;
+  proofDownloadUrl: string | null;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
   authorUid: string;

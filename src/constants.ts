@@ -16,6 +16,16 @@ export function canSeeCostsMenu(
   return profile.role === 'admin';
 }
 
+/** Rail PC « Échéances » — indépendant de Coûts & marges ; aligné sur firestore.rules `canAccessObligations`. */
+export function canSeeObligationsRail(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  if (isMainAdminEmail(profile.email)) return true;
+  return profile.obligationsAccess === true;
+}
+
 /**
  * LOGO_BASE64: Paste your logo's base64 string here.
  * You can convert your image to base64 using online tools like 'base64-image.de'
