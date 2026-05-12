@@ -29,7 +29,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail } from './constants';
 import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import { defaultCleaningChecklist, normalizeCleaningReport, validateCleaningReportForSubmit } from './cleaningReportUtils';
 import { syncReservationPublicCalendar, deleteAllReservationEventsForReceipt } from './utils/publicCalendar';
@@ -44,6 +44,7 @@ import {
 } from './utils/receiptSegments';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
+import ObligationsDeskRail from './components/ObligationsDeskRail';
 import DateRangePicker from './components/DateRangePicker';
 const HistoryView = lazy(() => import('./components/HistoryView'));
 const CalendarView = lazy(() => import('./components/CalendarView'));
@@ -335,6 +336,10 @@ export default function App() {
             const financeFromProfile = !!(profile as UserProfile & { financeAccess?: boolean }).financeAccess;
             const finalFinanceAccess = financeFromWhitelist || financeFromProfile;
 
+            const obligationsFromWhitelist = whiteData?.obligationsAccess === true;
+            const obligationsFromProfile = !!(profile as UserProfile & { obligationsAccess?: boolean }).obligationsAccess;
+            const finalObligationsAccess = obligationsFromWhitelist || obligationsFromProfile;
+
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
               ...restProfile, 
@@ -345,7 +350,8 @@ export default function App() {
             const forUi: UserProfile = {
               ...updatedProfile,
               linkedEmployeeId: finalLinked ?? undefined,
-              ...(finalFinanceAccess ? { financeAccess: true } : {})
+              ...(finalFinanceAccess ? { financeAccess: true } : {}),
+              ...(finalObligationsAccess ? { obligationsAccess: true } : {}),
             };
             
             // Only update if something actually changed to avoid unnecessary permission checks
@@ -378,7 +384,8 @@ export default function App() {
             const newForUi: UserProfile = {
               ...newProfile,
               linkedEmployeeId: whiteData != null ? (whiteData.linkedEmployeeId ?? undefined) : undefined,
-              ...(whiteData?.financeAccess ? { financeAccess: true } : {})
+              ...(whiteData?.financeAccess ? { financeAccess: true } : {}),
+              ...(whiteData?.obligationsAccess ? { obligationsAccess: true } : {}),
             };
             console.log("Setting user profile (new):", newProfile);
             try {
@@ -3274,6 +3281,18 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      {userProfile &&
+        user?.uid &&
+        canSeeObligationsRail(userProfile, isMainAdminEmail) && (
+          <ObligationsDeskRail
+            userProfile={userProfile}
+            userUid={user.uid}
+            onAlert={(msg, type) => {
+              setAlertType(type || 'info');
+              setAlertMessage(msg);
+            }}
+          />
+        )}
     </div>
   );
 }
