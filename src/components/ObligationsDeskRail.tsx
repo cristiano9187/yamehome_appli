@@ -75,10 +75,6 @@ function getLocalDateString(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-function currentYear(): number {
-  return new Date().getFullYear();
-}
-
 function dueDateForMonth(periodYm: string, dueDayOfMonth: number): string {
   const [y, m] = periodYm.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
@@ -125,6 +121,18 @@ function salaryAmountForEmployeeName(name: string): number | null {
   return null;
 }
 
+function calendarMonthFromDate(d: Date = new Date()): { year: number; month: number } {
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+function shiftCalendarMonth(
+  { year, month }: { year: number; month: number },
+  delta: number
+): { year: number; month: number } {
+  const d = new Date(year, month - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
 interface ObligationsDeskRailProps {
   userProfile: UserProfile;
   userUid: string;
@@ -141,7 +149,8 @@ export default function ObligationsDeskRail({
   onAlert,
 }: ObligationsDeskRailProps) {
   const [open, setOpen] = useState(false);
-  const [year, setYear] = useState(currentYear);
+  const [viewMonth, setViewMonth] = useState(calendarMonthFromDate);
+  const dataYear = viewMonth.year;
   const [templates, setTemplates] = useState<ObligationTemplate[]>([]);
   const [occurrencesYear, setOccurrencesYear] = useState<ObligationOccurrence[]>([]);
   const [oneOffsYear, setOneOffsYear] = useState<ObligationOneOff[]>([]);
@@ -207,8 +216,8 @@ export default function ObligationsDeskRail({
     });
   }, []);
 
-  const ymStart = `${year}-01`;
-  const ymEnd = `${year}-12`;
+  const ymStart = `${dataYear}-01`;
+  const ymEnd = `${dataYear}-12`;
 
   useEffect(() => {
     setLoadingOcc(true);
@@ -230,7 +239,7 @@ export default function ObligationsDeskRail({
       }
     );
     return () => unsub();
-  }, [year, ymStart, ymEnd, onAlert]);
+  }, [dataYear, ymStart, ymEnd, onAlert]);
 
   useEffect(() => {
     const q = query(
@@ -248,7 +257,7 @@ export default function ObligationsDeskRail({
       }
     );
     return () => unsub();
-  }, [year, ymStart, ymEnd, onAlert]);
+  }, [dataYear, ymStart, ymEnd, onAlert]);
 
   useEffect(() => {
     const m: Record<string, string> = {};
@@ -289,7 +298,7 @@ export default function ObligationsDeskRail({
       const now = new Date().toISOString();
       for (const t of active) {
         for (let mo = 1; mo <= 12; mo++) {
-          const periodYm = `${year}-${String(mo).padStart(2, '0')}`;
+          const periodYm = `${dataYear}-${String(mo).padStart(2, '0')}`;
           const did = occDocId(t.id!, periodYm);
           if (existing.has(did) || suppressed.has(did)) continue;
           batch.set(doc(db, 'obligation_occurrences', did), {
@@ -322,13 +331,13 @@ export default function ObligationsDeskRail({
     } finally {
       setEnsuringYear(false);
     }
-  }, [templates, userUid, loadingTemplates, year, ymStart, ymEnd, onAlert]);
+  }, [templates, userUid, loadingTemplates, dataYear, ymStart, ymEnd, onAlert]);
 
   useEffect(() => {
     if (!loadingTemplates && templates.some((t) => t.active && t.id)) {
       void ensureOccurrencesForYear();
     }
-  }, [loadingTemplates, templates, year, ensureOccurrencesForYear]);
+  }, [loadingTemplates, templates, dataYear, ensureOccurrencesForYear]);
 
   const templateById = useMemo(() => {
     const m = new Map<string, ObligationTemplate>();
@@ -341,7 +350,7 @@ export default function ObligationsDeskRail({
   const rowsByMonth = useMemo(() => {
     const map = new Map<string, SheetRow[]>();
     for (let mo = 1; mo <= 12; mo++) {
-      map.set(`${year}-${String(mo).padStart(2, '0')}`, []);
+      map.set(`${dataYear}-${String(mo).padStart(2, '0')}`, []);
     }
     occurrencesYear.forEach((occ) => {
       const tpl = templateById.get(occ.templateId);
@@ -367,7 +376,21 @@ export default function ObligationsDeskRail({
       });
     });
     return map;
-  }, [occurrencesYear, oneOffsYear, templateById, year]);
+  }, [occurrencesYear, oneOffsYear, templateById, dataYear]);
+
+  const visiblePeriodYm = useMemo(
+    () => `${viewMonth.year}-${String(viewMonth.month).padStart(2, '0')}`,
+    [viewMonth.year, viewMonth.month]
+  );
+
+  const visibleRows = useMemo(
+    () => rowsByMonth.get(visiblePeriodYm) ?? [],
+    [rowsByMonth, visiblePeriodYm]
+  );
+
+  useEffect(() => {
+    setOneOffFormYm((prev) => (prev != null && prev !== visiblePeriodYm ? null : prev));
+  }, [visiblePeriodYm]);
 
   const handleSeedFromPark = async () => {
     const uid = auth.currentUser?.uid || userUid;
@@ -818,7 +841,7 @@ export default function ObligationsDeskRail({
           type="button"
           onClick={() => setOpen(true)}
           className="pointer-events-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white shadow-xl rounded-l-xl px-2 py-4 border border-orange-700/40 border-r-0 transition-colors"
-          title="Échéances — fiche annuelle"
+          title="Échéances — vue par mois"
         >
           <CalendarClock size={22} className="shrink-0" aria-hidden />
           <span
@@ -854,11 +877,11 @@ export default function ObligationsDeskRail({
                   <p className="text-[10px] font-black uppercase tracking-widest text-orange-600">
                     Charges récurrentes
                   </p>
-                  <h2 className="text-xl font-black text-stone-900 tracking-tight">Fiche par année</h2>
+                  <h2 className="text-xl font-black text-stone-900 tracking-tight">Vue par mois</h2>
                   <p className="text-[11px] text-stone-500 mt-1 leading-relaxed max-w-xl">
-                    Une liste par mois : échéance, date de règlement, preuve. Les lignes récurrentes viennent des
-                    modèles (modifiables ou retirables pour un mois donné) ; les lignes{' '}
-                    <strong className="text-stone-700">ponctuelles</strong> sont ajoutées pour un mois précis.
+                    Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement,
+                    preuve. Les lignes récurrentes viennent des modèles (modifiables ou retirables pour ce mois) ; les
+                    lignes <strong className="text-stone-700">ponctuelles</strong> s’ajoutent pour le mois affiché.
                   </p>
                   <p className="text-[10px] text-stone-400 mt-1 truncate">{userProfile.email}</p>
                 </div>
@@ -876,17 +899,19 @@ export default function ObligationsDeskRail({
                     <button
                       type="button"
                       className="p-2 rounded-lg hover:bg-white text-stone-600"
-                      onClick={() => setYear((y) => y - 1)}
-                      aria-label="Année précédente"
+                      onClick={() => setViewMonth((v) => shiftCalendarMonth(v, -1))}
+                      aria-label="Mois précédent"
                     >
                       <ChevronLeft size={18} />
                     </button>
-                    <span className="text-sm font-black tabular-nums px-3 min-w-[4rem] text-center">{year}</span>
+                    <span className="text-sm font-black px-2 sm:px-3 min-w-[7.5rem] sm:min-w-[9rem] text-center">
+                      {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
+                    </span>
                     <button
                       type="button"
                       className="p-2 rounded-lg hover:bg-white text-stone-600"
-                      onClick={() => setYear((y) => y + 1)}
-                      aria-label="Année suivante"
+                      onClick={() => setViewMonth((v) => shiftCalendarMonth(v, 1))}
+                      aria-label="Mois suivant"
                     >
                       <ChevronRight size={18} />
                     </button>
@@ -902,7 +927,8 @@ export default function ObligationsDeskRail({
                 </div>
               </header>
 
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-5 py-4 gap-4">
+                <div className="shrink-0 overflow-y-auto max-h-[38vh] space-y-4 pr-1">
                 <button
                   type="button"
                   onClick={() => setShowTemplatesEditor((v) => !v)}
@@ -1018,39 +1044,37 @@ export default function ObligationsDeskRail({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase text-stone-400">
+                <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase text-stone-400">
                   {busy && <Loader2 size={14} className="animate-spin text-orange-600" />}
-                  Année {year} —{' '}
-                  {busy ? 'chargement…' : `${occurrencesYear.length + oneOffsYear.length} ligne(s)`}
+                  {busy
+                    ? 'chargement…'
+                    : `${visibleRows.length} obligation(s) ce mois · ${occurrencesYear.length + oneOffsYear.length} ligne(s) sur ${dataYear}`}
+                </div>
                 </div>
 
-                <div className="space-y-8 pb-12">
-                  {MOIS_FR.map((nom, idx) => {
-                    const periodYm = `${year}-${String(idx + 1).padStart(2, '0')}`;
-                    const rows = rowsByMonth.get(periodYm) || [];
-                    return (
-                      <section
-                        key={periodYm}
-                        className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
-                      >
+                <div className="flex-1 min-h-0 flex flex-col border-t border-stone-200/80 pt-3">
+                  <section
+                    key={visiblePeriodYm}
+                    className="flex flex-col flex-1 min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
+                  >
                         <div className="px-4 py-2.5 bg-stone-100 border-b border-stone-200 flex flex-wrap justify-between items-center gap-2">
                           <h3 className="text-sm font-black text-stone-900">
-                            {nom} {year}
+                            {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
                           </h3>
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-stone-500 tabular-nums">
-                              {rows.length} obligation(s)
+                              {visibleRows.length} obligation(s)
                             </span>
                             <button
                               type="button"
                               onClick={() => {
                                 setOneOffFormYm((prev) => {
-                                  const next = prev === periodYm ? null : periodYm;
+                                  const next = prev === visiblePeriodYm ? null : visiblePeriodYm;
                                   if (next) {
                                     setOneOffForm({
                                       title: '',
                                       category: 'OTHER',
-                                      dueDate: `${periodYm}-15`,
+                                      dueDate: `${visiblePeriodYm}-15`,
                                       expectedAmount: '',
                                     });
                                   }
@@ -1058,19 +1082,19 @@ export default function ObligationsDeskRail({
                                 });
                               }}
                               className={`text-[9px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-colors ${
-                                oneOffFormYm === periodYm
+                                oneOffFormYm === visiblePeriodYm
                                   ? 'bg-orange-600 border-orange-700 text-white'
                                   : 'bg-white border-stone-200 text-orange-800 hover:bg-orange-50'
                               }`}
                             >
-                              {oneOffFormYm === periodYm ? 'Fermer' : '+ Ponctuelle'}
+                              {oneOffFormYm === visiblePeriodYm ? 'Fermer' : '+ Ponctuelle'}
                             </button>
                           </div>
                         </div>
 
-                        {oneOffFormYm === periodYm && (
+                        {oneOffFormYm === visiblePeriodYm && (
                           <form
-                            onSubmit={(e) => void handleSubmitOneOff(e, periodYm)}
+                            onSubmit={(e) => void handleSubmitOneOff(e, visiblePeriodYm)}
                             className="px-4 py-3 bg-orange-50/80 border-b border-orange-100 flex flex-wrap gap-2 items-end"
                           >
                             <div className="flex-1 min-w-[10rem]">
@@ -1113,8 +1137,8 @@ export default function ObligationsDeskRail({
                                 type="date"
                                 value={oneOffForm.dueDate}
                                 onChange={(e) => setOneOffForm((s) => ({ ...s, dueDate: e.target.value }))}
-                                min={`${periodYm}-01`}
-                                max={`${periodYm}-31`}
+                                min={`${visiblePeriodYm}-01`}
+                                max={`${visiblePeriodYm}-31`}
                                 className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2 bg-white"
                               />
                             </div>
@@ -1142,7 +1166,7 @@ export default function ObligationsDeskRail({
                           </form>
                         )}
 
-                        <div className="overflow-x-auto">
+                        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto">
                           <table className="w-full text-left text-[11px] min-w-[720px]">
                             <thead>
                               <tr className="border-b border-stone-100 bg-stone-50/80 text-[9px] font-black uppercase tracking-wider text-stone-500">
@@ -1156,7 +1180,7 @@ export default function ObligationsDeskRail({
                               </tr>
                             </thead>
                             <tbody>
-                              {!rows.length && (
+                              {!visibleRows.length && (
                                 <tr>
                                   <td colSpan={7} className="px-3 py-8 text-center text-stone-400 italic">
                                     Aucune ligne ce mois-ci — utilisez « + Ponctuelle » ou activez des modèles
@@ -1164,7 +1188,7 @@ export default function ObligationsDeskRail({
                                   </td>
                                 </tr>
                               )}
-                              {rows.map((row) => {
+                              {visibleRows.map((row) => {
                                 if (row.kind === 'recurring') {
                                   const { occ, tpl } = row;
                                   const alert = urgencyLabel(occ.status, occ.dueDate);
@@ -1433,8 +1457,6 @@ export default function ObligationsDeskRail({
                           </table>
                         </div>
                       </section>
-                    );
-                  })}
                 </div>
               </div>
 
@@ -1460,10 +1482,10 @@ export default function ObligationsDeskRail({
                         </p>
                         <p className="text-sm font-bold text-stone-900 mt-1">
                           {(() => {
-                            const [, mm] = editRecurring.occ.periodYm.split('-');
+                            const [py, mm] = editRecurring.occ.periodYm.split('-');
                             const i = Number(mm) - 1;
                             const label = i >= 0 && i < 12 ? MOIS_FR[i] : editRecurring.occ.periodYm;
-                            return `${label} ${year}`;
+                            return `${label} ${py}`;
                           })()}
                         </p>
                         <p className="text-[11px] text-stone-500 mt-0.5">
