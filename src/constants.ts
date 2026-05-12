@@ -31,8 +31,6 @@ export const COMPANY_LEGAL_ISSUER = {
   brandSubtitle: 'YameHome · location appartements, chambres et studios meublés',
   rccm: 'RC/YAE/2022/A/2192',
   niu: 'P059117428477F',
-  taxOffice: 'CDI YAOUNDE 2',
-  taxRegime: 'Régime simplifié',
   activityDeclared: 'Commerce général',
   representative: 'Christian Yamepi Tonag',
   headquartersShort: 'Yaoundé · République du Cameroun',
