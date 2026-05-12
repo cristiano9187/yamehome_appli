@@ -49,7 +49,7 @@ const ProInvoicePrintPreview = React.memo(function ProInvoicePrintPreview({ data
             </p>
             <p className="text-lg font-black text-[#2B4B8C] tracking-tight">{COMPANY_LEGAL_ISSUER.brandSubtitle}</p>
             <p className="text-[10px] text-gray-600 leading-snug mt-1 max-w-[14rem]">
-              Réf. réservation meublée — activité sous couvert commerce général (RCCM).
+              Réf. réservation meublée — (RCCM).
             </p>
           </div>
         </div>
@@ -126,8 +126,7 @@ const ProInvoicePrintPreview = React.memo(function ProInvoicePrintPreview({ data
             RCCM : {COMPANY_LEGAL_ISSUER.rccm} · NIU : {COMPANY_LEGAL_ISSUER.niu}
           </p>
           <p>
-            Centre des impôts : {COMPANY_LEGAL_ISSUER.taxOffice} — {COMPANY_LEGAL_ISSUER.taxRegime}. Activité RCCM :{' '}
-            {COMPANY_LEGAL_ISSUER.activityDeclared}.
+            Activité RCCM : {COMPANY_LEGAL_ISSUER.activityDeclared}.
           </p>
           <p>
             Représentant légal : {COMPANY_LEGAL_ISSUER.representative} — Siège principal :{' '}
