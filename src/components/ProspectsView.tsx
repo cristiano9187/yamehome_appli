@@ -24,6 +24,7 @@ import {
   ArrowRightLeft,
   Building2,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Globe,
@@ -198,8 +199,23 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     dateStr: string;
     prospects: Prospect[];
   } | null>(null);
+  /** Réduit le bruit visuel sur téléphone : liste hors-grille dépliante */
+  const [offGridMobileOpen, setOffGridMobileOpen] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => setIsNarrowViewport(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
+    setOffGridMobileOpen(false);
+  }, [currentDate.getMonth(), currentDate.getFullYear()]);
 
   useEffect(() => {
     const handleClickOutside = () => setExpandedUnitSlug(null);
@@ -570,9 +586,11 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
               <Menu size={20} />
             </button>
           )}
-          <div className="flex flex-col">
+          <div className="flex flex-col min-w-0">
             <h2 className="text-sm font-black uppercase tracking-widest">Prospects</h2>
-            <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{monthName}</span>
+            <span className="hidden md:block text-[10px] font-mono text-gray-400 font-bold uppercase truncate">
+              {monthName}
+            </span>
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
             <button type="button" onClick={prevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
@@ -607,54 +625,62 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
         </div>
       </div>
 
-      <div className="border-b border-gray-200 bg-white px-4 md:px-8 py-3 flex flex-wrap items-center gap-2">
-        <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 mr-1">Statuts</span>
-        <button
-          type="button"
-          onClick={() => setSelectedStatuses([])}
-          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-            selectedStatuses.length === 0 ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
-        >
-          Tous ({prospects.length})
-        </button>
-        {ALL_STATUSES.map((s) => {
-          const cfg = STATUS_CONFIG[s];
-          const active = selectedStatuses.includes(s);
-          return (
+      <div className="border-b border-gray-200 bg-white px-4 md:px-8 py-3 flex flex-col gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 shrink-0 hidden sm:inline">
+            Statuts
+          </span>
+          <div className="flex-1 min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch] pb-1 md:pb-0 flex items-center gap-2 flex-nowrap [scrollbar-width:thin]">
             <button
-              key={s}
               type="button"
-              onClick={() => toggleStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                selectedStatuses.length > 0 && active ? cfg.pill : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+              onClick={() => setSelectedStatuses([])}
+              className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                selectedStatuses.length === 0 ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-              {cfg.label}
-              {statusCounts[s] > 0 && <span className="opacity-80">({statusCounts[s]})</span>}
+              Tous ({prospects.length})
             </button>
-          );
-        })}
-        <select
-          className="ml-auto bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-[10px] font-bold text-gray-600 outline-none focus:border-blue-400"
-          value={apartmentFilter}
-          onChange={(e) => setApartmentFilter(e.target.value)}
-        >
-          <option value="">Tous logements</option>
-          {allowedApartmentsList.map((apt) => (
-            <option key={apt} value={apt}>
-              {apt}
-            </option>
-          ))}
-        </select>
-        <span className="text-[10px] font-mono text-gray-400">
-          {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
-        </span>
+            {ALL_STATUSES.map((s) => {
+              const cfg = STATUS_CONFIG[s];
+              const active = selectedStatuses.includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleStatusFilter(s)}
+                  className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                    selectedStatuses.length > 0 && active ? cfg.pill : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                  {cfg.label}
+                  {statusCounts[s] > 0 && <span className="opacity-80">({statusCounts[s]})</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+          <select
+            className="flex-1 min-w-[140px] md:flex-none md:min-w-0 bg-white border border-gray-200 rounded-xl px-3 py-2 md:py-1.5 text-[10px] font-bold text-gray-600 outline-none focus:border-blue-400"
+            value={apartmentFilter}
+            onChange={(e) => setApartmentFilter(e.target.value)}
+          >
+            <option value="">Tous logements</option>
+            {allowedApartmentsList.map((apt) => (
+              <option key={apt} value={apt}>
+                {apt}
+              </option>
+            ))}
+          </select>
+          <span className="text-[10px] font-mono text-gray-400 whitespace-nowrap">
+            {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
-      <div className="flex-1 md:overflow-auto relative" ref={scrollContainerRef}>
-        <table className="w-full border-collapse table-fixed min-w-[2600px]">
+      <div className="flex-1 md:overflow-auto relative touch-pan-x" ref={scrollContainerRef}>
+        <table className="w-full border-collapse table-fixed min-w-[calc(5rem+31*5rem)] md:min-w-[2600px]">
           <thead className="sticky top-0 z-30">
             <tr className="bg-zinc-900 text-white">
               <th className="w-[80px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-2 md:p-4 text-left text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gray-400">
@@ -667,13 +693,13 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                   <th
                     key={date.toISOString()}
                     id={isToday ? 'prospects-today-column' : undefined}
-                    className={`w-[5.5rem] min-w-[5.5rem] border-b border-white/10 p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
+                    className={`w-[5rem] min-w-[5rem] md:w-[5.5rem] md:min-w-[5.5rem] border-b border-white/10 p-1.5 md:p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
                   >
-                    <div className="flex flex-col items-center">
-                      <span className={`text-[10px] font-black ${isToday ? 'text-blue-400' : 'text-white'}`}>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className={`text-[11px] md:text-[10px] font-black ${isToday ? 'text-blue-400' : 'text-white'}`}>
                         {date.getDate()}
                       </span>
-                      <span className={`text-[8px] uppercase font-bold ${isToday ? 'text-blue-300' : 'text-gray-400'}`}>
+                      <span className={`text-[9px] md:text-[8px] uppercase font-bold ${isToday ? 'text-blue-300' : 'text-gray-400'}`}>
                         {date.toLocaleString('fr-FR', { weekday: 'short' })}
                       </span>
                     </div>
@@ -728,7 +754,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                       const cellProspects = prospectsByCell.get(`${unit.slug}|${dateStr}`) || [];
                       const isToday = date.toDateString() === new Date().toDateString();
                       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                      const maxChips = 3;
+                      const maxChips = isNarrowViewport ? 2 : 3;
 
                       return (
                         <td
@@ -742,28 +768,28 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                               openCell(unit.slug, dateStr);
                             }
                           }}
-                          className={`border-r border-b border-gray-50 min-h-[4rem] h-auto py-1 relative transition-colors cursor-pointer group align-top ${
+                          className={`border-r border-b border-gray-50 min-h-[5.5rem] md:min-h-[4rem] h-auto py-1 md:py-1 relative transition-colors cursor-pointer group align-top active:bg-blue-50/40 ${
                             isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''
                           }`}
                         >
                           {booking && (
                             <div
-                              className="absolute inset-x-0 bottom-0 z-0 px-1 pb-0.5 pt-6 bg-gradient-to-t from-slate-700/12 to-transparent pointer-events-none"
+                              className="absolute inset-x-0 bottom-0 z-0 px-1 pb-0.5 pt-7 md:pt-6 bg-gradient-to-t from-slate-700/12 to-transparent pointer-events-none"
                               title={`Réservation officielle : ${booking.lastName}`}
                             >
-                              <div className="text-[8px] font-bold text-slate-600 truncate leading-none bg-white/85 rounded px-0.5 border border-slate-200/80">
+                              <div className="text-[9px] md:text-[8px] font-bold text-slate-600 truncate leading-tight bg-white/90 rounded px-1 py-px border border-slate-200/80">
                                 Résa · {booking.lastName}
                               </div>
                             </div>
                           )}
-                          <div className="relative z-[1] flex flex-col gap-0.5 px-px pt-0.5">
+                          <div className="relative z-[1] flex flex-col gap-1 px-0.5 pt-1">
                             {cellProspects.slice(0, maxChips).map((p) => {
                               const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
                               const label = `${(p.firstName || '').trim()} ${(p.lastName || '').trim()}`.trim() || 'Prospect';
                               return (
                                 <div
                                   key={p.id}
-                                  className={`rounded px-1 py-0.5 text-[8px] font-black uppercase tracking-tight truncate shadow-sm border border-white/40 ${cfg.pill}`}
+                                  className={`rounded-md px-1 py-1 md:py-0.5 text-[10px] md:text-[8px] font-black uppercase tracking-tight leading-snug line-clamp-2 md:line-clamp-none md:truncate shadow-sm border border-white/40 ${cfg.pill}`}
                                   title={`${label} — ${cfg.label}`}
                                 >
                                   {label}
@@ -771,7 +797,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                               );
                             })}
                             {cellProspects.length > maxChips && (
-                              <div className="text-[8px] font-black text-gray-500 text-center leading-none py-0.5">
+                              <div className="text-[10px] md:text-[8px] font-black text-gray-500 text-center leading-none py-0.5">
                                 +{cellProspects.length - maxChips}
                               </div>
                             )}
@@ -788,17 +814,33 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
       </div>
 
       {offGridProspects.length > 0 && (
-        <div className="border-t border-amber-200 bg-amber-50/50 px-4 md:px-8 py-4 md:max-h-48 overflow-y-auto shrink-0">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-800 mb-2">
+        <div className="border-t border-amber-200 bg-amber-50/50 shrink-0 md:max-h-48 md:overflow-y-auto">
+          <button
+            type="button"
+            className="md:hidden w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+            onClick={() => setOffGridMobileOpen((o) => !o)}
+            aria-expanded={offGridMobileOpen}
+          >
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 leading-snug pr-2">
+              Hors grille ({offGridProspects.length}) — dates ou unité
+            </span>
+            <ChevronDown
+              size={18}
+              className={`shrink-0 text-amber-700 transition-transform ${offGridMobileOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          <p className="hidden md:block text-[10px] font-black uppercase tracking-widest text-amber-800 px-8 pt-4 pb-2">
             Hors grille ce mois-ci ({offGridProspects.length}) — dates ou unité à compléter
           </p>
-          <ul className="flex flex-wrap gap-2">
+          <ul
+            className={`flex flex-wrap gap-2 px-4 pb-4 md:px-8 md:pb-4 ${offGridMobileOpen ? 'flex' : 'hidden'} md:flex max-md:max-h-[min(40vh,320px)] max-md:overflow-y-auto`}
+          >
             {offGridProspects.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
                   onClick={() => handleEdit(p)}
-                  className="text-left px-3 py-2 rounded-xl bg-white border border-amber-200 text-[10px] font-bold text-gray-800 hover:border-amber-400 transition-all max-w-[280px] truncate"
+                  className="text-left px-3 py-2.5 rounded-xl bg-white border border-amber-200 text-[11px] md:text-[10px] font-bold text-gray-800 hover:border-amber-400 transition-all max-w-[min(100vw-3rem,280px)] line-clamp-2 md:truncate md:max-w-[280px]"
                   title={p.notes || ''}
                 >
                   {(p.firstName || '') + ' ' + (p.lastName || '')} · {p.status}
@@ -818,7 +860,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] flex justify-end bg-black/25 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[70] flex justify-end md:justify-end bg-black/25 backdrop-blur-[2px] pb-[env(safe-area-inset-bottom)]"
             onClick={() => {
               resetForm();
               setFormOpen(false);
@@ -829,7 +871,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
               animate={{ x: 0 }}
               exit={{ x: 360 }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              className="w-full max-w-md h-full bg-white shadow-2xl border-l border-gray-200 overflow-y-auto"
+              className="w-full h-full max-md:max-w-none md:max-w-md bg-white shadow-2xl md:border-l border-gray-200 overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
