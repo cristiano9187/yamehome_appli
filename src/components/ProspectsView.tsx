@@ -578,8 +578,10 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   }
 
   return (
-    <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
-      <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
+    <div className="flex-1 flex flex-col min-h-0 max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:overflow-hidden md:h-full bg-[#F5F5F4] md:overflow-hidden">
+      {/* Mobile : tout le bandeau titre + filtres reste collé en haut du téléphone */}
+      <div className="shrink-0 bg-white border-b border-gray-200 max-md:sticky max-md:top-0 max-md:z-[100] max-md:shadow-[0_8px_20px_-12px_rgba(0,0,0,0.18)]">
+      <div className="h-auto md:h-20 bg-white px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:border-b-0 border-b border-gray-100 max-md:border-b-0">
         <div className="flex flex-wrap items-center gap-4 md:gap-6">
           {onMenuClick && (
             <button type="button" onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
@@ -625,7 +627,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
         </div>
       </div>
 
-      <div className="border-b border-gray-200 bg-white px-4 md:px-8 py-3 flex flex-col gap-3">
+      <div className="bg-white px-4 md:px-8 py-3 flex flex-col gap-3 md:border-b md:border-gray-200">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 shrink-0 hidden sm:inline">
             Statuts
@@ -678,22 +680,28 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
           </span>
         </div>
       </div>
+      </div>
 
-      <div className="flex-1 md:overflow-auto relative touch-pan-x" ref={scrollContainerRef}>
+      {/* Scroll bilatéral : thead (dates) collé au haut de cette zone ; 1re colonne collée à gauche */}
+      <div
+        className="flex-1 min-h-0 overflow-auto overscroll-contain relative touch-pan-x touch-pan-y isolate md:overflow-auto"
+        ref={scrollContainerRef}
+      >
         <table className="w-full border-collapse table-fixed min-w-[calc(5rem+31*5rem)] md:min-w-[2600px]">
-          <thead className="sticky top-0 z-30">
-            <tr className="bg-zinc-900 text-white">
-              <th className="w-[80px] md:w-64 sticky left-0 z-40 bg-zinc-900 border-b border-r border-white/10 p-2 md:p-4 text-left text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <thead className="[&_tr]:bg-zinc-900">
+            <tr className="text-white">
+              <th className="w-[80px] md:w-64 sticky left-0 top-0 z-[110] bg-zinc-900 border-b border-r border-white/10 p-2 md:p-4 text-left text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gray-400 shadow-[4px_0_12px_-2px_rgba(0,0,0,0.25)]">
                 Unités
               </th>
               {daysInMonth.map((date) => {
                 const isToday = date.toDateString() === new Date().toDateString();
                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                const headBg = isToday ? 'bg-blue-950' : isWeekend ? 'bg-zinc-800' : 'bg-zinc-900';
                 return (
                   <th
                     key={date.toISOString()}
                     id={isToday ? 'prospects-today-column' : undefined}
-                    className={`w-[5rem] min-w-[5rem] md:w-[5.5rem] md:min-w-[5.5rem] border-b border-white/10 p-1.5 md:p-2 text-center ${isToday ? 'bg-blue-900/50' : isWeekend ? 'bg-white/5' : ''}`}
+                    className={`sticky top-0 z-[45] w-[5rem] min-w-[5rem] md:w-[5.5rem] md:min-w-[5.5rem] border-b border-white/10 p-1.5 md:p-2 text-center ${headBg}`}
                   >
                     <div className="flex flex-col items-center gap-0.5">
                       <span className={`text-[11px] md:text-[10px] font-black ${isToday ? 'text-blue-400' : 'text-white'}`}>
@@ -714,7 +722,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                 {group.units.map((unit) => (
                   <tr key={unit.slug} className="group hover:bg-gray-50/50 transition-all">
                     <td
-                      className={`sticky left-0 ${expandedUnitSlug === unit.slug ? 'z-[30]' : 'z-20'} bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64`}
+                      className={`sticky left-0 ${expandedUnitSlug === unit.slug ? 'z-[35]' : 'z-[25]'} bg-white border-r border-b border-gray-100 p-0 group-hover:bg-gray-50 transition-all w-[80px] md:w-64 shadow-[6px_0_14px_-6px_rgba(0,0,0,0.12)]`}
                     >
                       <div className="flex h-full items-stretch relative">
                         <div className={`w-1 md:w-6 flex items-center justify-center ${group.color} relative`}>
@@ -860,7 +868,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] flex justify-end md:justify-end bg-black/25 backdrop-blur-[2px] pb-[env(safe-area-inset-bottom)]"
+            className="fixed inset-0 z-[140] flex justify-end md:justify-end bg-black/25 backdrop-blur-[2px] pb-[env(safe-area-inset-bottom)]"
             onClick={() => {
               resetForm();
               setFormOpen(false);
@@ -1029,7 +1037,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[65] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/30 backdrop-blur-sm"
+            className="fixed inset-0 z-[135] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/30 backdrop-blur-sm"
             onClick={() => setCellPanel(null)}
           >
             <motion.div
