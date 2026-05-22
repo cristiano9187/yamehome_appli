@@ -1,5 +1,148 @@
+import { Timestamp } from 'firebase/firestore';
 import type { CleaningReport } from './types';
 import { isOnduleurNonConcerne } from './constants';
+
+/** Événement window : fusion immédiate d’un rapport ménage dans le calendrier après setDoc / annulation */
+export const CLEANING_REPORT_SYNC_EVENT = 'yamehome:cleaning-report-sync';
+
+/** États dérivés par créneau `slug|YYYY-MM-DD` pour le calendrier ménage. */
+export interface CleaningSlotCalendarState {
+  /** Le dernier enregistrement (createdAt) sur ce créneau est ANNULÉ — case vide jusqu’à un nouveau PRÉVU plus récent. */
+  suppressed: boolean;
+  /** Rapport à afficher (couleurs, icônes) parmi les fiches non annulées du créneau. */
+  displayReport: CleaningReport | null;
+}
+
+/**
+ * Créneau unique dans le calendar (unité + jour d’intervention).
+ */
+export function cleaningSlotKey(calendarSlug: string, dateInterventionIso: unknown): string {
+  const slug = String(calendarSlug ?? '').trim();
+  const di = normalizeCleaningDateIso(dateInterventionIso);
+  if (!slug || !di) return '';
+  return `${slug}|${di}`;
+}
+
+export function cleaningSlotKeyFromReport(r: Pick<CleaningReport, 'calendarSlug' | 'dateIntervention'>): string {
+  return cleaningSlotKey(r.calendarSlug, r.dateIntervention);
+}
+
+/** ANNULÉ avec ou sans accents (anciennes données / saisie). */
+export function isCleaningStatusAnnulé(status: unknown): boolean {
+  const s = String(status ?? '')
+    .normalize('NFC')
+    .trim()
+    .toUpperCase();
+  return s === 'ANNULÉ' || s === 'ANNULE' || s === 'ANNULEE';
+}
+
+/** Priorité d’affichage si plusieurs fiches non annulées sur le même créneau (rare mais possible). Plus petit = prioritaire. */
+export function cleaningStatusDisplayRank(status: string): number {
+  const s = String(status ?? '')
+    .normalize('NFC')
+    .trim()
+    .toUpperCase();
+  const order: Record<string, number> = {
+    EFFECTUÉ: 0,
+    EFFECTUE: 0,
+    ANOMALIE: 1,
+    REPORTÉ: 2,
+    REPORTE: 2,
+    PRÉVU: 3,
+    PREVU: 3,
+    ANNULÉ: 100,
+    ANNULE: 100,
+    ANNULEE: 100,
+  };
+  return order[s] ?? 50;
+}
+
+/**
+ * Agrège plusieurs documents `cleaning_reports` sur une même unité+jour.
+ * Si plusieurs docs existent, le plus récent (createdAt) décide si le créneau est effacé ou actif — un nouveau PRÉVU après un ANNULÉ redevient visible.
+ */
+export function buildCleaningSlotsMap(reports: CleaningReport[]): Map<string, CleaningSlotCalendarState> {
+  const buckets = new Map<string, CleaningReport[]>();
+
+  for (const r of reports) {
+    const k = cleaningSlotKeyFromReport(r);
+    if (!k) continue;
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(r);
+  }
+
+  const out = new Map<string, CleaningSlotCalendarState>();
+
+  for (const [slotKey, list] of buckets) {
+    const sortedNewestFirst = [...list].sort((a, b) =>
+      String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+    );
+    const latest = sortedNewestFirst[0];
+
+    if (latest && isCleaningStatusAnnulé(latest.status)) {
+      out.set(slotKey, { suppressed: true, displayReport: null });
+      continue;
+    }
+
+    const active = list.filter((r) => !isCleaningStatusAnnulé(r.status));
+    if (!active.length) {
+      out.set(slotKey, { suppressed: false, displayReport: null });
+      continue;
+    }
+    const sorted = [...active].sort((a, b) => {
+      const ra = cleaningStatusDisplayRank(a.status || '');
+      const rb = cleaningStatusDisplayRank(b.status || '');
+      if (ra !== rb) return ra - rb;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+    out.set(slotKey, { suppressed: false, displayReport: sorted[0]! });
+  }
+
+  return out;
+}
+
+/** Assure slug + date stables avant écriture Firestore */
+export function canonicalizeCleaningReportFields(r: CleaningReport): CleaningReport {
+  const di = normalizeCleaningDateIso(r.dateIntervention) || String(r.dateIntervention ?? '').trim();
+  return {
+    ...r,
+    calendarSlug: String(r.calendarSlug ?? '').trim(),
+    dateIntervention: di,
+  };
+}
+
+/**
+ * Formats date issus du planning (Firestore Timestamp, ISO avec heure, etc.) en YYYY-MM-DD
+ * pour correspondre aux cellules du calendrier (`getLocalDateString`).
+ */
+export function normalizeCleaningDateIso(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+    return m?.[1] ?? trimmed;
+  }
+  try {
+    if (value instanceof Timestamp) {
+      return ymdFromDate(value.toDate());
+    }
+    const v = value as { toDate?: () => Date };
+    if (v && typeof v.toDate === 'function') {
+      const d = v.toDate();
+      if (d instanceof Date && !Number.isNaN(d.getTime())) return ymdFromDate(d);
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function ymdFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
 
 export const defaultCleaningChecklist: Pick<
   CleaningReport,
@@ -56,11 +199,12 @@ export function normalizeCleaningReport(raw: Record<string, unknown>): CleaningR
   const { maintenance: _m, ...rest } = raw as Record<string, unknown> & { maintenance?: string };
   const k = rest.kwhCompteurPrepaye;
   const n = rest.nombreServiettes;
+  const dateInterventionNorm = normalizeCleaningDateIso(rest.dateIntervention);
   return {
     id: typeof rest.id === 'string' ? rest.id : undefined,
     menageId: String(rest.menageId ?? ''),
-    calendarSlug: String(rest.calendarSlug ?? ''),
-    dateIntervention: String(rest.dateIntervention ?? ''),
+    calendarSlug: String(rest.calendarSlug ?? '').trim(),
+    dateIntervention: dateInterventionNorm || String(rest.dateIntervention ?? '').trim(),
     agentEtape1: String(rest.agentEtape1 ?? rest.agent ?? ''),
     agentEtape2: String(rest.agentEtape2 ?? ''),
     status: (rest.status as CleaningReport['status']) || 'PRÉVU',

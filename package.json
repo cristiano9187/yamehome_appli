@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "signature:process": "node scripts/process-signature.mjs"
+    "signature:process": "node scripts/process-signature.mjs",
+    "deploy:functions-prospect-email": "firebase deploy --only functions:archive:onProspectCreatedSendEmail",
+    "deploy:functions-whatsapp-prospect-lookup": "firebase deploy --only functions:archive:whatsappProspectLookup",
+    "deploy:functions-whatsapp-prospect-feed": "firebase deploy --only functions:archive:whatsappProspectFeed",
+    "deploy:functions": "firebase deploy --only functions"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

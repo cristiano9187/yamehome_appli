@@ -31,7 +31,17 @@ import {
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail } from './constants';
 import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
-import { defaultCleaningChecklist, normalizeCleaningReport, validateCleaningReportForSubmit } from './cleaningReportUtils';
+import {
+  defaultCleaningChecklist,
+  normalizeCleaningReport,
+  normalizeCleaningDateIso,
+  validateCleaningReportForSubmit,
+  CLEANING_REPORT_SYNC_EVENT,
+  canonicalizeCleaningReportFields,
+  buildCleaningSlotsMap,
+  cleaningSlotKey,
+  isCleaningStatusAnnulé,
+} from './cleaningReportUtils';
 import { syncReservationPublicCalendar, deleteAllReservationEventsForReceipt } from './utils/publicCalendar';
 import {
   getReceiptSegments,
@@ -843,14 +853,22 @@ export default function App() {
     }
     setIsSaving(true);
     try {
+      const clean = canonicalizeCleaningReportFields(cleaningReport);
       // Create a unique deterministic ID if not already present
-      const reportId = cleaningReport.id || `CR-${cleaningReport.menageId}-${cleaningReport.calendarSlug}-${cleaningReport.dateIntervention}`;
+      const reportId =
+        clean.id || `CR-${clean.menageId}-${clean.calendarSlug}-${clean.dateIntervention}`;
       const payload = stripUndefinedForFirestore({
-        ...cleaningReport,
+        ...clean,
         id: reportId,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       } as Record<string, unknown>);
       await setDoc(doc(db, 'cleaning_reports', reportId), payload);
+      try {
+        const normalized = normalizeCleaningReport(payload as Record<string, unknown>);
+        window.dispatchEvent(new CustomEvent(CLEANING_REPORT_SYNC_EVENT, { detail: normalized }));
+      } catch {
+        /* ignore */
+      }
 
       // Close modals first
       setIsCleaningMode(false);
@@ -900,19 +918,31 @@ export default function App() {
     try {
       // Use pending data if available to avoid stale state issues
       const dataToUse = pendingCleaningData?.report || cleaningReport;
-      const reportId = dataToUse.id || `CR-${dataToUse.menageId || pendingCleaningData?.menageId || 'MANUAL'}-${dataToUse.calendarSlug || pendingCleaningData?.slug}-${dataToUse.dateIntervention || pendingCleaningData?.date}`;
-      
-      const finalData = {
+      const reportId =
+        dataToUse.id ||
+        `CR-${dataToUse.menageId || pendingCleaningData?.menageId || 'MANUAL'}-${dataToUse.calendarSlug || pendingCleaningData?.slug}-${dataToUse.dateIntervention || pendingCleaningData?.date}`;
+
+      const draft = {
         ...dataToUse,
         menageId: dataToUse.menageId || pendingCleaningData?.menageId || 'MANUAL',
         calendarSlug: dataToUse.calendarSlug || pendingCleaningData?.slug || '',
         dateIntervention: dataToUse.dateIntervention || pendingCleaningData?.date || '',
         id: reportId,
         status: 'ANNULÉ' as const,
-        createdAt: new Date().toISOString()
-      };
+        createdAt: new Date().toISOString(),
+      } as CleaningReport;
+      const finalData = canonicalizeCleaningReportFields(draft);
 
       await setDoc(doc(db, 'cleaning_reports', reportId), finalData);
+      try {
+        window.dispatchEvent(
+          new CustomEvent(CLEANING_REPORT_SYNC_EVENT, {
+            detail: normalizeCleaningReport({ ...finalData } as Record<string, unknown>),
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
 
       // Close modals first
       setIsCleaningMode(false);
@@ -2757,46 +2787,56 @@ export default function App() {
                 }
 
                 setCleaningSubmitHint(null);
-                // Check if report exists for this unit and date (regardless of menageId)
-                const q = query(
-                  collection(db, 'cleaning_reports'), 
-                  where('calendarSlug', '==', slug),
-                  where('dateIntervention', '==', date), 
-                  limit(1)
-                );
-                const snap = await getDocs(q);
-                const existingRaw = !snap.empty
-                  ? ({ id: snap.docs[0].id, ...snap.docs[0].data() } as Record<string, unknown>)
-                  : null;
-                const existing = existingRaw ? normalizeCleaningReport(existingRaw) : null;
-                
-                if (existing && existing.status !== 'ANNULÉ') {
-                  // If it's just planned (PRÉVU), open it directly without confirmation
-                  if (existing.status === 'PRÉVU') {
-                    setCleaningReport(existing);
-                    setIsCleaningReadOnly(false);
-                    setIsCleaningMode(true);
-                  } else {
-                    // Store pending data and show confirmation instead of opening directly
-                    setPendingCleaningData({ menageId, slug, date, report: existing });
-                    setShowCleaningConfirm(true);
+                try {
+                  const slugTrim = String(slug ?? '').trim();
+                  const dateNorm = normalizeCleaningDateIso(date) || String(date ?? '').trim();
+                  /** Ne pas utiliser dateIntervention == dans Firestore (Timestamp ou format ancien cassent la requête). */
+                  const qRep = query(
+                    collection(db, 'cleaning_reports'),
+                    where('calendarSlug', '==', slugTrim),
+                  );
+                  const snapRep = await getDocs(qRep);
+                  const candidates = snapRep.docs.map((d) =>
+                    normalizeCleaningReport({ id: d.id, ...d.data() } as Record<string, unknown>),
+                  );
+                  const forDate = candidates.filter(
+                    (r) => normalizeCleaningDateIso(r.dateIntervention) === dateNorm,
+                  );
+                  const sk = slugTrim && dateNorm ? cleaningSlotKey(slugTrim, dateNorm) : '';
+                  const displayReport = sk ? buildCleaningSlotsMap(forDate).get(sk)?.displayReport ?? null : null;
+
+                  if (displayReport && !isCleaningStatusAnnulé(displayReport.status)) {
+                    if (displayReport.status === 'PRÉVU') {
+                      setCleaningReport(displayReport);
+                      setIsCleaningReadOnly(false);
+                      setIsCleaningMode(true);
+                    } else {
+                      setPendingCleaningData({ menageId, slug: slugTrim, date: dateNorm, report: displayReport });
+                      setShowCleaningConfirm(true);
+                    }
+                    return;
                   }
-                } else {
-                  // No report or cancelled report -> New report
+
                   setCleaningReport({
                     menageId: menageId || 'MANUAL',
-                    calendarSlug: slug,
-                    dateIntervention: date,
+                    calendarSlug: slugTrim,
+                    dateIntervention: dateNorm,
                     agentEtape1: '',
                     agentEtape2: '',
                     status: 'PRÉVU',
                     feedback: '',
                     damages: '',
                     ...defaultCleaningChecklist,
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
                   });
                   setIsCleaningReadOnly(false);
                   setIsCleaningMode(true);
+                } catch (e) {
+                  handleFirestoreError(e, OperationType.GET, 'cleaning_reports_open');
+                  setAlertType('error');
+                  setAlertMessage(
+                    'Impossible de charger le rapport ménage. Vérifiez la connexion ou réessayez.',
+                  );
                 }
               }}
             />

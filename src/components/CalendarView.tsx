@@ -29,7 +29,15 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
-import { effectuéMériteAffichageAlerte } from '../cleaningReportUtils';
+import {
+  effectuéMériteAffichageAlerte,
+  normalizeCleaningReport,
+  normalizeCleaningDateIso,
+  CLEANING_REPORT_SYNC_EVENT,
+  buildCleaningSlotsMap,
+  cleaningSlotKey,
+  cleaningSlotKeyFromReport,
+} from '../cleaningReportUtils';
 import { getReceiptSegments } from '../utils/receiptSegments';
 import { 
   collection, 
@@ -51,6 +59,13 @@ function ymdLocal(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** Recule d’un nombre de mois calendaires (requête reçus plus « large » pour le ménage). */
+function isoSubtractCalendarMonths(firstDayIso: string, monthsSubtract: number): string {
+  const [y, m, d] = firstDayIso.split('-').map(Number);
+  const dt = new Date(y, m - 1 - monthsSubtract, d);
+  return ymdLocal(dt);
 }
 
 /**
@@ -246,15 +261,28 @@ export default function CalendarView({
     const firstDayStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const lastDayStr = `${year}-${String(month + 1).padStart(2, '0')}-${new Date(year, month + 1, 0).getDate()}`;
 
+    /** Marge avant le début du mois : évite de perdre un reçu multi-segments si `endDate` racine est désynchronisé alors qu’un passage ménage tombe dans ce mois. */
+    const receiptsLowerBoundEndDate = isoSubtractCalendarMonths(firstDayStr, 3);
+
     const qReceipts = query(
       collection(db, 'receipts'),
-      where('endDate', '>=', firstDayStr)
+      where('endDate', '>=', receiptsLowerBoundEndDate),
     );
 
     const unsubReceipts = onSnapshot(qReceipts, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })) as ReceiptData[];
-      // Filter out only those that are explicitly ANNULE, keeping VALIDE and those without status
-      setReceipts(data.filter(r => r.status !== 'ANNULE'));
+      /** Ne garder que les reçus qui peuvent avoir une nuitée ou une tâche ménage sur ce mois (overlay simple). */
+      const monthOverlay = data.filter((r) => {
+        if (r.status === 'ANNULE') return false;
+        for (const seg of getReceiptSegments(r)) {
+          if (!seg.startDate || !seg.endDate || !seg.calendarSlug?.trim()) continue;
+          if (seg.startDate <= lastDayStr && seg.endDate > firstDayStr) return true;
+        }
+        return false;
+      });
+      setReceipts(monthOverlay);
+    }, (err) => {
+      console.error('[CalendarView] receipts', err);
     });
 
     const qCleaning = query(
@@ -262,10 +290,34 @@ export default function CalendarView({
       where('dateIntervention', '>=', firstDayStr),
       where('dateIntervention', '<=', lastDayStr)
     );
-    const unsubCleaning = onSnapshot(qCleaning, (snapshot) => {
-      setCleaningReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as CleaningReport[]);
-      setLoading(false);
-    });
+    const unsubCleaning = onSnapshot(
+      qCleaning,
+      (snapshot) => {
+        const fromServer = snapshot.docs.map((doc) =>
+          normalizeCleaningReport({ id: doc.id, ...doc.data() } as Record<string, unknown>),
+        );
+        const serverIds = new Set(fromServer.map((r) => (r.id || '').trim()).filter(Boolean));
+        const serverSlotKeys = new Set(
+          fromServer.map((r) => cleaningSlotKeyFromReport(r)).filter((k) => k.length > 0),
+        );
+        setCleaningReports((prev) => {
+          const dangling = prev.filter((r) => {
+            const rid = (r.id || '').trim();
+            if (!rid || serverIds.has(rid)) return false;
+            const sk = cleaningSlotKeyFromReport(r);
+            if (sk && serverSlotKeys.has(sk)) return false;
+            const di = normalizeCleaningDateIso(r.dateIntervention);
+            return di >= firstDayStr && di <= lastDayStr;
+          });
+          return [...fromServer, ...dangling];
+        });
+        setLoading(false);
+      },
+      (err) => {
+        console.error('[CalendarView] cleaning_reports', err);
+        setLoading(false);
+      },
+    );
 
     const qBlocked = query(
       collection(db, 'blocked_dates'),
@@ -282,6 +334,27 @@ export default function CalendarView({
       unsubBlocked();
     };
   }, [currentDate.getMonth(), currentDate.getFullYear()]);
+
+  useEffect(() => {
+    const onCleaningSync = (event: Event) => {
+      const incoming = (event as CustomEvent<CleaningReport>).detail;
+      if (!incoming) return;
+      const docId = typeof incoming.id === 'string' ? incoming.id.trim() : '';
+      if (!docId) return;
+      const sk = cleaningSlotKeyFromReport(incoming);
+      setCleaningReports((prev) => {
+        const wipedSameSlot =
+          sk.length > 0
+            ? prev.filter((r) => cleaningSlotKeyFromReport(r) !== sk)
+            : prev.filter((r) => (r.id || '').trim() !== docId);
+
+        // Toujours réinjecter la dernière fiche (dont ANNULÉ) pour que buildCleaningSlotsMap supprime bien le créneau à l'écran sans F5.
+        return [...wipedSameSlot, incoming];
+      });
+    };
+    window.addEventListener(CLEANING_REPORT_SYNC_EVENT, onCleaningSync);
+    return () => window.removeEventListener(CLEANING_REPORT_SYNC_EVENT, onCleaningSync);
+  }, []);
 
   // Flatten all units for the left column
   const allUnits = useMemo(() => {
@@ -474,6 +547,11 @@ export default function CalendarView({
     return groups;
   }, [allUnits]);
 
+  const cleaningSlotsMap = useMemo(
+    () => buildCleaningSlotsMap(cleaningReports),
+    [cleaningReports],
+  );
+
   const daysInMonth = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -516,10 +594,6 @@ export default function CalendarView({
     }
     return map;
   }, [receipts]);
-
-  const getCleaningReport = (unitSlug: string, dateStr: string) => {
-    return cleaningReports.find(r => r.calendarSlug === unitSlug && r.dateIntervention === dateStr);
-  };
 
   const nextMonth = () => onDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   const prevMonth = () => onDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -893,14 +967,15 @@ export default function CalendarView({
                     const segmentCheckIn =
                       activeSegment && booking?.checkInsBySegmentId?.[activeSegment.id];
 
-                    // Cleaning Logic — même ligne de résa que pour le ménage le jour du check-out
+                    // Cleaning : passage théorique (résa) + rapport Firestore agrégés par créneau (slug|date).
+                    // Au moins un ANNULÉ sur ce créneau ⇒ case vide (l’équipe a explicitement effacé le planning).
                     const isCalculatedCleaningDay = viewMode === 'cleaning' && !!cleaningBooking;
-                    const report = getCleaningReport(unit.slug, dateStr);
-                    const currentReport =
-                      report && report.status !== 'ANNULÉ' ? report : null;
+                    const slotKeyForCell = cleaningSlotKey(unit.slug, dateStr);
+                    const slotState = slotKeyForCell ? cleaningSlotsMap.get(slotKeyForCell) : undefined;
+                    const suppressed = slotState?.suppressed ?? false;
+                    const currentReport = slotState?.displayReport ?? null;
                     const isCleaningDay =
-                      (isCalculatedCleaningDay && (!report || report.status !== 'ANNULÉ')) ||
-                      !!currentReport;
+                      !suppressed && (isCalculatedCleaningDay || !!currentReport);
 
                     return (
                       <td 
