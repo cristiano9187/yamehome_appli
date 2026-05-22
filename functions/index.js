@@ -9,10 +9,15 @@
 'use strict';
 
 const { onSchedule } = require('firebase-functions/v2/scheduler');
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { logger } = require('firebase-functions');
+const { sendProspectCreatedEmail } = require('./prospectNotifications');
+const { handleWhatsAppProspectLookup } = require('./whatsappProspectLookup');
+const { handleWhatsAppProspectFeed } = require('./whatsappProspectFeed');
 const {
   ALLOWED_CALENDAR_SLUGS,
   resolveApartmentName,
@@ -27,6 +32,13 @@ const REGION = 'europe-west1';
 const app = initializeApp();
 /** Base Firestore nommée (même ID que le client web). */
 const db = getFirestore(app, DB_ID);
+
+/** Expéditeur et destinataire des alertes prospects (fixe — évite les fuites via .env au déploiement). */
+const PROSPECT_SMTP_FROM_EMAIL = 'yamehome.yaounde@gmail.com';
+const PROSPECT_NOTIFY_EMAIL = 'yamehome.yaounde@gmail.com';
+
+const prospectSmtpPass = defineSecret('PROSPECT_SMTP_APP_PASSWORD');
+const whatsappProspectLookupKey = defineSecret('WHATSAPP_PROSPECT_LOOKUP_KEY');
 
 /** Même chaîne pour tous les prospects créés depuis le site (pas un UID Firebase réel). */
 const WEBSITE_PROSPECT_AUTHOR_UID = 'yamehome-site-public';
@@ -161,6 +173,113 @@ exports.submitWebsiteProspect = onCall(
     logger.info(`[submitWebsiteProspect] créé ${ref.id} — ${calendarSlug} — ${startDate}→${endDate}`);
 
     return { ok: true, prospectId: ref.id };
+  }
+);
+
+/**
+ * JSON complet des prospects (Firestore) pour injection prompt WhatsApp — comme le flux calendrier.
+ */
+exports.whatsappProspectFeed = onRequest(
+  {
+    region: REGION,
+    secrets: [whatsappProspectLookupKey],
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    try {
+      const key = whatsappProspectLookupKey.value();
+      const result = await handleWhatsAppProspectFeed(db, req, key);
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      logger.error('[whatsappProspectFeed] handler', e.message || e);
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  }
+);
+
+/**
+ * Recherche prospects (lecture seule) pour l’assistant WhatsApp / n8n.
+ * GET/POST — header X-Yamehome-Key ou query ?key= (même valeur que le secret).
+ * Query/body: phone (recommandé), optionnel startDate, endDate, lastName.
+ */
+exports.whatsappProspectLookup = onRequest(
+  {
+    region: REGION,
+    secrets: [whatsappProspectLookupKey],
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    try {
+      const key = whatsappProspectLookupKey.value();
+      const result = await handleWhatsAppProspectLookup(db, req, key);
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      logger.error('[whatsappProspectLookup] handler', e.message || e);
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  }
+);
+
+/**
+ * Email à chaque création de document dans `prospects` (app agent ou site web).
+ */
+exports.onProspectCreatedSendEmail = onDocumentCreated(
+  {
+    document: 'prospects/{prospectId}',
+    database: DB_ID,
+    region: REGION,
+    secrets: [prospectSmtpPass],
+  },
+  async (event) => {
+    const prospectIdEarly = event.params?.prospectId;
+    logger.info(`[prospectEmail] déclenché pour prospects/${prospectIdEarly || '?'}`);
+    const snap = event.data;
+    if (!snap) {
+      logger.warn('[prospectEmail] événement sans données');
+      return;
+    }
+    const prospectId = event.params.prospectId;
+    const data = snap.data();
+    let pass;
+    try {
+      pass = prospectSmtpPass.value();
+    } catch (e) {
+      logger.error('[prospectEmail] lecture secret SMTP impossible', e.message || e);
+      return;
+    }
+    if (!pass || !String(pass).trim()) {
+      logger.warn('[prospectEmail] PROSPECT_SMTP_APP_PASSWORD vide — email non envoyé');
+      return;
+    }
+    const user = PROSPECT_SMTP_FROM_EMAIL;
+    const to = PROSPECT_NOTIFY_EMAIL;
+    try {
+      await sendProspectCreatedEmail({
+        db,
+        adminApp: app,
+        prospectId,
+        data,
+        smtp: {
+          user: String(user).trim().toLowerCase(),
+          pass: String(pass).trim().replace(/\s/g, ''),
+        },
+        to,
+      });
+    } catch (e) {
+      logger.error('[prospectEmail] envoi échoué (prospect créé quand même)', e.message || e, e.stack);
+    }
   }
 );
 
