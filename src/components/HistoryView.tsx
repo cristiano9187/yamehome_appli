@@ -53,6 +53,8 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
   const [agentPayInfo, setAgentPayInfo] = useState<AgentProfile | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReceiptData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [allReceiptsForSearch, setAllReceiptsForSearch] = useState<ReceiptData[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const isMainAdmin =
     userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' ||
@@ -115,6 +117,30 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     });
     return unsubscribe;
   }, [firestoreLimit]);
+
+  // Quand l'utilisateur cherche, on charge TOUS les reçus (sans limite Firestore)
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setAllReceiptsForSearch(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const q = query(collection(db, 'receipts'), orderBy('createdAt', 'desc'));
+        const snapshot = await getDocs(q);
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as ReceiptData[];
+        setAllReceiptsForSearch(data);
+      } catch (e) {
+        console.error('Erreur recherche globale:', e);
+        setAllReceiptsForSearch(null);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const permissionFilteredReceipts = useMemo(() => {
     const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
@@ -208,8 +234,12 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     }
   };
 
-  const filteredReceipts = receipts.filter(r => {
-    const matchesSearch = r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  // Quand une recherche est active, utiliser la source complète (tous les reçus)
+  const sourceReceipts = allReceiptsForSearch ?? receipts;
+
+  const filteredReceipts = sourceReceipts.filter(r => {
+    const matchesSearch = !searchTerm.trim() ||
+      r.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       `${r.firstName} ${r.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.apartmentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (r.agentName && r.agentName.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -225,7 +255,9 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
     return matchesSearch && isAllowed;
   });
 
-  const displayedReceipts = filteredReceipts.slice(0, displayLimit);
+  // Pendant la recherche globale, afficher tous les résultats sans pagination
+  const isSearchActive = searchTerm.trim().length > 0;
+  const displayedReceipts = isSearchActive ? filteredReceipts : filteredReceipts.slice(0, displayLimit);
 
   const handleLoadMore = () => {
     setDisplayLimit(prev => prev + 15);
@@ -263,7 +295,11 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
           )}
           <div className="flex flex-col">
             <h2 className="text-sm font-black uppercase tracking-widest">Historique des Reçus</h2>
-            <span className="text-[10px] font-mono text-gray-400 font-bold">{filteredReceipts.length} enregistrements</span>
+            <span className="text-[10px] font-mono text-gray-400 font-bold">
+              {searchLoading
+                ? 'Recherche en cours…'
+                : `${filteredReceipts.length} enregistrement${filteredReceipts.length !== 1 ? 's' : ''}${isSearchActive && allReceiptsForSearch ? ' (base complète)' : ''}`}
+            </span>
           </div>
         </div>
 
@@ -272,10 +308,15 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
           <input 
             type="text" 
             placeholder="Rechercher par ID, Nom ou Logement..." 
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-12 pr-4 text-xs outline-none focus:border-blue-500 transition-all"
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-12 pr-10 text-xs outline-none focus:border-blue-500 transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          {searchLoading && (
+            <div className="absolute right-4 top-1/2 -translate-y-1/2">
+              <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -682,8 +723,8 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
             })}
           </div>
 
-          {/* Load More Button */}
-          {filteredReceipts.length > displayLimit && (
+          {/* Load More Button — affiché uniquement hors recherche */}
+          {!isSearchActive && filteredReceipts.length > displayLimit && (
             <div className="mt-8 flex justify-center">
               <button 
                 onClick={handleLoadMore}
