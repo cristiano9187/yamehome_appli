@@ -180,6 +180,11 @@ export interface Employee {
   role: string;
   active: boolean;
   createdAt: string;
+  updatedAt?: string;
+  /** Premier jour (YYYY-MM-DD) où l'employé ne peut plus pointer sa présence */
+  deactivatedFrom?: string | null;
+  /** Horodatage ISO de la suppression par l'admin */
+  deactivatedAt?: string | null;
 }
 
 export interface AttendanceRecord {

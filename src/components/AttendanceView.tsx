@@ -5,7 +5,6 @@ import {
   onSnapshot, 
   doc, 
   setDoc, 
-  deleteDoc, 
   where,
   orderBy,
 } from 'firebase/firestore';
@@ -53,6 +52,17 @@ function parseLocalCalendarDateKey(ymd: string): Date {
   return new Date(y, Math.max(0, m - 1), Math.max(1, day), 12, 0, 0, 0);
 }
 
+function isEmployeeVisibleOnDate(employee: Employee, date: string): boolean {
+  if (employee.active) return true;
+  if (employee.deactivatedFrom && date < employee.deactivatedFrom) return true;
+  return false;
+}
+
+function isEmployeeBlockedOnDate(employee: Employee | undefined, date: string): boolean {
+  if (!employee?.deactivatedFrom) return false;
+  return date >= employee.deactivatedFrom;
+}
+
 interface AttendanceViewProps {
   userProfile: UserProfile | null;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
@@ -70,6 +80,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const [presenceConfirm, setPresenceConfirm] = useState<
     null | { type: 'checkIn' | 'checkOut'; employeeId: string; employeeName: string; timeStr: string }
   >(null);
+  const [deactivateConfirm, setDeactivateConfirm] = useState<
+    null | { employee: Employee; effectiveDate: string }
+  >(null);
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newEmployee, setNewEmployee] = useState({ name: '', role: '' });
@@ -79,8 +92,14 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
   const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
   const linkedEmployeeId = userProfile?.linkedEmployeeId;
 
-  const canEditPresenceFor = (employeeId: string) =>
-    isAdmin || (!!linkedEmployeeId && linkedEmployeeId === employeeId);
+  const canEditPresenceFor = (employeeId: string, date: string = selectedDate) => {
+    const emp = employees.find((e) => e.id === employeeId);
+    if (isEmployeeBlockedOnDate(emp, date) && !isAdmin) return false;
+    if (emp && !emp.active && emp.deactivatedFrom && date < emp.deactivatedFrom) {
+      return isAdmin;
+    }
+    return isAdmin || (!!linkedEmployeeId && linkedEmployeeId === employeeId);
+  };
 
   // Auto-scroll to current day in planning mode
   useEffect(() => {
@@ -125,14 +144,16 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     return 'ABSENT';
   };
 
-  // Fetch Employees
+  // Fetch Employees (tous pour admin, actifs seulement pour les agents)
   useEffect(() => {
-    const q = query(collection(db, 'employees'), where('active', '==', true), orderBy('name'));
+    const q = isAdmin
+      ? query(collection(db, 'employees'), orderBy('name'))
+      : query(collection(db, 'employees'), where('active', '==', true), orderBy('name'));
     return onSnapshot(q, (snap) => {
       setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
       setLoading(false);
     });
-  }, []);
+  }, [isAdmin]);
 
   // Fetch Attendance for selected date
   useEffect(() => {
@@ -214,26 +235,41 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
     }
   };
 
-  const handleDeleteEmployee = async (id: string) => {
-    if (!isAdmin) {
+  const handleDeactivateEmployee = async () => {
+    if (!isAdmin || !deactivateConfirm) {
       onAlert("Seuls les administrateurs peuvent supprimer des employés.", "error");
       return;
     }
-    // Using a simple check instead of window.confirm for better iframe compatibility
+    const { employee, effectiveDate } = deactivateConfirm;
     try {
-      await deleteDoc(doc(db, 'employees', id));
-      onAlert("Employé supprimé", "success");
+      await setDoc(doc(db, 'employees', employee.id), {
+        ...employee,
+        active: false,
+        deactivatedFrom: effectiveDate,
+        deactivatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      setDeactivateConfirm(null);
+      onAlert(
+        `${employee.name} ne pourra plus pointer sa présence à partir du ${effectiveDate.split('-').reverse().join('/')}.`,
+        "success"
+      );
     } catch (e) {
       onAlert("Erreur lors de la suppression", "error");
     }
   };
 
   const updateAttendance = async (employeeId: string, updates: Partial<AttendanceRecord>, customDate?: string) => {
-    if (!canEditPresenceFor(employeeId)) {
-      onAlert("Vous ne pouvez enregistrer la présence que pour votre fiche. Les administrateurs peuvent tout modifier.", "error");
+    const date = customDate || selectedDate;
+    if (!canEditPresenceFor(employeeId, date)) {
+      const emp = employees.find((e) => e.id === employeeId);
+      if (isEmployeeBlockedOnDate(emp, date)) {
+        onAlert("Cet employé ne peut plus enregistrer sa présence à partir de sa date de suppression.", "error");
+      } else {
+        onAlert("Vous ne pouvez enregistrer la présence que pour votre fiche. Les administrateurs peuvent tout modifier.", "error");
+      }
       return;
     }
-    const date = customDate || selectedDate;
     const recordId = `${employeeId}_${date}`;
     
     // Check if record already exists in local state to avoid overwriting other fields
@@ -395,11 +431,11 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
           )}
 
           <div className="grid gap-4">
-            {employees.filter(e => e.active).map(emp => {
+            {employees.filter(e => isEmployeeVisibleOnDate(e, selectedDate)).map(emp => {
               const record = attendance[emp.id];
               const display = deriveStatusDisplay(record);
               const isPlannedRepos = record?.status === 'PRÉVU_REPOS';
-              const canEdit = canEditPresenceFor(emp.id);
+              const canEdit = canEditPresenceFor(emp.id, selectedDate);
               
               return (
                 <motion.div 
@@ -538,7 +574,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                 </tr>
               </thead>
               <tbody>
-                {employees.filter(e => e.active).map(emp => (
+                {employees.filter(e => planningDays.some(d => isEmployeeVisibleOnDate(e, localCalendarDateKey(d)))).map(emp => (
                   <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 text-sm font-bold text-slate-900 border-b border-slate-100 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                       {emp.name}
@@ -548,7 +584,7 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                       const record = planningData[`${emp.id}_${dateStr}`];
                       const isRepos = record?.status === 'PRÉVU_REPOS' || record?.status === 'REPOS';
                       const isToday = d.toDateString() === new Date().toDateString();
-                      const canEdit = canEditPresenceFor(emp.id);
+                      const canEdit = canEditPresenceFor(emp.id, dateStr);
                       
                       return (
                         <td key={i} className={`p-2 border-b border-slate-100 text-center transition-colors ${isToday ? 'bg-slate-500/[0.05]' : ''}`}>
@@ -644,7 +680,9 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {employees.map(emp => (
-              <div key={emp.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group">
+              <div key={emp.id} className={`bg-white p-4 rounded-2xl shadow-sm border flex items-center justify-between group ${
+                emp.active ? 'border-slate-100' : 'border-rose-100 bg-rose-50/40'
+              }`}>
                 {editingEmployee?.id === emp.id ? (
                   <div className="flex-1 space-y-3 p-2">
                     <input 
@@ -679,21 +717,32 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
                     <div>
                       <h4 className="font-bold text-slate-900">{emp.name}</h4>
                       <p className="text-xs text-slate-500">{emp.role}</p>
+                      {!emp.active && emp.deactivatedFrom && (
+                        <p className="text-[10px] font-bold text-rose-600 mt-1 uppercase tracking-wide">
+                          Supprimé depuis le {emp.deactivatedFrom.split('-').reverse().join('/')}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => setEditingEmployee(emp)}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteEmployee(emp.id)}
-                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {emp.active ? (
+                      <div className="flex items-center gap-2 opacity-100 md:opacity-60 md:group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => setEditingEmployee(emp)}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => setDeactivateConfirm({
+                            employee: emp,
+                            effectiveDate: localCalendarDateKey(new Date()),
+                          })}
+                          className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Supprimer l'employé"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -703,6 +752,66 @@ export default function AttendanceView({ userProfile, onAlert, currentDate }: At
       )}
 
       <AnimatePresence>
+        {deactivateConfirm && (
+          <motion.div
+            key={`deactivate-${deactivateConfirm.employee.id}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deactivate-confirm-title"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setDeactivateConfirm(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-5">
+                <Trash2 className="w-7 h-7" />
+              </div>
+              <h3 id="deactivate-confirm-title" className="text-lg font-black text-slate-900 text-center mb-2">
+                Supprimer cet employé ?
+              </h3>
+              <p className="text-sm text-slate-500 text-center mb-4">
+                <span className="font-bold text-slate-900">{deactivateConfirm.employee.name}</span> ne pourra plus pointer sa présence à partir de la date choisie. L'historique passé est conservé.
+              </p>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Date de fin de présence
+              </label>
+              <input
+                type="date"
+                value={deactivateConfirm.effectiveDate}
+                onChange={(e) => setDeactivateConfirm({
+                  ...deactivateConfirm,
+                  effectiveDate: e.target.value,
+                })}
+                className="w-full border-slate-200 rounded-xl focus:ring-rose-500 focus:border-rose-500 mb-6"
+              />
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleDeactivateEmployee()}
+                  className="w-full bg-rose-600 text-white font-black py-3.5 rounded-2xl uppercase text-xs tracking-widest hover:bg-rose-700 transition-colors"
+                >
+                  Confirmer la suppression
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeactivateConfirm(null)}
+                  className="w-full bg-gray-100 text-gray-600 font-black py-3.5 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-colors"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
         {presenceConfirm && (
           <motion.div
             key={`presence-confirm-${presenceConfirm.employeeId}-${presenceConfirm.type}`}

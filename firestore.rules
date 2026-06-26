@@ -169,7 +169,20 @@ service cloud.firestore {
       return hasRequiredFields(['name', 'role', 'active']) &&
              data.name is string && data.name.size() > 0 &&
              data.role is string && data.role.size() > 0 &&
-             data.active is bool;
+             data.active is bool &&
+             (!('deactivatedFrom' in data) || data.deactivatedFrom == null || data.deactivatedFrom is string) &&
+             (!('deactivatedAt' in data) || data.deactivatedAt == null || data.deactivatedAt is string);
+    }
+
+    // Employé encore autorisé à pointer sa présence à la date donnée (YYYY-MM-DD)
+    function employeeCanMarkAttendance(employeeId, date) {
+      return exists(/databases/$(database)/documents/employees/$(employeeId)) &&
+        get(/databases/$(database)/documents/employees/$(employeeId)).data.active == true &&
+        (
+          !('deactivatedFrom' in get(/databases/$(database)/documents/employees/$(employeeId)).data) ||
+          get(/databases/$(database)/documents/employees/$(employeeId)).data.deactivatedFrom == null ||
+          date < get(/databases/$(database)/documents/employees/$(employeeId)).data.deactivatedFrom
+        );
     }
 
     function isValidAttendance(data) {
@@ -460,7 +473,13 @@ service cloud.firestore {
     match /attendance/{attendanceId} {
       allow read: if isAgent();
       allow write: if isAgent() && isValidAttendance(request.resource.data) &&
-        (isAdmin() || userOwnsAttendanceViaEmailWhitelist(request.resource.data.employeeId));
+        (
+          isAdmin() ||
+          (
+            userOwnsAttendanceViaEmailWhitelist(request.resource.data.employeeId) &&
+            employeeCanMarkAttendance(request.resource.data.employeeId, request.resource.data.date)
+          )
+        );
     }
 
     match /blocked_dates/{blockedId} {
