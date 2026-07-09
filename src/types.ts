@@ -32,6 +32,16 @@ export interface GuestCheckInRecord {
   authorDisplayName?: string | null;
 }
 
+/** Check-out client (dernière nuit du segment) — sortie du logement. */
+export interface GuestCheckOutRecord {
+  validatedAt: string;
+  kwhCompteurPrepaye: number | null;
+  /** Dommages ou remarques constatés à la sortie */
+  damageNotes: string;
+  authorUid?: string;
+  authorDisplayName?: string | null;
+}
+
 export interface ReceiptData {
   id?: string;
   receiptId: string;
@@ -47,6 +57,8 @@ export interface ReceiptData {
   staySegments?: ReceiptStaySegment[] | null;
   /** Check-in validé par l’employé, clé = `ReceiptStaySegment.id` */
   checkInsBySegmentId?: Record<string, GuestCheckInRecord> | null;
+  /** Check-out validé par l’employé, clé = `ReceiptStaySegment.id` */
+  checkOutsBySegmentId?: Record<string, GuestCheckOutRecord> | null;
   isCustomRate: boolean;
   customLodgingTotal: number;
   isNegotiatedRate: boolean;

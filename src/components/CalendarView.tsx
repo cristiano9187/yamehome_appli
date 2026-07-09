@@ -7,6 +7,7 @@ import {
   BlockedDate,
   ReceiptStaySegment,
   GuestCheckInRecord,
+  GuestCheckOutRecord,
 } from '../types';
 import { TARIFS, SITES, SITE_MAPPING } from '../constants';
 const AttendanceView = lazy(() => import('./AttendanceView'));
@@ -27,6 +28,7 @@ import {
   AlertTriangle,
   Menu,
   BadgeCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 import {
@@ -109,6 +111,13 @@ function getCleaningTaskDatesForReceipt(booking: ReceiptData): Array<{ slug: str
   return out;
 }
 
+/** Dernière nuit occupée d’un segment (`endDate` est le jour de départ, exclu du séjour). */
+function getLastNightYmd(segment: ReceiptStaySegment): string {
+  const d = new Date(`${segment.endDate}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  return ymdLocal(d);
+}
+
 function getActiveSegmentForCell(
   booking: ReceiptData,
   unitSlug: string,
@@ -184,6 +193,8 @@ export default function CalendarView({
   } | null>(null);
   const [checkInDraft, setCheckInDraft] = useState({ kwh: '', idPiece: '' as '' | 'OUI' | 'NON', comment: '' });
   const [checkInSubmitting, setCheckInSubmitting] = useState(false);
+  const [checkOutDraft, setCheckOutDraft] = useState({ kwh: '', damageNotes: '' });
+  const [checkOutSubmitting, setCheckOutSubmitting] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   
@@ -199,6 +210,7 @@ export default function CalendarView({
 
   useEffect(() => {
     setCheckInDraft({ kwh: '', idPiece: '', comment: '' });
+    setCheckOutDraft({ kwh: '', damageNotes: '' });
   }, [selectedBookingContext?.receipt.id, selectedBookingContext?.segment.id]);
 
   // Restore scroll position on mount
@@ -772,6 +784,80 @@ export default function CalendarView({
     }
   };
 
+  const handleValidateGuestCheckOut = async () => {
+    const ctx = selectedBookingContext;
+    if (!ctx || !ctx.receipt.id || checkOutSubmitting) return;
+
+    if (!userCanManageUnitOnCalendar(userProfile, ctx.segment.calendarSlug)) {
+      onAlert("Vous n'êtes pas autorisé à enregistrer un check-out pour ce logement.", 'error');
+      return;
+    }
+
+    const existing = ctx.receipt.checkOutsBySegmentId?.[ctx.segment.id];
+    if (existing) {
+      onAlert('Le check-out est déjà enregistré pour ce bloc de séjour.', 'info');
+      return;
+    }
+
+    const now = new Date();
+    const kwhMandatory = isCameroonStrictlyBefore18h(now);
+    let kwhCompteurPrepaye: number | null = null;
+    const kwhTrim = checkOutDraft.kwh.trim();
+
+    if (kwhMandatory) {
+      if (!kwhTrim) {
+        onAlert('Sortie journée : le relevé kWh du compteur prépayé est obligatoire (avant 18h au Cameroun).', 'error');
+        return;
+      }
+      const parsed = Number(kwhTrim.replace(',', '.'));
+      if (Number.isNaN(parsed) || parsed < 0) {
+        onAlert('Indiquez un nombre de kWh valide (≥ 0).', 'error');
+        return;
+      }
+      kwhCompteurPrepaye = parsed;
+    } else if (kwhTrim) {
+      const parsed = Number(kwhTrim.replace(',', '.'));
+      if (Number.isNaN(parsed) || parsed < 0) {
+        onAlert('Indiquez un nombre de kWh valide (≥ 0) ou laissez vide pour une sortie nocturne.', 'error');
+        return;
+      }
+      kwhCompteurPrepaye = parsed;
+    }
+
+    const authorDisplayName =
+      (auth.currentUser?.displayName ||
+        userProfile?.displayName ||
+        userProfile?.email ||
+        'Agent')
+        .trim() || 'Agent';
+
+    const record: GuestCheckOutRecord = {
+      validatedAt: now.toISOString(),
+      kwhCompteurPrepaye,
+      damageNotes: checkOutDraft.damageNotes.trim(),
+      authorUid: auth.currentUser?.uid || userProfile?.uid || '',
+      authorDisplayName,
+    };
+
+    setCheckOutSubmitting(true);
+    try {
+      await updateDoc(doc(db, 'receipts', ctx.receipt.id), {
+        [`checkOutsBySegmentId.${ctx.segment.id}`]: record,
+      });
+      onAlert('Check-out enregistré (heure du Cameroun).', 'success');
+    } catch (e: any) {
+      console.error(e);
+      onAlert(
+        e?.message?.includes?.('permission-denied')
+          ? 'Permission refusée. Vérifiez vos droits Firestore.'
+          : 'Erreur lors de l’enregistrement du check-out.',
+        'error'
+      );
+    } finally {
+      setCheckOutSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
@@ -787,8 +873,13 @@ export default function CalendarView({
     detailReceipt && detailSegment
       ? detailReceipt.checkInsBySegmentId?.[detailSegment.id]
       : undefined;
+  const detailCheckOut =
+    detailReceipt && detailSegment
+      ? detailReceipt.checkOutsBySegmentId?.[detailSegment.id]
+      : undefined;
   const detailCanManageCheckIn =
     !!detailSegment && userCanManageUnitOnCalendar(userProfile, detailSegment.calendarSlug);
+  const detailCanManageCheckOut = detailCanManageCheckIn;
   const kwhRequiredNow = isCameroonStrictlyBefore18h(new Date());
 
   return (
@@ -964,8 +1055,12 @@ export default function CalendarView({
                         : null;
                     const isFirstNightOfSegment =
                       !!activeSegment && dateStr === activeSegment.startDate;
+                    const isLastNightOfSegment =
+                      !!activeSegment && dateStr === getLastNightYmd(activeSegment);
                     const segmentCheckIn =
                       activeSegment && booking?.checkInsBySegmentId?.[activeSegment.id];
+                    const segmentCheckOut =
+                      activeSegment && booking?.checkOutsBySegmentId?.[activeSegment.id];
 
                     // Cleaning : passage théorique (résa) + rapport Firestore agrégés par créneau (slug|date).
                     // Au moins un ANNULÉ sur ce créneau ⇒ case vide (l’équipe a explicitement effacé le planning).
@@ -1015,6 +1110,14 @@ export default function CalendarView({
                                 title={`Check-in enregistré — ${formatCameroonDateTimeVerbose(new Date(segmentCheckIn.validatedAt))} (heure Cameroun)`}
                               >
                                 <BadgeCheck size={11} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
+                              </div>
+                            )}
+                            {isLastNightOfSegment && segmentCheckOut && (
+                              <div
+                                className="absolute bottom-0.5 right-0.5 z-10 flex items-center justify-center rounded-sm bg-amber-400/95 p-px shadow-sm"
+                                title={`Check-out enregistré — ${formatCameroonDateTimeVerbose(new Date(segmentCheckOut.validatedAt))} (heure Cameroun)${segmentCheckOut.authorDisplayName?.trim() ? ` — par ${segmentCheckOut.authorDisplayName.trim()}` : ''}`}
+                              >
+                                <ChevronDown size={11} className="text-white shrink-0" strokeWidth={2.5} />
                               </div>
                             )}
                             <span className="text-[10px] leading-tight font-black uppercase tracking-tight text-center w-full min-w-0 whitespace-nowrap overflow-hidden text-ellipsis px-0.5">
@@ -1311,6 +1414,83 @@ export default function CalendarView({
                       className="w-full bg-emerald-600 text-white font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-60 transition-all"
                     >
                       {checkInSubmitting ? '…' : 'Valider le check-in'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-[10px] font-bold uppercase text-amber-800">
+                    Pas encore enregistré — vous n’avez pas les droits pour ce logement ou votre profil est incomplet.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                  <ChevronDown size={14} className="text-amber-600" />
+                  Check-out client (sortie)
+                </h4>
+                <p className="text-[10px] text-gray-500 leading-snug">
+                  Dernière nuit sur ce logement. Heure enregistrée automatiquement (fuseau <span className="font-semibold">Africa/Douala</span>). kWh obligatoire si validation avant 18h au Cameroun.
+                </p>
+
+                {detailCheckOut ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-2 text-xs">
+                    <div className="flex justify-between gap-2 flex-wrap">
+                      <span className="font-black uppercase tracking-widest text-[10px] text-amber-800">Sortie enregistrée</span>
+                      <span className="font-mono font-bold text-amber-900">
+                        {formatCameroonDateTimeVerbose(new Date(detailCheckOut.validatedAt))}
+                      </span>
+                    </div>
+                    <p>
+                      <span className="text-gray-500">Enregistré par :</span>{' '}
+                      <span className="font-bold">
+                        {detailCheckOut.authorDisplayName?.trim() || '—'}
+                      </span>
+                    </p>
+                    <p><span className="text-gray-500">kWh compteur :</span>{' '}
+                      <span className="font-bold">{detailCheckOut.kwhCompteurPrepaye ?? '—'}</span>
+                    </p>
+                    {detailCheckOut.damageNotes.trim() ? (
+                      <p className="text-gray-700 whitespace-pre-wrap border-t border-amber-200/80 pt-2 mt-2">
+                        <span className="text-gray-500 block text-[10px] font-black uppercase tracking-widest mb-1">Dommages / remarques</span>
+                        {detailCheckOut.damageNotes}
+                      </p>
+                    ) : (
+                      <p className="text-gray-500 italic">Aucun dommage signalé.</p>
+                    )}
+                  </div>
+                ) : detailCanManageCheckOut ? (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        kWh affichés sur le compteur prépayé {kwhRequiredNow ? '(obligatoire)' : '(facultatif, sortie ≥ 18h CM)'}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={checkOutDraft.kwh}
+                        onChange={(e) => setCheckOutDraft((d) => ({ ...d, kwh: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono"
+                        placeholder={kwhRequiredNow ? 'ex. 98.2' : 'Laisser vide si non renseigné'}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Dommages éventuels (facultatif)</span>
+                      <textarea
+                        value={checkOutDraft.damageNotes}
+                        onChange={(e) => setCheckOutDraft((d) => ({ ...d, damageNotes: e.target.value }))}
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-xs resize-none"
+                        placeholder="Rayure, casse, manquant…"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={checkOutSubmitting}
+                      onClick={handleValidateGuestCheckOut}
+                      className="w-full bg-amber-500 text-white font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-amber-500/20 hover:bg-amber-600 disabled:opacity-60 transition-all"
+                    >
+                      {checkOutSubmitting ? '…' : 'Valider le check-out'}
                     </button>
                   </div>
                 ) : (
