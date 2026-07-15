@@ -16,6 +16,7 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'agent'>('agent');
   const [newAllowedSites, setNewAllowedSites] = useState<string[]>([]);
+  const [newCalendarBlockAccess, setNewCalendarBlockAccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -49,10 +50,12 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
         email: emailId,
         role: newRole,
         allowedSites: newAllowedSites,
+        ...(newCalendarBlockAccess ? { calendarBlockAccess: true } : {}),
         addedAt: new Date().toISOString()
       });
       setNewEmail('');
       setNewAllowedSites([]);
+      setNewCalendarBlockAccess(false);
     } catch (error) {
       console.error("Error adding email:", error);
       onAlert("Erreur lors de l'ajout de l'email", 'error');
@@ -127,6 +130,19 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
       onAlert(!current ? 'Accès au rail Échéances activé' : 'Accès au rail Échéances retiré', 'success');
     } catch (error) {
       console.error('Error toggling obligations access:', error);
+      onAlert('Erreur lors de la mise à jour', 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleToggleCalendarBlockAccess = async (authEmailId: string, current: boolean) => {
+    setIsUpdating(authEmailId);
+    try {
+      await setDoc(doc(db, 'authorized_emails', authEmailId), { calendarBlockAccess: !current }, { merge: true });
+      onAlert(!current ? 'Blocage calendrier activé' : 'Blocage calendrier retiré', 'success');
+    } catch (error) {
+      console.error('Error toggling calendar block access:', error);
       onAlert('Erreur lors de la mise à jour', 'error');
     } finally {
       setIsUpdating(null);
@@ -217,6 +233,20 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
               <option value="agent">Agent (Standard)</option>
               <option value="admin">Administrateur</option>
             </select>
+          </div>
+          <div className="w-full md:w-40">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Blocage calendrier</label>
+            <button
+              type="button"
+              onClick={() => setNewCalendarBlockAccess((v) => !v)}
+              className={`w-full px-4 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${
+                newCalendarBlockAccess
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              Bloquer dates {newCalendarBlockAccess ? '✓' : '○'}
+            </button>
           </div>
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Sites Autorisés</label>
@@ -332,6 +362,18 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        title="Autoriser ce compte à bloquer / débloquer des dates sur le calendrier"
+                        onClick={() => handleToggleCalendarBlockAccess(item.id!, !!item.calendarBlockAccess)}
+                        className={`mt-1 w-full text-[9px] font-black uppercase py-1.5 rounded-lg border transition-colors ${
+                          item.calendarBlockAccess
+                            ? 'bg-slate-900 border-slate-700 text-white'
+                            : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        Blocage calendrier {item.calendarBlockAccess ? '✓' : '○'}
+                      </button>
                       <button
                         type="button"
                         title="Rail orange à droite sur PC — obligations mensuelles"

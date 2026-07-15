@@ -9,7 +9,12 @@ import {
   GuestCheckInRecord,
   GuestCheckOutRecord,
 } from '../types';
-import { TARIFS, SITES, SITE_MAPPING } from '../constants';
+import { TARIFS, SITES, SITE_MAPPING, canBlockCalendarDates } from '../constants';
+
+const isMainAdminEmail = (email?: string | null) => {
+  const em = (email || '').toLowerCase();
+  return em === 'christian.yamepi@gmail.com' || em === 'cyamepi@gmail.com';
+};
 const AttendanceView = lazy(() => import('./AttendanceView'));
 import { 
   ChevronLeft, 
@@ -612,13 +617,12 @@ export default function CalendarView({
   const monthName = currentDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
   const handleBlockDate = async (unitSlug: string, date: string) => {
-    const isMainAdmin = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
-    if (userProfile?.role !== 'admin' && !isMainAdmin) {
-      onAlert("Seuls les administrateurs peuvent bloquer des dates.", "error");
+    if (!canBlockCalendarDates(userProfile, isMainAdminEmail)) {
+      onAlert("Vous n'avez pas l'autorisation de bloquer des dates.", "error");
       return;
     }
 
-    const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
+    const isAdmin = userProfile?.role === 'admin' || isMainAdminEmail(userProfile?.email);
     
     const allowedSites = userProfile?.allowedSites || [];
     const allowedApartments = isAdmin ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
@@ -672,15 +676,14 @@ export default function CalendarView({
   };
 
   const handleUnblockDate = async (blockedId: string) => {
-    const isMainAdminLocal = userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
-    if (userProfile?.role !== 'admin' && !isMainAdminLocal) {
-      onAlert("Seuls les administrateurs peuvent débloquer des dates.", "error");
+    if (!canBlockCalendarDates(userProfile, isMainAdminEmail)) {
+      onAlert("Vous n'avez pas l'autorisation de débloquer des dates.", "error");
       return;
     }
 
     const blocked = blockedDates.find(b => b.id === blockedId);
     if (blocked) {
-      const isAdminLocal = userProfile?.role === 'admin' || isMainAdminLocal;
+      const isAdminLocal = userProfile?.role === 'admin' || isMainAdminEmail(userProfile?.email);
       
       const allowedSites = userProfile?.allowedSites || [];
       const allowedApartments = isAdminLocal ? Object.keys(TARIFS) : allowedSites.flatMap(site => SITE_MAPPING[site] || []);
@@ -1228,7 +1231,7 @@ export default function CalendarView({
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">
-                  { (userProfile?.role === 'admin' || (userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' || userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com')) ? (
+                  { canBlockCalendarDates(userProfile, isMainAdminEmail) ? (
                     blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date) ? (
                       <button 
                         onClick={() => {

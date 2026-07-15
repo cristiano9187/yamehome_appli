@@ -350,6 +350,10 @@ export default function App() {
             const obligationsFromProfile = !!(profile as UserProfile & { obligationsAccess?: boolean }).obligationsAccess;
             const finalObligationsAccess = obligationsFromWhitelist || obligationsFromProfile;
 
+            const calendarBlockFromWhitelist = whiteData?.calendarBlockAccess === true;
+            const calendarBlockFromProfile = !!(profile as UserProfile & { calendarBlockAccess?: boolean }).calendarBlockAccess;
+            const finalCalendarBlockAccess = calendarBlockFromWhitelist || calendarBlockFromProfile;
+
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
               ...restProfile, 
@@ -362,6 +366,7 @@ export default function App() {
               linkedEmployeeId: finalLinked ?? undefined,
               ...(finalFinanceAccess ? { financeAccess: true } : {}),
               ...(finalObligationsAccess ? { obligationsAccess: true } : {}),
+              ...(finalCalendarBlockAccess ? { calendarBlockAccess: true } : {}),
             };
             
             // Only update if something actually changed to avoid unnecessary permission checks
@@ -396,6 +401,7 @@ export default function App() {
               linkedEmployeeId: whiteData != null ? (whiteData.linkedEmployeeId ?? undefined) : undefined,
               ...(whiteData?.financeAccess ? { financeAccess: true } : {}),
               ...(whiteData?.obligationsAccess ? { obligationsAccess: true } : {}),
+              ...(whiteData?.calendarBlockAccess ? { calendarBlockAccess: true } : {}),
             };
             console.log("Setting user profile (new):", newProfile);
             try {

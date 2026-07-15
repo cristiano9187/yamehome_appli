@@ -170,6 +170,8 @@ export interface UserProfile {
   financeAccess?: boolean;
   /** Rail PC « Échéances » (obligations récurrentes) — hors menu Coûts */
   obligationsAccess?: boolean;
+  /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet */
+  calendarBlockAccess?: boolean;
 }
 
 export interface AuthorizedEmail {
@@ -184,6 +186,8 @@ export interface AuthorizedEmail {
   financeAccess?: boolean;
   /** Accès au rail « Échéances » (tracking mensuel, pièces jointes Storage) */
   obligationsAccess?: boolean;
+  /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet */
+  calendarBlockAccess?: boolean;
 }
 
 export interface Employee {

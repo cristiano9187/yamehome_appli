@@ -26,6 +26,17 @@ export function canSeeObligationsRail(
   return profile.obligationsAccess === true;
 }
 
+/** Bloquer / débloquer des dates — aligné sur firestore.rules `canBlockCalendarDates`. */
+export function canBlockCalendarDates(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  if (isMainAdminEmail(profile.email)) return true;
+  if (profile.role === 'admin') return true;
+  return profile.calendarBlockAccess === true;
+}
+
 /**
  * LOGO_BASE64: Paste your logo's base64 string here.
  * You can convert your image to base64 using online tools like 'base64-image.de'

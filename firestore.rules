@@ -96,6 +96,17 @@ service cloud.firestore {
           get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.obligationsAccess == true);
     }
 
+    /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet. */
+    function canBlockCalendarDates() {
+      return isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          'calendarBlockAccess' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.calendarBlockAccess == true) ||
+        (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          'calendarBlockAccess' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+          get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.calendarBlockAccess == true);
+    }
+
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
@@ -484,8 +495,8 @@ service cloud.firestore {
 
     match /blocked_dates/{blockedId} {
       allow read: if isAgent();
-      allow create, update: if isAdmin() && isValidBlockedDate(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if canBlockCalendarDates() && isValidBlockedDate(request.resource.data);
+      allow delete: if canBlockCalendarDates();
     }
 
     match /prospects/{prospectId} {
