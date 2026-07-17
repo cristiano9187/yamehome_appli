@@ -287,7 +287,7 @@ export default function MediaSubscriptionsPanel({
         </div>
       </div>
 
-      <div className="max-h-[min(50vh,22rem)] md:max-h-[28vh] overflow-y-auto divide-y divide-stone-100">
+      <div className="md:max-h-[28vh] md:overflow-y-auto divide-y divide-stone-100">
         {loading ? (
           <div className="p-6 flex justify-center">
             <Loader2 className="animate-spin text-indigo-600" size={20} />

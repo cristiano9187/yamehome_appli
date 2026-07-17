@@ -1021,7 +1021,7 @@ export default function ObligationsDeskRail({
   const busy = loadingTemplates || loadingOcc || ensuringYear;
 
   return (
-    <div className="flex flex-col h-[100dvh] md:h-auto md:min-h-[calc(100vh-2rem)] w-full max-w-6xl mx-auto bg-[#FAFAF9] border-0 md:border border-stone-200 rounded-none md:rounded-2xl md:my-4 md:shadow-sm overflow-hidden">
+    <div className="flex flex-col md:h-[calc(100vh-2rem)] w-full max-w-6xl mx-auto bg-[#FAFAF9] border-0 md:border border-stone-200 rounded-none md:rounded-2xl md:my-4 md:shadow-sm md:overflow-hidden">
               <header className="shrink-0 px-3 sm:px-5 py-3 sm:py-4 border-b border-stone-200 bg-white flex flex-wrap items-start gap-3 sm:gap-4">
                 <div className="flex-1 min-w-0">
                   {onMenuClick && (
@@ -1081,7 +1081,7 @@ export default function ObligationsDeskRail({
                 </div>
               </header>
 
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto md:overflow-hidden px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
+              <div className="flex-1 flex flex-col min-h-0 md:overflow-hidden px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
                 <div className="shrink-0">
                   <MediaSubscriptionsPanel
                     userUid={userUid}
@@ -1091,7 +1091,7 @@ export default function ObligationsDeskRail({
                   />
                 </div>
                 {canEdit && (
-                <div className="shrink-0 overflow-y-auto max-h-[38vh] space-y-4 pr-1">
+                <div className="shrink-0 md:overflow-y-auto md:max-h-[38vh] space-y-4 md:pr-1">
                 <button
                   type="button"
                   onClick={() => setShowTemplatesEditor((v) => !v)}
@@ -1216,10 +1216,10 @@ export default function ObligationsDeskRail({
                     : `${visibleRows.length} obligation(s) ce mois · ${occurrencesYear.length + oneOffsYear.length} ligne(s) sur ${dataYear}`}
                 </div>
 
-                <div className="flex-1 min-h-0 flex flex-col border-t border-stone-200/80 pt-3">
+                <div className="md:flex-1 md:min-h-0 flex flex-col border-t border-stone-200/80 pt-3">
                   <section
                     key={visiblePeriodYm}
-                    className="flex flex-col flex-1 min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
+                    className="flex flex-col md:flex-1 md:min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
                   >
                         <div className="px-3 sm:px-4 py-2.5 bg-stone-100 border-b border-stone-200 flex flex-wrap justify-between items-center gap-2">
                           <h3 className="text-sm font-black text-stone-900">
@@ -1332,7 +1332,7 @@ export default function ObligationsDeskRail({
                           </form>
                         )}
 
-                        <div className="flex-1 min-h-0 overflow-y-auto">
+                        <div className="md:flex-1 md:min-h-0 md:overflow-y-auto">
                           <div className="md:hidden p-3 space-y-3">
                             {!visibleRows.length && (
                               <p className="py-8 text-center text-stone-400 italic text-sm">Aucune ligne ce mois-ci.</p>
