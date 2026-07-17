@@ -1351,7 +1351,7 @@ export default function ObligationsDeskRail({
                                         ? 'bg-amber-50/80 border-amber-100'
                                         : 'bg-white border-stone-200';
                                 return (
-                                  <article key={occ.id} className={`rounded-xl border p-3.5 space-y-3 ${rowBg}`}>
+                                  <article key={occ.id} className={`rounded-xl border p-3.5 space-y-4 ${rowBg}`}>
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
                                         <p className="font-bold text-stone-900 text-sm leading-snug">{recurringRowTitle(occ, tpl)}</p>
@@ -1370,13 +1370,13 @@ export default function ObligationsDeskRail({
                                     </div>
                                     {canEdit ? (
                                       <>
-                                        <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid grid-cols-2 gap-3">
                                           <div>
-                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Réglé le</label>
+                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
                                             <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
                                           </div>
                                           <div>
-                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Preuve</label>
+                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                             {occ.proofDownloadUrl ? (
                                               <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
                                             ) : (
@@ -1387,13 +1387,13 @@ export default function ObligationsDeskRail({
                                             )}
                                           </div>
                                         </div>
-                                        <div className="flex flex-col gap-2">
+                                        <div className="flex flex-col gap-3">
                                           {occ.status !== 'PAID' ? (
                                             <button type="button" onClick={() => void applyPayment(occ, tpl)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
                                           ) : (
                                             <button type="button" onClick={() => void clearPayment(occ)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-stone-200 text-stone-800 touch-manipulation">Effacer le paiement</button>
                                           )}
-                                          <div className="grid grid-cols-2 gap-2">
+                                          <div className="grid grid-cols-2 gap-3">
                                             <button type="button" onClick={() => openEditRecurring(occ, tpl)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-white border border-stone-300 touch-manipulation inline-flex items-center justify-center gap-1"><Pencil size={12} /> Modifier</button>
                                             <button type="button" onClick={() => void handleDeleteRecurringOccurrence(occ)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Retirer</button>
                                           </div>
@@ -1416,7 +1416,7 @@ export default function ObligationsDeskRail({
                                       ? 'bg-amber-50/80 border-amber-100'
                                       : 'bg-orange-50/50 border-orange-100';
                               return (
-                                <article key={oo.id} className={`rounded-xl border p-3.5 space-y-3 ${rowBg}`}>
+                                <article key={oo.id} className={`rounded-xl border p-3.5 space-y-4 ${rowBg}`}>
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0">
                                       <p className="text-[9px] font-black uppercase text-orange-800">Ponctuelle</p>
@@ -1433,13 +1433,13 @@ export default function ObligationsDeskRail({
                                   </div>
                                   {canEdit ? (
                                     <>
-                                      <div className="grid grid-cols-2 gap-2">
+                                      <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Réglé le</label>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
                                           <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
                                         </div>
                                         <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Preuve</label>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                           {oo.proofDownloadUrl ? (
                                             <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
                                           ) : (
@@ -1450,7 +1450,7 @@ export default function ObligationsDeskRail({
                                           )}
                                         </div>
                                       </div>
-                                      <div className="flex flex-col gap-2">
+                                      <div className="flex flex-col gap-3">
                                         {oo.status !== 'PAID' ? (
                                           <button type="button" onClick={() => void applyPaymentOneOff(oo)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
                                         ) : (

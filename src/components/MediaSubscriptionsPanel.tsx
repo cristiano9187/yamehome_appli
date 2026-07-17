@@ -342,7 +342,7 @@ export default function MediaSubscriptionsPanel({
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col md:flex-row flex-wrap gap-2 shrink-0 w-full md:w-auto">
+                <div className="flex flex-col md:flex-row flex-wrap gap-3 shrink-0 w-full md:w-auto">
                   <button
                     type="button"
                     onClick={() => openRenew(r)}
@@ -352,7 +352,7 @@ export default function MediaSubscriptionsPanel({
                     Renouveler
                   </button>
                   {canEdit && (
-                    <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
+                    <div className="grid grid-cols-2 md:flex gap-3 w-full md:w-auto">
                       <button
                         type="button"
                         onClick={() => openEdit(r)}
