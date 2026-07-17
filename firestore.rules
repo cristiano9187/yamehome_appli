@@ -207,7 +207,7 @@ service cloud.firestore {
     function isValidTechnicianContact(data) {
       return hasRequiredFields(['name', 'domain', 'city', 'phone', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
-        data.domain in ['PLOMBERIE', 'ELECTRICITE', 'FROID_CLIM', 'MENUISERIE', 'NETTOYAGE'] &&
+        data.domain in ['PLOMBERIE', 'ELECTRICITE', 'FROID_CLIM', 'MENUISERIE', 'NETTOYAGE', 'INTERNET'] &&
         data.city in ['YAOUNDE', 'BANGANGTE'] &&
         data.phone is string && data.phone.size() > 0 && data.phone.size() <= 40 &&
         data.active is bool &&

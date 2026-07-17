@@ -445,7 +445,8 @@ export type TechnicianDomain =
   | 'ELECTRICITE'
   | 'FROID_CLIM'
   | 'MENUISERIE'
-  | 'NETTOYAGE';
+  | 'NETTOYAGE'
+  | 'INTERNET';
 
 export type TechnicianCity = 'YAOUNDE' | 'BANGANGTE';
 

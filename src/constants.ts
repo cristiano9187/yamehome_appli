@@ -70,6 +70,7 @@ export const TECHNICIAN_DOMAINS = [
   { id: 'FROID_CLIM' as const, label: 'Froid & Clim' },
   { id: 'MENUISERIE' as const, label: 'Menuiserie' },
   { id: 'NETTOYAGE' as const, label: 'Nettoyage' },
+  { id: 'INTERNET' as const, label: 'Internet' },
 ];
 
 export const TECHNICIAN_CITIES = [
