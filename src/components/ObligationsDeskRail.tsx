@@ -5,6 +5,7 @@ import {
   addDoc,
   deleteDoc,
   getDocs,
+  getDoc,
   onSnapshot,
   query,
   setDoc,
@@ -27,9 +28,11 @@ import {
   getFinanceCostsRentQuickFillUnitRows,
   getFinanceQuickRentDefaultAmount,
   FINANCE_QUICK_SALARY_AMOUNT_BY_HINT,
+  canEditObligations,
+  canSeeSalaryObligations,
+  OBLIGATION_PUBLIC_CATEGORIES,
 } from '../constants';
 import {
-  CalendarClock,
   ChevronLeft,
   ChevronRight,
   X,
@@ -41,7 +44,16 @@ import {
   PanelRightClose,
   Pencil,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import MediaSubscriptionsPanel from './MediaSubscriptionsPanel';
+import {
+  YAOUNDE_UNIT_LABELS,
+  YAOUNDE_RENT_DUE_DAY,
+  YAOUNDE_WATER_DUE_DAY,
+  YAOUNDE_STARLINK_TEMPLATES,
+  YAOUNDE_MEDIA_SEED,
+  type YaoundeUnitSlug,
+} from '../data/yaoundeObligationsSeed';
+import type { UnitMediaSubscription } from '../types';
 
 const WARN_DAYS_BEFORE = 5;
 
@@ -133,10 +145,15 @@ function shiftCalendarMonth(
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
+const MAIN_ADMIN_EMAILS = new Set(['christian.yamepi@gmail.com', 'cyamepi@gmail.com']);
+const isMainAdminEmail = (email?: string | null) =>
+  MAIN_ADMIN_EMAILS.has((email || '').toLowerCase());
+
 interface ObligationsDeskRailProps {
   userProfile: UserProfile;
   userUid: string;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  onMenuClick?: () => void;
 }
 
 type SheetRow =
@@ -147,8 +164,10 @@ export default function ObligationsDeskRail({
   userProfile,
   userUid,
   onAlert,
+  onMenuClick,
 }: ObligationsDeskRailProps) {
-  const [open, setOpen] = useState(false);
+  const canEdit = canEditObligations(userProfile, isMainAdminEmail);
+  const canSeeSalary = canSeeSalaryObligations(userProfile, isMainAdminEmail);
   const [viewMonth, setViewMonth] = useState(calendarMonthFromDate);
   const dataYear = viewMonth.year;
   const [templates, setTemplates] = useState<ObligationTemplate[]>([]);
@@ -200,32 +219,56 @@ export default function ObligationsDeskRail({
   const [newTpl, setNewTpl] = useState(newTemplateFormEmpty);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'obligation_templates'), (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ObligationTemplate));
-      rows.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      setTemplates(rows);
-      setLoadingTemplates(false);
-    });
+    const q = canSeeSalary
+      ? collection(db, 'obligation_templates')
+      : query(
+          collection(db, 'obligation_templates'),
+          where('category', 'in', [...OBLIGATION_PUBLIC_CATEGORIES])
+        );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ObligationTemplate));
+        rows.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        setTemplates(rows);
+        setLoadingTemplates(false);
+      },
+      () => {
+        setLoadingTemplates(false);
+        onAlert('Erreur de lecture des modèles d’échéances.', 'error');
+      }
+    );
     return () => unsub();
-  }, []);
+  }, [canSeeSalary, onAlert]);
 
   useEffect(() => {
+    if (!canEdit || !canSeeSalary) {
+      setEmployees([]);
+      return;
+    }
     const q = query(collection(db, 'employees'), where('active', '==', true));
     return onSnapshot(q, (snap) => {
       setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
     });
-  }, []);
+  }, [canEdit, canSeeSalary]);
 
   const ymStart = `${dataYear}-01`;
   const ymEnd = `${dataYear}-12`;
 
   useEffect(() => {
     setLoadingOcc(true);
-    const q = query(
-      collection(db, 'obligation_occurrences'),
-      where('periodYm', '>=', ymStart),
-      where('periodYm', '<=', ymEnd)
-    );
+    const q = canSeeSalary
+      ? query(
+          collection(db, 'obligation_occurrences'),
+          where('periodYm', '>=', ymStart),
+          where('periodYm', '<=', ymEnd)
+        )
+      : query(
+          collection(db, 'obligation_occurrences'),
+          where('category', 'in', [...OBLIGATION_PUBLIC_CATEGORIES]),
+          where('periodYm', '>=', ymStart),
+          where('periodYm', '<=', ymEnd)
+        );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -239,14 +282,21 @@ export default function ObligationsDeskRail({
       }
     );
     return () => unsub();
-  }, [dataYear, ymStart, ymEnd, onAlert]);
+  }, [dataYear, ymStart, ymEnd, onAlert, canSeeSalary]);
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'obligation_one_offs'),
-      where('periodYm', '>=', ymStart),
-      where('periodYm', '<=', ymEnd)
-    );
+    const q = canSeeSalary
+      ? query(
+          collection(db, 'obligation_one_offs'),
+          where('periodYm', '>=', ymStart),
+          where('periodYm', '<=', ymEnd)
+        )
+      : query(
+          collection(db, 'obligation_one_offs'),
+          where('category', 'in', [...OBLIGATION_PUBLIC_CATEGORIES]),
+          where('periodYm', '>=', ymStart),
+          where('periodYm', '<=', ymEnd)
+        );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -257,7 +307,7 @@ export default function ObligationsDeskRail({
       }
     );
     return () => unsub();
-  }, [dataYear, ymStart, ymEnd, onAlert]);
+  }, [dataYear, ymStart, ymEnd, onAlert, canSeeSalary]);
 
   useEffect(() => {
     const m: Record<string, string> = {};
@@ -270,22 +320,28 @@ export default function ObligationsDeskRail({
     setPaidDateDraft(m);
   }, [occurrencesYear, oneOffsYear]);
 
-  useEffect(() => {
-    if (!open) setEditRecurring(null);
-  }, [open]);
-
   const ensureOccurrencesForYear = useCallback(async () => {
-    const active = templates.filter((t) => t.active && t.id);
+    if (!canEdit) return;
+    const active = templates.filter(
+      (t) => t.active && t.id && (canSeeSalary || t.category !== 'SALARY')
+    );
     if (!active.length || !userUid || loadingTemplates) return;
     setEnsuringYear(true);
     try {
-      const q = query(
-        collection(db, 'obligation_occurrences'),
-        where('periodYm', '>=', ymStart),
-        where('periodYm', '<=', ymEnd)
-      );
-      const snap = await getDocs(q);
-      const existing = new Set(snap.docs.map((d) => d.id));
+      const occQuery = canSeeSalary
+        ? query(
+            collection(db, 'obligation_occurrences'),
+            where('periodYm', '>=', ymStart),
+            where('periodYm', '<=', ymEnd)
+          )
+        : query(
+            collection(db, 'obligation_occurrences'),
+            where('category', 'in', [...OBLIGATION_PUBLIC_CATEGORIES]),
+            where('periodYm', '>=', ymStart),
+            where('periodYm', '<=', ymEnd)
+          );
+      const snap = await getDocs(occQuery);
+      const existing = new Map(snap.docs.map((d) => [d.id, d.data() as ObligationOccurrence]));
       const sq = query(
         collection(db, 'obligation_occurrence_suppressions'),
         where('periodYm', '>=', ymStart),
@@ -296,15 +352,47 @@ export default function ObligationsDeskRail({
       let batch = writeBatch(db);
       let ops = 0;
       const now = new Date().toISOString();
+      const flush = async () => {
+        if (ops > 0) {
+          await batch.commit();
+          batch = writeBatch(db);
+          ops = 0;
+        }
+      };
       for (const t of active) {
         for (let mo = 1; mo <= 12; mo++) {
           const periodYm = `${dataYear}-${String(mo).padStart(2, '0')}`;
           const did = occDocId(t.id!, periodYm);
-          if (existing.has(did) || suppressed.has(did)) continue;
+          if (suppressed.has(did)) continue;
+          let prev = existing.get(did);
+          if (!prev) {
+            try {
+              const one = await getDoc(doc(db, 'obligation_occurrences', did));
+              if (one.exists()) {
+                prev = one.data() as ObligationOccurrence;
+                existing.set(did, prev);
+              }
+            } catch {
+              // Ligne existante non lisible (ex. sans category / salaire) — on n’écrase pas.
+              continue;
+            }
+          }
+          if (prev) {
+            if (prev.category !== t.category) {
+              batch.update(doc(db, 'obligation_occurrences', did), {
+                category: t.category,
+                updatedAt: now,
+              });
+              ops++;
+              if (ops >= 450) await flush();
+            }
+            continue;
+          }
           batch.set(doc(db, 'obligation_occurrences', did), {
             templateId: t.id,
             periodYm,
             dueDate: dueDateForMonth(periodYm, t.dueDayOfMonth),
+            category: t.category,
             status: 'PENDING',
             paidAt: null,
             paidAmount: null,
@@ -315,29 +403,25 @@ export default function ObligationsDeskRail({
             updatedAt: now,
             authorUid: userUid,
           });
-          existing.add(did);
+          existing.set(did, { category: t.category } as ObligationOccurrence);
           ops++;
-          if (ops >= 450) {
-            await batch.commit();
-            batch = writeBatch(db);
-            ops = 0;
-          }
+          if (ops >= 450) await flush();
         }
       }
-      if (ops > 0) await batch.commit();
+      await flush();
     } catch (e) {
       console.error(e);
       onAlert('Impossible de créer les lignes manquantes pour l’année.', 'error');
     } finally {
       setEnsuringYear(false);
     }
-  }, [templates, userUid, loadingTemplates, dataYear, ymStart, ymEnd, onAlert]);
+  }, [canEdit, canSeeSalary, templates, userUid, loadingTemplates, dataYear, ymStart, ymEnd, onAlert]);
 
   useEffect(() => {
-    if (!loadingTemplates && templates.some((t) => t.active && t.id)) {
+    if (canEdit && !loadingTemplates && templates.some((t) => t.active && t.id)) {
       void ensureOccurrencesForYear();
     }
-  }, [loadingTemplates, templates, dataYear, ensureOccurrencesForYear]);
+  }, [canEdit, loadingTemplates, templates, dataYear, ensureOccurrencesForYear]);
 
   const templateById = useMemo(() => {
     const m = new Map<string, ObligationTemplate>();
@@ -355,11 +439,13 @@ export default function ObligationsDeskRail({
     occurrencesYear.forEach((occ) => {
       const tpl = templateById.get(occ.templateId);
       if (!tpl || !tpl.active) return;
+      if (!canSeeSalary && tpl.category === 'SALARY') return;
       const list = map.get(occ.periodYm);
       if (!list) return;
       list.push({ kind: 'recurring', occ, tpl });
     });
     oneOffsYear.forEach((oo) => {
+      if (!canSeeSalary && oo.category === 'SALARY') return;
       const list = map.get(oo.periodYm);
       if (!list) return;
       list.push({ kind: 'oneoff', oo });
@@ -376,7 +462,13 @@ export default function ObligationsDeskRail({
       });
     });
     return map;
-  }, [occurrencesYear, oneOffsYear, templateById, dataYear]);
+  }, [occurrencesYear, oneOffsYear, templateById, dataYear, canSeeSalary]);
+
+  const categoryOptions = useMemo(() => {
+    const keys = Object.keys(CATEGORY_LABELS) as ObligationCategory[];
+    if (canSeeSalary) return keys;
+    return keys.filter((k) => k !== 'SALARY');
+  }, [canSeeSalary]);
 
   const visiblePeriodYm = useMemo(
     () => `${viewMonth.year}-${String(viewMonth.month).padStart(2, '0')}`,
@@ -393,26 +485,59 @@ export default function ObligationsDeskRail({
   }, [visiblePeriodYm]);
 
   const handleSeedFromPark = async () => {
+    if (!canEdit) return;
     const uid = auth.currentUser?.uid || userUid;
     const now = new Date().toISOString();
     setSeeding(true);
     try {
       let added = 0;
 
-      for (const row of rentRows) {
+      // —— Loyers Yaoundé (jours issus de l’ancien calendrier) ——
+      for (const [slug, dueDay] of Object.entries(YAOUNDE_RENT_DUE_DAY) as [YaoundeUnitSlug, number][]) {
+        const seedKey = `yaounde-rent:${slug}`;
         const dup = templates.some(
-          (t) => t.active && t.category === 'RENT' && t.unitSlug === row.unitSlug
+          (t) =>
+            t.active &&
+            (t.notes?.includes(seedKey) ||
+              (t.category === 'RENT' && t.unitSlug === slug))
+        );
+        if (dup) continue;
+        const row = rentRows.find((r) => r.unitSlug === slug);
+        await addDoc(collection(db, 'obligation_templates'), {
+          title: `Loyer — ${YAOUNDE_UNIT_LABELS[slug]}`,
+          category: 'RENT',
+          dueDayOfMonth: dueDay,
+          expectedAmount: getFinanceQuickRentDefaultAmount(slug),
+          unitSlug: slug,
+          apartmentName: row?.apartmentName || YAOUNDE_UNIT_LABELS[slug],
+          active: true,
+          notes: seedKey,
+          createdAt: now,
+          updatedAt: now,
+          authorUid: uid,
+        });
+        added++;
+      }
+
+      // —— Eau Yaoundé ——
+      for (const [slug, dueDay] of Object.entries(YAOUNDE_WATER_DUE_DAY) as [YaoundeUnitSlug, number][]) {
+        const seedKey = `yaounde-water:${slug}`;
+        const dup = templates.some(
+          (t) =>
+            t.active &&
+            (t.notes?.includes(seedKey) ||
+              (t.category === 'UTILITIES' && t.unitSlug === slug && (t.title || '').toLowerCase().includes('eau')))
         );
         if (dup) continue;
         await addDoc(collection(db, 'obligation_templates'), {
-          title: `Loyer — ${row.apartmentName}`,
-          category: 'RENT',
-          dueDayOfMonth: 5,
-          expectedAmount: getFinanceQuickRentDefaultAmount(row.unitSlug),
-          unitSlug: row.unitSlug,
-          apartmentName: row.apartmentName,
+          title: `Eau — ${YAOUNDE_UNIT_LABELS[slug]}`,
+          category: 'UTILITIES',
+          dueDayOfMonth: dueDay,
+          expectedAmount: null,
+          unitSlug: slug,
+          apartmentName: YAOUNDE_UNIT_LABELS[slug],
           active: true,
-          notes: `unitSlug:${row.unitSlug}`,
+          notes: seedKey,
           createdAt: now,
           updatedAt: now,
           authorUid: uid,
@@ -420,20 +545,24 @@ export default function ObligationsDeskRail({
         added++;
       }
 
-      for (const emp of employees) {
-        const title = `Salaire — ${emp.name}`;
-        const dup = templates.some((t) => t.active && t.category === 'SALARY' && t.title === title);
+      // —— Starlink (Modena dédié + Rieti/Matera partagé) ——
+      for (const st of YAOUNDE_STARLINK_TEMPLATES) {
+        const dup = templates.some(
+          (t) =>
+            t.active &&
+            (t.notes?.includes(st.seedKey) ||
+              (t.category === 'INTERNET' && t.title === st.title))
+        );
         if (dup) continue;
-        const expectedAmount = salaryAmountForEmployeeName(emp.name);
         await addDoc(collection(db, 'obligation_templates'), {
-          title,
-          category: 'SALARY',
-          dueDayOfMonth: 28,
-          expectedAmount,
-          unitSlug: null,
-          apartmentName: null,
+          title: st.title,
+          category: 'INTERNET',
+          dueDayOfMonth: st.dueDayOfMonth,
+          expectedAmount: st.expectedAmount,
+          unitSlug: st.unitSlug,
+          apartmentName: st.apartmentName,
           active: true,
-          notes: `employeeId:${emp.id}`,
+          notes: st.seedKey,
           createdAt: now,
           updatedAt: now,
           authorUid: uid,
@@ -441,15 +570,72 @@ export default function ObligationsDeskRail({
         added++;
       }
 
+      // —— Salaires (cercle privé uniquement) ——
+      if (canSeeSalary) {
+        for (const emp of employees) {
+          const title = `Salaire — ${emp.name}`;
+          const dup = templates.some((t) => t.active && t.category === 'SALARY' && t.title === title);
+          if (dup) continue;
+          const expectedAmount = salaryAmountForEmployeeName(emp.name);
+          await addDoc(collection(db, 'obligation_templates'), {
+            title,
+            category: 'SALARY',
+            dueDayOfMonth: 28,
+            expectedAmount,
+            unitSlug: null,
+            apartmentName: null,
+            active: true,
+            notes: `employeeId:${emp.id}`,
+            createdAt: now,
+            updatedAt: now,
+            authorUid: uid,
+          });
+          added++;
+        }
+      }
+
+      // —— Canal+ / IPTV ——
+      const mediaSnap = await getDocs(collection(db, 'unit_media_subscriptions'));
+      const existingMedia = mediaSnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as UnitMediaSubscription)
+      );
+      let mediaAdded = 0;
+      for (const m of YAOUNDE_MEDIA_SEED) {
+        const dup = existingMedia.some(
+          (e) =>
+            e.seedKey === m.seedKey ||
+            (e.active !== false && e.kind === m.kind && e.unitSlug === m.unitSlug)
+        );
+        if (dup) continue;
+        await addDoc(collection(db, 'unit_media_subscriptions'), {
+          kind: m.kind,
+          unitSlug: m.unitSlug,
+          apartmentName: YAOUNDE_UNIT_LABELS[m.unitSlug],
+          bouquet: m.bouquet,
+          boxNumber: m.boxNumber,
+          expiresOn: m.expiresOn,
+          active: true,
+          seedKey: m.seedKey,
+          notes: '',
+          createdAt: now,
+          updatedAt: now,
+          authorUid: uid,
+        });
+        mediaAdded++;
+      }
+
+      const parts: string[] = [];
+      if (added) parts.push(`${added} charge(s) récurrente(s)`);
+      if (mediaAdded) parts.push(`${mediaAdded} abonnement(s) TV`);
       onAlert(
-        added
-          ? `${added} obligation(s) ajoutée(s) depuis le parc (loyers + salaires).`
-          : 'Rien à ajouter : les modèles existent déjà.',
-        added ? 'success' : 'info'
+        parts.length
+          ? `Import Yaoundé : ${parts.join(' · ')}.`
+          : 'Rien à ajouter : les modèles Yaoundé existent déjà.',
+        parts.length ? 'success' : 'info'
       );
     } catch (e) {
       console.error(e);
-      onAlert('Import depuis le parc impossible.', 'error');
+      onAlert('Import Yaoundé impossible.', 'error');
     } finally {
       setSeeding(false);
     }
@@ -835,99 +1021,76 @@ export default function ObligationsDeskRail({
   const busy = loadingTemplates || loadingOcc || ensuringYear;
 
   return (
-    <>
-      <div className="hidden md:flex print:hidden fixed right-0 top-1/2 -translate-y-1/2 z-[55] flex-col items-end pointer-events-none">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="pointer-events-auto flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white shadow-xl rounded-l-xl px-2 py-4 border border-orange-700/40 border-r-0 transition-colors"
-          title="Échéances — vue par mois"
-        >
-          <CalendarClock size={22} className="shrink-0" aria-hidden />
-          <span
-            className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap"
-            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-          >
-            Échéances
-          </span>
-        </button>
-      </div>
-
-      <AnimatePresence>
-        {open && (
-          <>
-            <motion.button
-              type="button"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="hidden md:block fixed inset-0 z-[56] bg-black/25 print:hidden"
-              onClick={() => setOpen(false)}
-              aria-label="Fermer"
-            />
-            <motion.aside
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-              className="hidden md:flex print:hidden fixed top-0 right-0 z-[57] h-full w-full max-w-5xl flex-col bg-[#FAFAF9] border-l border-stone-200 shadow-2xl"
-            >
-              <header className="shrink-0 px-5 py-4 border-b border-stone-200 bg-white flex flex-wrap items-start gap-4">
-                <div className="flex-1 min-w-[14rem]">
+    <div className="flex flex-col h-[100dvh] md:h-auto md:min-h-[calc(100vh-2rem)] w-full max-w-6xl mx-auto bg-[#FAFAF9] border-0 md:border border-stone-200 rounded-none md:rounded-2xl md:my-4 md:shadow-sm overflow-hidden">
+              <header className="shrink-0 px-3 sm:px-5 py-3 sm:py-4 border-b border-stone-200 bg-white flex flex-wrap items-start gap-3 sm:gap-4">
+                <div className="flex-1 min-w-0">
+                  {onMenuClick && (
+                    <button
+                      type="button"
+                      onClick={onMenuClick}
+                      className="md:hidden mb-1 p-2.5 -ml-1 rounded-xl hover:bg-stone-100 touch-manipulation"
+                      aria-label="Ouvrir le menu"
+                    >
+                      <PanelRightClose size={20} className="rotate-180" />
+                    </button>
+                  )}
                   <p className="text-[10px] font-black uppercase tracking-widest text-orange-600">
                     Charges récurrentes
                   </p>
-                  <h2 className="text-xl font-black text-stone-900 tracking-tight">Vue par mois</h2>
-                  <p className="text-[11px] text-stone-500 mt-1 leading-relaxed max-w-xl">
-                    Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement,
-                    preuve. Les lignes récurrentes viennent des modèles (modifiables ou retirables pour ce mois) ; les
-                    lignes <strong className="text-stone-700">ponctuelles</strong> s’ajoutent pour le mois affiché.
+                  <h2 className="text-lg sm:text-xl font-black text-stone-900 tracking-tight">Vue par mois</h2>
+                  <p className="hidden sm:block text-[11px] text-stone-500 mt-1 leading-relaxed max-w-xl">
+                    {canEdit
+                      ? 'Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement, preuve. Les lignes récurrentes viennent des modèles ; les lignes ponctuelles s’ajoutent pour le mois affiché.'
+                      : 'Consultation des charges récurrentes (loyers, eau, internet, TV). Seuls les administrateurs peuvent modifier ou marquer les paiements.'}
                   </p>
                   <p className="text-[10px] text-stone-400 mt-1 truncate">{userProfile.email}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {canEdit && (
                   <button
                     type="button"
                     disabled={seeding}
                     onClick={() => void handleSeedFromPark()}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 text-[10px] font-black uppercase tracking-wider disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 text-[10px] font-black uppercase tracking-wider disabled:opacity-50 touch-manipulation w-full sm:w-auto"
                   >
                     {seeding ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                    Loyers + salaires (parc)
+                    Loyers · eau · Starlink · TV
                   </button>
-                  <div className="flex items-center gap-1 bg-stone-100 rounded-xl px-1 py-1 border border-stone-200">
+                  )}
+                  <div className="flex items-center gap-1 bg-stone-100 rounded-xl px-1 py-1 border border-stone-200 w-full sm:w-auto justify-between sm:justify-start">
                     <button
                       type="button"
-                      className="p-2 rounded-lg hover:bg-white text-stone-600"
+                      className="p-2.5 rounded-lg hover:bg-white text-stone-600 touch-manipulation"
                       onClick={() => setViewMonth((v) => shiftCalendarMonth(v, -1))}
                       aria-label="Mois précédent"
                     >
-                      <ChevronLeft size={18} />
+                      <ChevronLeft size={20} />
                     </button>
                     <span className="text-sm font-black px-2 sm:px-3 min-w-[7.5rem] sm:min-w-[9rem] text-center">
                       {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
                     </span>
                     <button
                       type="button"
-                      className="p-2 rounded-lg hover:bg-white text-stone-600"
+                      className="p-2.5 rounded-lg hover:bg-white text-stone-600 touch-manipulation"
                       onClick={() => setViewMonth((v) => shiftCalendarMonth(v, 1))}
                       aria-label="Mois suivant"
                     >
-                      <ChevronRight size={18} />
+                      <ChevronRight size={20} />
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="p-2 rounded-xl hover:bg-stone-100 text-stone-600"
-                    aria-label="Fermer"
-                  >
-                    <PanelRightClose size={22} />
-                  </button>
                 </div>
               </header>
 
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-5 py-4 gap-4">
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto md:overflow-hidden px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
+                <div className="shrink-0">
+                  <MediaSubscriptionsPanel
+                    userUid={userUid}
+                    userProfile={userProfile}
+                    canEdit={canEdit}
+                    onAlert={onAlert}
+                  />
+                </div>
+                {canEdit && (
                 <div className="shrink-0 overflow-y-auto max-h-[38vh] space-y-4 pr-1">
                 <button
                   type="button"
@@ -955,7 +1118,7 @@ export default function ObligationsDeskRail({
                           }
                           className="text-xs rounded-lg border border-stone-200 px-2 py-2"
                         >
-                          {(Object.keys(CATEGORY_LABELS) as ObligationCategory[]).map((k) => (
+                          {categoryOptions.map((k) => (
                             <option key={k} value={k}>
                               {CATEGORY_LABELS[k]}
                             </option>
@@ -1043,6 +1206,8 @@ export default function ObligationsDeskRail({
                     </div>
                   </div>
                 )}
+                </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase text-stone-400">
                   {busy && <Loader2 size={14} className="animate-spin text-orange-600" />}
@@ -1050,21 +1215,21 @@ export default function ObligationsDeskRail({
                     ? 'chargement…'
                     : `${visibleRows.length} obligation(s) ce mois · ${occurrencesYear.length + oneOffsYear.length} ligne(s) sur ${dataYear}`}
                 </div>
-                </div>
 
                 <div className="flex-1 min-h-0 flex flex-col border-t border-stone-200/80 pt-3">
                   <section
                     key={visiblePeriodYm}
                     className="flex flex-col flex-1 min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
                   >
-                        <div className="px-4 py-2.5 bg-stone-100 border-b border-stone-200 flex flex-wrap justify-between items-center gap-2">
+                        <div className="px-3 sm:px-4 py-2.5 bg-stone-100 border-b border-stone-200 flex flex-wrap justify-between items-center gap-2">
                           <h3 className="text-sm font-black text-stone-900">
                             {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
                           </h3>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
                             <span className="text-[10px] font-bold text-stone-500 tabular-nums">
                               {visibleRows.length} obligation(s)
                             </span>
+                            {canEdit && (
                             <button
                               type="button"
                               onClick={() => {
@@ -1081,7 +1246,7 @@ export default function ObligationsDeskRail({
                                   return next;
                                 });
                               }}
-                              className={`text-[9px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-colors ${
+                              className={`text-[10px] font-black uppercase tracking-wider px-3 py-2.5 rounded-lg border transition-colors touch-manipulation ${
                                 oneOffFormYm === visiblePeriodYm
                                   ? 'bg-orange-600 border-orange-700 text-white'
                                   : 'bg-white border-stone-200 text-orange-800 hover:bg-orange-50'
@@ -1089,15 +1254,16 @@ export default function ObligationsDeskRail({
                             >
                               {oneOffFormYm === visiblePeriodYm ? 'Fermer' : '+ Ponctuelle'}
                             </button>
+                            )}
                           </div>
                         </div>
 
-                        {oneOffFormYm === visiblePeriodYm && (
+                        {canEdit && oneOffFormYm === visiblePeriodYm && (
                           <form
                             onSubmit={(e) => void handleSubmitOneOff(e, visiblePeriodYm)}
-                            className="px-4 py-3 bg-orange-50/80 border-b border-orange-100 flex flex-wrap gap-2 items-end"
+                            className="px-3 sm:px-4 py-3 bg-orange-50/80 border-b border-orange-100 flex flex-col sm:flex-wrap sm:flex-row gap-2 sm:items-end"
                           >
-                            <div className="flex-1 min-w-[10rem]">
+                            <div className="flex-1 min-w-0 sm:min-w-[10rem]">
                               <label className="text-[9px] font-black uppercase text-stone-500 block mb-0.5">
                                 Libellé
                               </label>
@@ -1105,10 +1271,10 @@ export default function ObligationsDeskRail({
                                 value={oneOffForm.title}
                                 onChange={(e) => setOneOffForm((s) => ({ ...s, title: e.target.value }))}
                                 placeholder="Ex. Réparation compteur"
-                                className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2 bg-white"
+                                className="w-full text-sm rounded-lg border border-stone-200 px-2 py-2.5 bg-white"
                               />
                             </div>
-                            <div className="w-[9rem]">
+                            <div className="w-full sm:w-[9rem]">
                               <label className="text-[9px] font-black uppercase text-stone-500 block mb-0.5">
                                 Type
                               </label>
@@ -1120,16 +1286,16 @@ export default function ObligationsDeskRail({
                                     category: e.target.value as ObligationCategory,
                                   }))
                                 }
-                                className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2 bg-white"
+                                className="w-full text-sm rounded-lg border border-stone-200 px-2 py-2.5 bg-white"
                               >
-                                {(Object.keys(CATEGORY_LABELS) as ObligationCategory[]).map((k) => (
+                                {categoryOptions.map((k) => (
                                   <option key={k} value={k}>
                                     {CATEGORY_LABELS[k]}
                                   </option>
                                 ))}
                               </select>
                             </div>
-                            <div className="w-[11rem]">
+                            <div className="w-full sm:w-[11rem]">
                               <label className="text-[9px] font-black uppercase text-stone-500 block mb-0.5">
                                 Échéance (dans le mois)
                               </label>
@@ -1139,10 +1305,10 @@ export default function ObligationsDeskRail({
                                 onChange={(e) => setOneOffForm((s) => ({ ...s, dueDate: e.target.value }))}
                                 min={`${visiblePeriodYm}-01`}
                                 max={`${visiblePeriodYm}-31`}
-                                className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2 bg-white"
+                                className="w-full text-sm rounded-lg border border-stone-200 px-2 py-2.5 bg-white"
                               />
                             </div>
-                            <div className="w-[8rem]">
+                            <div className="w-full sm:w-[8rem]">
                               <label className="text-[9px] font-black uppercase text-stone-500 block mb-0.5">
                                 Montant
                               </label>
@@ -1154,19 +1320,153 @@ export default function ObligationsDeskRail({
                                 onChange={(e) =>
                                   setOneOffForm((s) => ({ ...s, expectedAmount: e.target.value }))
                                 }
-                                className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2 bg-white"
+                                className="w-full text-sm rounded-lg border border-stone-200 px-2 py-2.5 bg-white"
                               />
                             </div>
                             <button
                               type="submit"
-                              className="text-[10px] font-black uppercase bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg shrink-0"
+                              className="w-full sm:w-auto text-[11px] font-black uppercase bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg shrink-0 touch-manipulation"
                             >
                               Ajouter la ligne
                             </button>
                           </form>
                         )}
 
-                        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                          <div className="md:hidden p-3 space-y-3">
+                            {!visibleRows.length && (
+                              <p className="py-8 text-center text-stone-400 italic text-sm">Aucune ligne ce mois-ci.</p>
+                            )}
+                            {visibleRows.map((row) => {
+                              if (row.kind === 'recurring') {
+                                const { occ, tpl } = row;
+                                const alert = urgencyLabel(occ.status, occ.dueDate);
+                                const amount = recurringRowExpectedAmount(occ, tpl);
+                                const rowBg =
+                                  occ.status === 'PAID'
+                                    ? 'bg-emerald-50/80 border-emerald-100'
+                                    : alert === 'Dépassé'
+                                      ? 'bg-red-50/80 border-red-100'
+                                      : alert === 'À régler'
+                                        ? 'bg-amber-50/80 border-amber-100'
+                                        : 'bg-white border-stone-200';
+                                return (
+                                  <article key={occ.id} className={`rounded-xl border p-3.5 space-y-3 ${rowBg}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-stone-900 text-sm leading-snug">{recurringRowTitle(occ, tpl)}</p>
+                                        <p className="text-[11px] text-stone-500 mt-0.5">
+                                          {CATEGORY_LABELS[tpl.category]}
+                                          {amount != null && amount > 0 ? ` · ${formatCurrency(amount)}` : ''}
+                                        </p>
+                                        <p className="text-[11px] tabular-nums text-stone-600 mt-1">Échéance {occ.dueDate}</p>
+                                      </div>
+                                      {alert && occ.status !== 'PAID' && (
+                                        <span className={`shrink-0 text-[9px] font-black uppercase px-2 py-1 rounded ${alert === 'Dépassé' ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-950'}`}>{alert}</span>
+                                      )}
+                                      {occ.status === 'PAID' && (
+                                        <span className="shrink-0 text-[9px] font-black uppercase text-emerald-800 px-2 py-1 rounded bg-emerald-100">Réglé</span>
+                                      )}
+                                    </div>
+                                    {canEdit ? (
+                                      <>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Réglé le</label>
+                                            <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
+                                          </div>
+                                          <div>
+                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Preuve</label>
+                                            {occ.proofDownloadUrl ? (
+                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
+                                            ) : (
+                                              <label className="inline-flex items-center justify-center gap-1 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                                <Upload size={14} /> Ajouter
+                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
+                                              </label>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                          {occ.status !== 'PAID' ? (
+                                            <button type="button" onClick={() => void applyPayment(occ, tpl)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
+                                          ) : (
+                                            <button type="button" onClick={() => void clearPayment(occ)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-stone-200 text-stone-800 touch-manipulation">Effacer le paiement</button>
+                                          )}
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <button type="button" onClick={() => openEditRecurring(occ, tpl)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-white border border-stone-300 touch-manipulation inline-flex items-center justify-center gap-1"><Pencil size={12} /> Modifier</button>
+                                            <button type="button" onClick={() => void handleDeleteRecurringOccurrence(occ)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Retirer</button>
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}{occ.proofDownloadUrl ? <> · <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold underline">Preuve</a></> : null}</p>
+                                    )}
+                                  </article>
+                                );
+                              }
+                              const oo = row.oo;
+                              const alert = urgencyLabel(oo.status, oo.dueDate);
+                              const rowBg =
+                                oo.status === 'PAID'
+                                  ? 'bg-emerald-50/80 border-emerald-100'
+                                  : alert === 'Dépassé'
+                                    ? 'bg-red-50/80 border-red-100'
+                                    : alert === 'À régler'
+                                      ? 'bg-amber-50/80 border-amber-100'
+                                      : 'bg-orange-50/50 border-orange-100';
+                              return (
+                                <article key={oo.id} className={`rounded-xl border p-3.5 space-y-3 ${rowBg}`}>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-[9px] font-black uppercase text-orange-800">Ponctuelle</p>
+                                      <p className="font-bold text-stone-900 text-sm">{oo.title}</p>
+                                      <p className="text-[11px] text-stone-500 mt-0.5">{CATEGORY_LABELS[oo.category]}{oo.expectedAmount != null && oo.expectedAmount > 0 ? ` · ${formatCurrency(oo.expectedAmount)}` : ''}</p>
+                                      <p className="text-[11px] tabular-nums text-stone-600 mt-1">Échéance {oo.dueDate}</p>
+                                    </div>
+                                    {alert && oo.status !== 'PAID' && (
+                                      <span className={`shrink-0 text-[9px] font-black uppercase px-2 py-1 rounded ${alert === 'Dépassé' ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-950'}`}>{alert}</span>
+                                    )}
+                                    {oo.status === 'PAID' && (
+                                      <span className="shrink-0 text-[9px] font-black uppercase text-emerald-800 px-2 py-1 rounded bg-emerald-100">Réglé</span>
+                                    )}
+                                  </div>
+                                  {canEdit ? (
+                                    <>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Réglé le</label>
+                                          <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-0.5">Preuve</label>
+                                          {oo.proofDownloadUrl ? (
+                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
+                                          ) : (
+                                            <label className="inline-flex items-center justify-center gap-1 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                              <Upload size={14} /> Ajouter
+                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
+                                            </label>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col gap-2">
+                                        {oo.status !== 'PAID' ? (
+                                          <button type="button" onClick={() => void applyPaymentOneOff(oo)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
+                                        ) : (
+                                          <button type="button" onClick={() => void clearPaymentOneOff(oo)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-stone-200 text-stone-800 touch-manipulation">Effacer le paiement</button>
+                                        )}
+                                        <button type="button" onClick={() => void handleDeleteOneOff(oo)} className="w-full py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Supprimer</button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}{oo.proofDownloadUrl ? <> · <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold underline">Preuve</a></> : null}</p>
+                                  )}
+                                </article>
+                              );
+                            })}
+                          </div>
+                          <div className="hidden md:block overflow-x-auto">
                           <table className="w-full text-left text-[11px] min-w-[720px]">
                             <thead>
                               <tr className="border-b border-stone-100 bg-stone-50/80 text-[9px] font-black uppercase tracking-wider text-stone-500">
@@ -1219,6 +1519,7 @@ export default function ObligationsDeskRail({
                                       </td>
                                       <td className="px-3 py-2 align-top tabular-nums font-medium">{occ.dueDate}</td>
                                       <td className="px-3 py-2 align-top">
+                                        {canEdit ? (
                                         <input
                                           type="date"
                                           className="w-full max-w-[9.5rem] text-[11px] border border-stone-200 rounded-lg px-1 py-1 bg-white"
@@ -1230,6 +1531,9 @@ export default function ObligationsDeskRail({
                                             if (occ.status === 'PAID') void updatePaidDateOnly(occ);
                                           }}
                                         />
+                                        ) : (
+                                          <span className="tabular-nums">{occ.paidAt || '—'}</span>
+                                        )}
                                       </td>
                                       <td className="px-3 py-2 align-top">
                                         {occ.proofDownloadUrl ? (
@@ -1242,6 +1546,7 @@ export default function ObligationsDeskRail({
                                             >
                                               Voir
                                             </a>
+                                            {canEdit && (
                                             <button
                                               type="button"
                                               onClick={() => handleRemoveProof(occ)}
@@ -1249,8 +1554,9 @@ export default function ObligationsDeskRail({
                                             >
                                               Retirer
                                             </button>
+                                            )}
                                           </div>
-                                        ) : (
+                                        ) : canEdit ? (
                                           <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                             <Upload size={12} />
                                             Ajouter
@@ -1266,6 +1572,8 @@ export default function ObligationsDeskRail({
                                               }}
                                             />
                                           </label>
+                                        ) : (
+                                          <span className="text-stone-400">—</span>
                                         )}
                                         {uploadingId === occ.id && (
                                           <Loader2 size={14} className="animate-spin text-orange-600 mt-1" />
@@ -1273,7 +1581,7 @@ export default function ObligationsDeskRail({
                                       </td>
                                       <td className="px-3 py-2 align-top">
                                         <div className="flex flex-wrap gap-1.5 items-center">
-                                          {occ.status !== 'PAID' ? (
+                                          {canEdit && occ.status !== 'PAID' && (
                                             <button
                                               type="button"
                                               onClick={() => void applyPayment(occ, tpl)}
@@ -1281,7 +1589,8 @@ export default function ObligationsDeskRail({
                                             >
                                               OK payé
                                             </button>
-                                          ) : (
+                                          )}
+                                          {canEdit && occ.status === 'PAID' && (
                                             <button
                                               type="button"
                                               onClick={() => void clearPayment(occ)}
@@ -1306,6 +1615,8 @@ export default function ObligationsDeskRail({
                                               Réglé
                                             </span>
                                           )}
+                                          {canEdit && (
+                                          <>
                                           <button
                                             type="button"
                                             onClick={() => openEditRecurring(occ, tpl)}
@@ -1320,6 +1631,8 @@ export default function ObligationsDeskRail({
                                           >
                                             Retirer ce mois
                                           </button>
+                                          </>
+                                          )}
                                         </div>
                                       </td>
                                     </tr>
@@ -1354,6 +1667,7 @@ export default function ObligationsDeskRail({
                                     </td>
                                     <td className="px-3 py-2 align-top tabular-nums font-medium">{oo.dueDate}</td>
                                     <td className="px-3 py-2 align-top">
+                                      {canEdit ? (
                                       <input
                                         type="date"
                                         className="w-full max-w-[9.5rem] text-[11px] border border-stone-200 rounded-lg px-1 py-1 bg-white"
@@ -1365,6 +1679,9 @@ export default function ObligationsDeskRail({
                                           if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo);
                                         }}
                                       />
+                                      ) : (
+                                        <span className="tabular-nums">{oo.paidAt || '—'}</span>
+                                      )}
                                     </td>
                                     <td className="px-3 py-2 align-top">
                                       {oo.proofDownloadUrl ? (
@@ -1377,6 +1694,7 @@ export default function ObligationsDeskRail({
                                           >
                                             Voir
                                           </a>
+                                          {canEdit && (
                                           <button
                                             type="button"
                                             onClick={() => handleRemoveProofOneOff(oo)}
@@ -1384,8 +1702,9 @@ export default function ObligationsDeskRail({
                                           >
                                             Retirer
                                           </button>
+                                          )}
                                         </div>
-                                      ) : (
+                                      ) : canEdit ? (
                                         <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                           <Upload size={12} />
                                           Ajouter
@@ -1401,6 +1720,8 @@ export default function ObligationsDeskRail({
                                             }}
                                           />
                                         </label>
+                                      ) : (
+                                        <span className="text-stone-400">—</span>
                                       )}
                                       {uploadingId === oo.id && (
                                         <Loader2 size={14} className="animate-spin text-orange-600 mt-1" />
@@ -1408,7 +1729,7 @@ export default function ObligationsDeskRail({
                                     </td>
                                     <td className="px-3 py-2 align-top">
                                       <div className="flex flex-wrap gap-1.5 items-center">
-                                        {oo.status !== 'PAID' ? (
+                                        {canEdit && oo.status !== 'PAID' && (
                                           <button
                                             type="button"
                                             onClick={() => void applyPaymentOneOff(oo)}
@@ -1416,7 +1737,8 @@ export default function ObligationsDeskRail({
                                           >
                                             OK payé
                                           </button>
-                                        ) : (
+                                        )}
+                                        {canEdit && oo.status === 'PAID' && (
                                           <button
                                             type="button"
                                             onClick={() => void clearPaymentOneOff(oo)}
@@ -1425,6 +1747,7 @@ export default function ObligationsDeskRail({
                                             Effacer
                                           </button>
                                         )}
+                                        {canEdit && (
                                         <button
                                           type="button"
                                           onClick={() => void handleDeleteOneOff(oo)}
@@ -1432,6 +1755,7 @@ export default function ObligationsDeskRail({
                                         >
                                           Supprimer
                                         </button>
+                                        )}
                                         {alert && oo.status !== 'PAID' && (
                                           <span
                                             className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
@@ -1455,12 +1779,13 @@ export default function ObligationsDeskRail({
                               })}
                             </tbody>
                           </table>
+                          </div>
                         </div>
                       </section>
                 </div>
               </div>
 
-              {editRecurring && (
+              {canEdit && editRecurring && (
                 <div
                   className="absolute inset-0 z-[60] flex items-center justify-center p-4 bg-black/35"
                   role="presentation"
@@ -1585,10 +1910,6 @@ export default function ObligationsDeskRail({
                   </div>
                 </div>
               )}
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-    </>
+    </div>
   );
 }

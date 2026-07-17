@@ -1,4 +1,21 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "obligation_occurrences",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "periodYm", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "obligation_one_offs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "periodYm", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

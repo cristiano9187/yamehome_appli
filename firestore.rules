@@ -85,8 +85,13 @@ service cloud.firestore {
           get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.financeAccess == true);
     }
 
-    /** Rail « Échéances » : super-admins ou flag obligationsAccess (hors menu Coûts). */
-    function canAccessObligations() {
+    /** Charges récurrentes hors salaires : tout agent approuvé. */
+    function canReadPublicObligations() {
+      return isAgent();
+    }
+
+    /** Salaires dans Échéances — super-admins ou flag obligationsAccess (pas tout admin). */
+    function canSeeSalaryObligations() {
       return isMainAdminEmailToken() ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
           'obligationsAccess' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
@@ -94,6 +99,20 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
           'obligationsAccess' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
           get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.obligationsAccess == true);
+    }
+
+    function isPublicObligationCategory(cat) {
+      return cat in ['RENT', 'UTILITIES', 'INTERNET', 'OTHER'];
+    }
+
+    function canReadObligationByCategory(cat) {
+      return canSeeSalaryObligations() ||
+        (cat is string && isPublicObligationCategory(cat));
+    }
+
+    /** Édition Échéances — admins uniquement. */
+    function canEditObligations() {
+      return isAdmin();
     }
 
     /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet. */
@@ -297,10 +316,11 @@ service cloud.firestore {
 
     function isValidObligationOccurrence(data) {
       return data.keys().hasAll(['templateId', 'periodYm', 'dueDate', 'status', 'createdAt', 'updatedAt', 'authorUid']) &&
-        data.keys().hasOnly(['templateId', 'periodYm', 'dueDate', 'displayTitle', 'expectedAmountOverride', 'status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['templateId', 'periodYm', 'dueDate', 'category', 'displayTitle', 'expectedAmountOverride', 'status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.templateId is string && data.templateId.size() > 0 &&
         data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
         data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        (!('category' in data) || data.category == null || data.category in ['RENT', 'UTILITIES', 'INTERNET', 'SALARY', 'OTHER']) &&
         (!('displayTitle' in data) || data.displayTitle == null || (data.displayTitle is string && data.displayTitle.size() > 0 && data.displayTitle.size() <= 200)) &&
         (!('expectedAmountOverride' in data) || data.expectedAmountOverride == null || (data.expectedAmountOverride is number && data.expectedAmountOverride >= 0 && data.expectedAmountOverride < 1000000000000)) &&
         data.status in ['PENDING', 'PAID'] &&
@@ -331,6 +351,38 @@ service cloud.firestore {
         data.authorUid is string && data.authorUid.size() > 0 &&
         data.createdAt is string &&
         data.updatedAt is string;
+    }
+
+    function isValidUnitMediaSubscription(data) {
+      return data.keys().hasAll(['kind', 'unitSlug', 'apartmentName', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['kind', 'unitSlug', 'apartmentName', 'bouquet', 'boxNumber', 'expiresOn', 'active', 'seedKey', 'notes', 'createdAt', 'updatedAt', 'authorUid', 'lastModifiedByUid', 'lastModifiedByName']) &&
+        data.kind in ['CANAL_PLUS', 'IPTV'] &&
+        data.unitSlug is string && data.unitSlug.size() > 0 && data.unitSlug.size() <= 120 &&
+        data.apartmentName is string && data.apartmentName.size() > 0 && data.apartmentName.size() <= 200 &&
+        (!('bouquet' in data) || data.bouquet == null || (data.bouquet is string && data.bouquet.size() <= 120)) &&
+        (!('boxNumber' in data) || data.boxNumber == null || (data.boxNumber is string && data.boxNumber.size() <= 80)) &&
+        (!('expiresOn' in data) || data.expiresOn == null || data.expiresOn.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
+        data.active is bool &&
+        (!('seedKey' in data) || data.seedKey == null || (data.seedKey is string && data.seedKey.size() <= 120)) &&
+        (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string &&
+        (!('lastModifiedByUid' in data) || data.lastModifiedByUid == null || (data.lastModifiedByUid is string && data.lastModifiedByUid.size() > 0 && data.lastModifiedByUid.size() <= 128)) &&
+        (!('lastModifiedByName' in data) || data.lastModifiedByName == null || (data.lastModifiedByName is string && data.lastModifiedByName.size() > 0 && data.lastModifiedByName.size() <= 200));
+    }
+
+    /** Agent : renouvellement TV (date d’expiration + trace) sans toucher au reste. */
+    function isMediaSubscriptionRenewalOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['expiresOn', 'updatedAt', 'lastModifiedByUid', 'lastModifiedByName']) &&
+        request.resource.data.kind == resource.data.kind &&
+        request.resource.data.unitSlug == resource.data.unitSlug &&
+        request.resource.data.apartmentName == resource.data.apartmentName &&
+        request.resource.data.active == resource.data.active &&
+        request.resource.data.authorUid == resource.data.authorUid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.lastModifiedByUid == request.auth.uid;
     }
 
     function isValidObligationOccurrenceSuppression(data) {
@@ -594,43 +646,64 @@ service cloud.firestore {
     }
 
     match /obligation_templates/{templateId} {
-      allow read: if canAccessObligations();
-      allow create: if canAccessObligations() && isValidObligationTemplate(request.resource.data) &&
-        request.resource.data.authorUid == request.auth.uid;
-      allow update: if canAccessObligations() && isValidObligationTemplate(request.resource.data) &&
-        resource.data.authorUid == request.resource.data.authorUid;
-      allow delete: if canAccessObligations() && (isAdmin() || resource.data.authorUid == request.auth.uid);
+      allow read: if canReadPublicObligations() && canReadObligationByCategory(resource.data.category);
+      allow create: if canEditObligations() && isValidObligationTemplate(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        canReadObligationByCategory(request.resource.data.category);
+      allow update: if canEditObligations() && isValidObligationTemplate(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid &&
+        canReadObligationByCategory(request.resource.data.category);
+      allow delete: if canEditObligations();
     }
 
     match /obligation_occurrences/{occId} {
-      allow read: if canAccessObligations();
-      allow create: if canAccessObligations() && isValidObligationOccurrence(request.resource.data) &&
+      allow read: if canReadPublicObligations() && (
+        canSeeSalaryObligations() ||
+        ('category' in resource.data && isPublicObligationCategory(resource.data.category))
+      );
+      allow create: if canEditObligations() && isValidObligationOccurrence(request.resource.data) &&
         occId == request.resource.data.templateId + '__' + request.resource.data.periodYm &&
-        request.resource.data.authorUid == request.auth.uid;
-      allow update: if canAccessObligations() && isValidObligationOccurrence(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        ('category' in request.resource.data) &&
+        canReadObligationByCategory(request.resource.data.category);
+      allow update: if canEditObligations() && isValidObligationOccurrence(request.resource.data) &&
         resource.data.authorUid == request.resource.data.authorUid &&
         resource.data.templateId == request.resource.data.templateId &&
         resource.data.periodYm == request.resource.data.periodYm;
-      allow delete: if canAccessObligations();
+      allow delete: if canEditObligations();
     }
 
     match /obligation_occurrence_suppressions/{supId} {
-      allow read: if canAccessObligations();
-      allow create: if canAccessObligations() && isValidObligationOccurrenceSuppression(request.resource.data) &&
+      allow read: if canEditObligations();
+      allow create: if canEditObligations() && isValidObligationOccurrenceSuppression(request.resource.data) &&
         request.resource.data.authorUid == request.auth.uid &&
         supId == request.resource.data.templateId + '__' + request.resource.data.periodYm;
-      allow delete: if canAccessObligations();
+      allow delete: if canEditObligations();
       allow update: if false;
     }
 
     match /obligation_one_offs/{oneOffId} {
-      allow read: if canAccessObligations();
-      allow create: if canAccessObligations() && isValidObligationOneOff(request.resource.data) &&
-        request.resource.data.authorUid == request.auth.uid;
-      allow update: if canAccessObligations() && isValidObligationOneOff(request.resource.data) &&
+      allow read: if canReadPublicObligations() && canReadObligationByCategory(resource.data.category);
+      allow create: if canEditObligations() && isValidObligationOneOff(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        canReadObligationByCategory(request.resource.data.category);
+      allow update: if canEditObligations() && isValidObligationOneOff(request.resource.data) &&
         resource.data.authorUid == request.resource.data.authorUid &&
         resource.data.periodYm == request.resource.data.periodYm;
-      allow delete: if canAccessObligations();
+      allow delete: if canEditObligations();
+    }
+
+    match /unit_media_subscriptions/{subId} {
+      allow read: if canReadPublicObligations();
+      allow create: if canEditObligations() && isValidUnitMediaSubscription(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid;
+      allow update: if isValidUnitMediaSubscription(request.resource.data) &&
+        resource.data.authorUid == request.resource.data.authorUid &&
+        (
+          canEditObligations() ||
+          (isAgent() && isMediaSubscriptionRenewalOnly())
+        );
+      allow delete: if canEditObligations();
     }
 
     match /finance_entries/{entryId} {

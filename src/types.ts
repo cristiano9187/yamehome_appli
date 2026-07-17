@@ -404,6 +404,8 @@ export interface ObligationOccurrence {
   templateId: string;
   periodYm: string;
   dueDate: string;
+  /** Dénormalisé depuis le modèle — filtre règles / requêtes (masquer SALARY). */
+  category?: ObligationCategory;
   /** Libellé affiché pour ce mois uniquement (sinon celui du modèle). */
   displayTitle?: string | null;
   /** Montant prévu pour ce mois uniquement (sinon celui du modèle). */
@@ -460,4 +462,30 @@ export interface TechnicianContact {
   createdAt: string;
   updatedAt: string;
   authorUid: string;
+}
+
+export type MediaSubscriptionKind = 'CANAL_PLUS' | 'IPTV';
+
+/** Abonnements TV par logement (Canal+ / IPTV) — collection `unit_media_subscriptions`. */
+export interface UnitMediaSubscription {
+  id?: string;
+  kind: MediaSubscriptionKind;
+  unitSlug: string;
+  apartmentName: string;
+  /** Bouquet Canal+ (ou libellé pack IPTV) */
+  bouquet: string | null;
+  /** N° boîtier Canal+ (réabonnement) */
+  boxNumber: string | null;
+  /** Date d’expiration YYYY-MM-DD */
+  expiresOn: string | null;
+  active: boolean;
+  /** Clé stable pour seed / dédoublonnage */
+  seedKey?: string | null;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+  /** Dernière personne ayant modifié / renouvelé */
+  lastModifiedByUid?: string | null;
+  lastModifiedByName?: string | null;
 }

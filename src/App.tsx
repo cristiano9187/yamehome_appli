@@ -94,6 +94,7 @@ import {
   Zap,
   Wrench,
   Wallet,
+  CalendarClock,
   ScrollText,
   ArrowLeft,
   CreditCard,
@@ -215,7 +216,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
   const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | null>(null);
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
@@ -2160,6 +2161,19 @@ export default function App() {
                   <Wrench size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
                   Techniciens
                 </button>
+                {canSeeObligationsRail(userProfile) && (
+                  <button
+                    onClick={() => {
+                      setView('echeances');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'echeances' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    <CalendarClock size={16} className={view === 'echeances' ? '' : 'text-orange-600'} />
+                    Échéances
+                  </button>
+                )}
                 {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
                   <button
                     onClick={() => {
@@ -2895,6 +2909,16 @@ export default function App() {
                 setAlertMessage(msg);
               }}
             />
+          ) : view === 'echeances' ? (
+            <ObligationsDeskRail
+              userProfile={userProfile!}
+              userUid={user!.uid}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+            />
           ) : view === 'costs' ? (
             <CostsView
               userProfile={userProfile}
@@ -3349,18 +3373,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-      {userProfile &&
-        user?.uid &&
-        canSeeObligationsRail(userProfile, isMainAdminEmail) && (
-          <ObligationsDeskRail
-            userProfile={userProfile}
-            userUid={user.uid}
-            onAlert={(msg, type) => {
-              setAlertType(type || 'info');
-              setAlertMessage(msg);
-            }}
-          />
-        )}
     </div>
   );
 }

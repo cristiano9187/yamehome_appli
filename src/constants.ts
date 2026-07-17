@@ -16,8 +16,17 @@ export function canSeeCostsMenu(
   return profile.role === 'admin';
 }
 
-/** Rail PC « Échéances » — indépendant de Coûts & marges ; aligné sur firestore.rules `canAccessObligations`. */
-export function canSeeObligationsRail(
+/** Menu / page « Échéances » — tous les employés connectés (charges hors salaires). */
+export function canSeeObligationsRail(profile: UserProfile | null): boolean {
+  return !!(profile?.email);
+}
+
+/**
+ * Salaires dans Échéances — cercle privé uniquement :
+ * super-admins ou flag obligationsAccess (pas le rôle admin générique,
+ * ex. yamehome.yaounde@gmail.com peut éditer les charges mais pas voir les salaires).
+ */
+export function canSeeSalaryObligations(
   profile: UserProfile | null,
   isMainAdminEmail: (email?: string | null) => boolean
 ): boolean {
@@ -25,6 +34,24 @@ export function canSeeObligationsRail(
   if (isMainAdminEmail(profile.email)) return true;
   return profile.obligationsAccess === true;
 }
+
+/** Édition Échéances (loyers, TV, paiements, seed…) — admins uniquement. */
+export function canEditObligations(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  if (isMainAdminEmail(profile.email)) return true;
+  return profile.role === 'admin';
+}
+
+/** Catégories visibles par tous les employés (hors salaires). */
+export const OBLIGATION_PUBLIC_CATEGORIES = [
+  'RENT',
+  'UTILITIES',
+  'INTERNET',
+  'OTHER',
+] as const;
 
 /** Bloquer / débloquer des dates — aligné sur firestore.rules `canBlockCalendarDates`. */
 export function canBlockCalendarDates(
