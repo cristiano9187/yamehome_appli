@@ -1370,7 +1370,7 @@ export default function ObligationsDeskRail({
                                     </div>
                                     {canEdit ? (
                                       <>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="flex flex-col gap-3">
                                           <div>
                                             <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
                                             <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
@@ -1378,9 +1378,9 @@ export default function ObligationsDeskRail({
                                           <div>
                                             <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                             {occ.proofDownloadUrl ? (
-                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
+                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-1 text-orange-700 font-bold text-xs underline">Voir</a>
                                             ) : (
-                                              <label className="inline-flex items-center justify-center gap-1 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
                                                 <Upload size={14} /> Ajouter
                                                 <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
                                               </label>
@@ -1433,7 +1433,7 @@ export default function ObligationsDeskRail({
                                   </div>
                                   {canEdit ? (
                                     <>
-                                      <div className="grid grid-cols-2 gap-3">
+                                      <div className="flex flex-col gap-3">
                                         <div>
                                           <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
                                           <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
@@ -1441,9 +1441,9 @@ export default function ObligationsDeskRail({
                                         <div>
                                           <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                           {oo.proofDownloadUrl ? (
-                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-2 text-orange-700 font-bold text-xs underline">Voir</a>
+                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-1 text-orange-700 font-bold text-xs underline">Voir</a>
                                           ) : (
-                                            <label className="inline-flex items-center justify-center gap-1 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
                                               <Upload size={14} /> Ajouter
                                               <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
                                             </label>
