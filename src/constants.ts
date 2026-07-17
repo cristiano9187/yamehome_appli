@@ -37,6 +37,24 @@ export function canBlockCalendarDates(
   return profile.calendarBlockAccess === true;
 }
 
+export const TECHNICIAN_DOMAINS = [
+  { id: 'PLOMBERIE' as const, label: 'Plomberie' },
+  { id: 'ELECTRICITE' as const, label: 'Électricité' },
+  { id: 'FROID_CLIM' as const, label: 'Froid & Clim' },
+  { id: 'MENUISERIE' as const, label: 'Menuiserie' },
+  { id: 'NETTOYAGE' as const, label: 'Nettoyage' },
+];
+
+export const TECHNICIAN_CITIES = [
+  { id: 'YAOUNDE' as const, label: 'Yaoundé' },
+  { id: 'BANGANGTE' as const, label: 'Bangangté' },
+];
+
+/** Normalise un numéro pour tel: / wa.me (chiffres uniquement). */
+export function digitsOnlyPhone(phone: string): string {
+  return (phone || '').replace(/\D/g, '');
+}
+
 /**
  * LOGO_BASE64: Paste your logo's base64 string here.
  * You can convert your image to base64 using online tools like 'base64-image.de'

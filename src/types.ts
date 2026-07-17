@@ -437,3 +437,27 @@ export interface ObligationOneOff {
   updatedAt: string;
   authorUid: string;
 }
+
+export type TechnicianDomain =
+  | 'PLOMBERIE'
+  | 'ELECTRICITE'
+  | 'FROID_CLIM'
+  | 'MENUISERIE'
+  | 'NETTOYAGE';
+
+export type TechnicianCity = 'YAOUNDE' | 'BANGANGTE';
+
+/** Annuaire techniciens urgences — collection `technician_contacts`. */
+export interface TechnicianContact {
+  id?: string;
+  name: string;
+  domain: TechnicianDomain;
+  city: TechnicianCity;
+  phone: string;
+  availability?: string;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}

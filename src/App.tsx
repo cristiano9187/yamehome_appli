@@ -61,6 +61,7 @@ const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ProspectsView = lazy(() => import('./components/ProspectsView'));
 const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
+const TechnicianContactsView = lazy(() => import('./components/TechnicianContactsView'));
 const CostsView = lazy(() => import('./components/CostsView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 import { 
@@ -91,6 +92,7 @@ import {
   Calendar as CalendarIcon,
   Loader2,
   Zap,
+  Wrench,
   Wallet,
   ScrollText,
   ArrowLeft,
@@ -213,7 +215,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
   const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | null>(null);
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
@@ -2147,6 +2149,17 @@ export default function App() {
                   <Zap size={16} className={view === 'prepaidTokens' ? '' : 'text-amber-600'} />
                   Prépayé (kWh)
                 </button>
+                <button
+                  onClick={() => {
+                    setView('technicians');
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'technicians' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Wrench size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
+                  Techniciens
+                </button>
                 {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
                   <button
                     onClick={() => {
@@ -2866,6 +2879,15 @@ export default function App() {
             />
           ) : view === 'prepaidTokens' ? (
             <PrepaidElectricityTokensView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+            />
+          ) : view === 'technicians' ? (
+            <TechnicianContactsView
               userProfile={userProfile}
               onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {
