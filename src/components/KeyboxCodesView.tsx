@@ -35,9 +35,7 @@ import {
   X,
   Search,
   Loader2,
-  PackagePlus,
   PackageMinus,
-  RefreshCw,
   LogOut,
   Lock,
   MapPin,
@@ -118,20 +116,19 @@ export default function KeyboxCodesView({
 
   const [seeding, setSeeding] = useState(false);
 
-  const [depositBoxId, setDepositBoxId] = useState<string | null>(null);
-  const [depositSelection, setDepositSelection] = useState<string[]>([]);
-  const [savingDeposit, setSavingDeposit] = useState(false);
+  /** Formulaire linéaire agent : code → clés oui/non → logement(s) */
+  const [setupBoxId, setSetupBoxId] = useState<string | null>(null);
+  const [setupCode, setSetupCode] = useState('');
+  const [setupHasKeys, setSetupHasKeys] = useState<boolean>(false);
+  const [setupDwellingIds, setSetupDwellingIds] = useState<string[]>([]);
+  const [setupConfirmDuplicate, setSetupConfirmDuplicate] = useState(false);
+  const [savingSetup, setSavingSetup] = useState(false);
 
   const [retrieveBoxId, setRetrieveBoxId] = useState<string | null>(null);
   const [retrieveSelection, setRetrieveSelection] = useState<string[]>([]);
   const [retrieveReason, setRetrieveReason] = useState<KeyboxRemovalReason>('REMIS_AU_CLIENT');
   const [retrieveNote, setRetrieveNote] = useState('');
   const [savingRetrieve, setSavingRetrieve] = useState(false);
-
-  const [codeBoxId, setCodeBoxId] = useState<string | null>(null);
-  const [codeValue, setCodeValue] = useState('');
-  const [codeConfirmDuplicate, setCodeConfirmDuplicate] = useState(false);
-  const [savingCode, setSavingCode] = useState(false);
 
   const [boxFormOpen, setBoxFormOpen] = useState(false);
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null);
@@ -259,51 +256,113 @@ export default function KeyboxCodesView({
     }
   }
 
-  // --- Déposer des clés ---
-  function openDeposit(boxId: string) {
-    setDepositBoxId(boxId);
-    setDepositSelection([]);
+  function openSetup(box: KeyboxUnit) {
+    setSetupBoxId(box.id || null);
+    setSetupCode(box.currentCode || '');
+    setSetupHasKeys(box.contents.length > 0);
+    setSetupDwellingIds(box.contents.map((c) => c.dwellingId));
+    setSetupConfirmDuplicate(false);
   }
 
-  async function handleConfirmDeposit() {
-    if (!depositBoxId || depositSelection.length === 0) return;
-    const targetBox = units.find((u) => u.id === depositBoxId);
-    if (!targetBox) return;
-    setSavingDeposit(true);
+  function isDuplicateCode(box: KeyboxUnit, value: string): boolean {
+    if (!value) return false;
+    if (box.currentCode === value || box.previousCode === value) return true;
+    return box.codeHistory.some((h) => h.code === value);
+  }
+
+  async function handleConfirmSetup() {
+    if (!setupBoxId) return;
+    const box = units.find((u) => u.id === setupBoxId);
+    if (!box) return;
+
+    const code = setupCode.trim();
+    if (!code) {
+      onAlert('Le code du boîtier est obligatoire.', 'error');
+      return;
+    }
+    if (setupHasKeys && setupDwellingIds.length === 0) {
+      onAlert('Indiquez au moins un logement si des clés sont dans le boîtier.', 'error');
+      return;
+    }
+    if (isDuplicateCode(box, code) && code !== box.currentCode && !setupConfirmDuplicate) {
+      setSetupConfirmDuplicate(true);
+      return;
+    }
+
+    setSavingSetup(true);
     try {
       const { actorUid, actorName } = actor();
       const now = new Date().toISOString();
       const batch = writeBatch(db);
+      const newMovementLog: KeyboxMovementLogEntry[] = [...box.movementLog];
 
-      const existingOthers = targetBox.contents.filter((c) => !depositSelection.includes(c.dwellingId));
-      const newEntries: KeyboxContentEntry[] = depositSelection.map((id) => ({
+      const codeChanged = code !== box.currentCode;
+      let codePatch: Record<string, unknown> = {};
+      if (codeChanged) {
+        const history = box.currentCode
+          ? [{ code: box.currentCode, changedAt: now, changedByUid: actorUid, changedByName: actorName }, ...box.codeHistory].slice(0, 5)
+          : box.codeHistory;
+        codePatch = {
+          previousCode: box.currentCode,
+          currentCode: code,
+          codeHistory: history,
+          codeUpdatedAt: now,
+          codeUpdatedByUid: actorUid,
+          codeUpdatedByName: actorName,
+        };
+        newMovementLog.unshift({ type: 'CODE', actorUid, actorName, at: now });
+      }
+
+      const targetDwellingIds = setupHasKeys ? setupDwellingIds : [];
+      const prevIds = new Set(box.contents.map((c) => c.dwellingId));
+      const nextIds = new Set(targetDwellingIds);
+
+      const added = targetDwellingIds.filter((id) => !prevIds.has(id));
+      const removed = box.contents.filter((c) => !nextIds.has(c.dwellingId)).map((c) => c.dwellingId);
+
+      for (const id of added) {
+        newMovementLog.unshift({
+          type: 'DEPOT',
+          dwellingId: id,
+          dwellingShortLabel: dwellingMap.get(id)?.shortLabel || id,
+          actorUid,
+          actorName,
+          at: now,
+        });
+      }
+      for (const id of removed) {
+        newMovementLog.unshift({
+          type: setupHasKeys ? 'RETRAIT' : 'VIDE',
+          dwellingId: id,
+          dwellingShortLabel: dwellingMap.get(id)?.shortLabel || id,
+          actorUid,
+          actorName,
+          at: now,
+        });
+      }
+
+      const newContents: KeyboxContentEntry[] = targetDwellingIds.map((id) => ({
         dwellingId: id,
         dwellingShortLabel: dwellingMap.get(id)?.shortLabel || id,
-        sinceAt: now,
+        sinceAt: prevIds.has(id) ? box.contents.find((c) => c.dwellingId === id)?.sinceAt || now : now,
       }));
-      const depositMovements: KeyboxMovementLogEntry[] = depositSelection.map((id) => ({
-        type: 'DEPOT',
-        dwellingId: id,
-        dwellingShortLabel: dwellingMap.get(id)?.shortLabel || id,
-        actorUid,
-        actorName,
-        at: now,
-      }));
-      batch.update(doc(db, 'keybox_units', depositBoxId), {
-        contents: [...existingOthers, ...newEntries],
+
+      batch.update(doc(db, 'keybox_units', setupBoxId), {
+        ...codePatch,
+        contents: newContents,
         contentsUpdatedAt: now,
         contentsUpdatedByUid: actorUid,
         contentsUpdatedByName: actorName,
-        movementLog: [...depositMovements, ...targetBox.movementLog].slice(0, 10),
+        movementLog: newMovementLog.slice(0, 10),
         updatedAt: now,
       });
 
-      for (const box of units) {
-        if (box.id === depositBoxId) continue;
-        const removedIds = box.contents.filter((c) => depositSelection.includes(c.dwellingId)).map((c) => c.dwellingId);
-        if (removedIds.length === 0) continue;
-        const remaining = box.contents.filter((c) => !depositSelection.includes(c.dwellingId));
-        const movs: KeyboxMovementLogEntry[] = removedIds.map((id) => ({
+      for (const other of units) {
+        if (other.id === setupBoxId) continue;
+        const transferIds = other.contents.filter((c) => targetDwellingIds.includes(c.dwellingId)).map((c) => c.dwellingId);
+        if (transferIds.length === 0) continue;
+        const remaining = other.contents.filter((c) => !targetDwellingIds.includes(c.dwellingId));
+        const movs: KeyboxMovementLogEntry[] = transferIds.map((id) => ({
           type: 'RETRAIT',
           dwellingId: id,
           dwellingShortLabel: dwellingMap.get(id)?.shortLabel || id,
@@ -312,25 +371,25 @@ export default function KeyboxCodesView({
           actorName,
           at: now,
         }));
-        batch.update(doc(db, 'keybox_units', box.id!), {
+        batch.update(doc(db, 'keybox_units', other.id!), {
           contents: remaining,
           contentsUpdatedAt: now,
           contentsUpdatedByUid: actorUid,
           contentsUpdatedByName: actorName,
-          movementLog: [...movs, ...box.movementLog].slice(0, 10),
+          movementLog: [...movs, ...other.movementLog].slice(0, 10),
           updatedAt: now,
         });
       }
 
       await batch.commit();
-      onAlert('Clés déposées.', 'success');
-      setDepositBoxId(null);
-      setDepositSelection([]);
+      onAlert('Boîtier enregistré.', 'success');
+      setSetupBoxId(null);
+      setSetupConfirmDuplicate(false);
     } catch (err) {
       console.error(err);
-      onAlert("Erreur lors du dépôt des clés.", 'error');
+      onAlert("Erreur lors de l'enregistrement.", 'error');
     } finally {
-      setSavingDeposit(false);
+      setSavingSetup(false);
     }
   }
 
@@ -378,62 +437,6 @@ export default function KeyboxCodesView({
       onAlert('Erreur lors du retrait des clés.', 'error');
     } finally {
       setSavingRetrieve(false);
-    }
-  }
-
-  // --- Nouveau code ---
-  function openCodeModal(boxId: string) {
-    setCodeBoxId(boxId);
-    setCodeValue('');
-    setCodeConfirmDuplicate(false);
-  }
-
-  function isDuplicateCode(box: KeyboxUnit, value: string): boolean {
-    if (!value) return false;
-    if (box.currentCode === value || box.previousCode === value) return true;
-    return box.codeHistory.some((h) => h.code === value);
-  }
-
-  async function handleConfirmCode() {
-    if (!codeBoxId) return;
-    const box = units.find((u) => u.id === codeBoxId);
-    if (!box) return;
-    const value = codeValue.trim();
-    if (!value) {
-      onAlert('Le nouveau code est obligatoire.', 'error');
-      return;
-    }
-    if (isDuplicateCode(box, value) && !codeConfirmDuplicate) {
-      setCodeConfirmDuplicate(true);
-      return;
-    }
-    setSavingCode(true);
-    try {
-      const { actorUid, actorName } = actor();
-      const now = new Date().toISOString();
-      const history = box.currentCode
-        ? [{ code: box.currentCode, changedAt: now, changedByUid: actorUid, changedByName: actorName }, ...box.codeHistory].slice(0, 5)
-        : box.codeHistory;
-      const movement: KeyboxMovementLogEntry = { type: 'CODE', actorUid, actorName, at: now };
-      await updateDoc(doc(db, 'keybox_units', codeBoxId), {
-        previousCode: box.currentCode,
-        currentCode: value,
-        codeHistory: history,
-        codeUpdatedAt: now,
-        codeUpdatedByUid: actorUid,
-        codeUpdatedByName: actorName,
-        movementLog: [movement, ...box.movementLog].slice(0, 10),
-        updatedAt: now,
-      });
-      onAlert('Nouveau code enregistré.', 'success');
-      setCodeBoxId(null);
-      setCodeValue('');
-      setCodeConfirmDuplicate(false);
-    } catch (err) {
-      console.error(err);
-      onAlert('Erreur lors de la mise à jour du code.', 'error');
-    } finally {
-      setSavingCode(false);
     }
   }
 
@@ -887,24 +890,14 @@ export default function KeyboxCodesView({
 
                         <div className="flex flex-wrap gap-2">
                           {canOperate && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => openDeposit(box.id!)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all touch-manipulation"
-                              >
-                                <PackagePlus size={13} />
-                                Déposer
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openCodeModal(box.id!)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all touch-manipulation"
-                              >
-                                <RefreshCw size={13} />
-                                Nouveau code
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => openSetup(box)}
+                              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all touch-manipulation w-full sm:w-auto justify-center"
+                            >
+                              <Pencil size={13} />
+                              Mettre à jour
+                            </button>
                           )}
                           {!isEmpty && (
                             <button
@@ -1011,66 +1004,166 @@ export default function KeyboxCodesView({
         </div>
       </div>
 
-      {/* Modal Déposer des clés */}
+      {/* Modal linéaire agent : code → clés → logement(s) */}
       <AnimatePresence>
-        {depositBoxId && (
+        {setupBoxId && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
-              className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
             >
               <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
-                <h3 className="text-sm font-black uppercase tracking-widest">
-                  Déposer des clés — Boîtier {units.find((u) => u.id === depositBoxId)?.letter}
-                </h3>
-                <button type="button" onClick={() => setDepositBoxId(null)} className="p-2 hover:bg-gray-100 rounded-full">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Étape par étape</p>
+                  <h3 className="text-sm font-black uppercase tracking-widest">
+                    Boîtier {units.find((u) => u.id === setupBoxId)?.letter}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSetupBoxId(null);
+                    setSetupConfirmDuplicate(false);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-full"
+                >
                   <X size={18} />
                 </button>
               </div>
-              <div className="p-5 space-y-2 overflow-y-auto flex-1">
-                <p className="text-[11px] text-gray-500 mb-2">
-                  Sélectionnez le(s) logement(s) dont les clés sont maintenant dans ce boîtier. Ils seront automatiquement retirés de leur ancien boîtier.
-                </p>
-                {dwellings.filter((d) => d.active !== false).map((d) => {
-                  const { box: currentBox } = locateDwelling(d.id!);
-                  const isSelected = depositSelection.includes(d.id!);
-                  return (
+
+              <div className="p-5 space-y-5 overflow-y-auto flex-1">
+                {/* 1. Code */}
+                <div>
+                  <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                    <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[9px] flex items-center justify-center">1</span>
+                    Code du boîtier
+                  </label>
+                  <input
+                    autoFocus
+                    inputMode="numeric"
+                    value={setupCode}
+                    onChange={(e) => {
+                      setSetupCode(e.target.value);
+                      setSetupConfirmDuplicate(false);
+                    }}
+                    placeholder="Ex. 1987"
+                    className="w-full px-4 py-3.5 bg-gray-50 rounded-xl text-xl font-black tracking-widest text-center outline-none focus:ring-2 focus:ring-slate-900"
+                  />
+                </div>
+
+                {/* 2. Clés à l'intérieur ? */}
+                <div>
+                  <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                    <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[9px] flex items-center justify-center">2</span>
+                    Clés à l'intérieur ?
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
                     <button
-                      key={d.id}
                       type="button"
-                      onClick={() =>
-                        setDepositSelection((prev) =>
-                          prev.includes(d.id!) ? prev.filter((x) => x !== d.id) : [...prev, d.id!]
-                        )
-                      }
-                      className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left transition-all ${
-                        isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      onClick={() => {
+                        setSetupHasKeys(true);
+                        if (setupDwellingIds.length === 0) {
+                          const box = units.find((u) => u.id === setupBoxId);
+                          if (box && box.contents.length > 0) {
+                            setSetupDwellingIds(box.contents.map((c) => c.dwellingId));
+                          }
+                        }
+                      }}
+                      className={`py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all touch-manipulation ${
+                        setupHasKeys
+                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-gray-900">{d.shortLabel}</p>
-                        <p className="text-[10px] text-gray-400 truncate">{d.officialLabel}</p>
-                      </div>
-                      {currentBox && currentBox.id !== depositBoxId && (
-                        <span className="shrink-0 text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                          depuis {currentBox.letter}
-                        </span>
-                      )}
+                      Oui, des clés
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSetupHasKeys(false);
+                        setSetupDwellingIds([]);
+                      }}
+                      className={`py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all touch-manipulation ${
+                        !setupHasKeys
+                          ? 'bg-gray-700 border-gray-700 text-white'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      Non, boîtier vide
+                    </button>
+                  </div>
+                  {!setupHasKeys && (
+                    <p className="text-[11px] text-gray-500 mt-2">
+                      Seul le code sera enregistré — aucun logement attribué.
+                    </p>
+                  )}
+                </div>
+
+                {/* 3. Logement(s) — si clés */}
+                {setupHasKeys && (
+                  <div>
+                    <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                      <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[9px] flex items-center justify-center">3</span>
+                      Logement ou local
+                    </label>
+                    <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                      {dwellings
+                        .filter((d) => d.active !== false && d.site === units.find((u) => u.id === setupBoxId)?.site)
+                        .map((d) => {
+                          const { box: currentBox } = locateDwelling(d.id!);
+                          const isSelected = setupDwellingIds.includes(d.id!);
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onClick={() =>
+                                setSetupDwellingIds((prev) =>
+                                  prev.includes(d.id!) ? prev.filter((x) => x !== d.id) : [...prev, d.id!]
+                                )
+                              }
+                              className={`w-full flex items-center justify-between gap-2 px-3 py-3 rounded-xl border text-left transition-all touch-manipulation ${
+                                isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-black text-gray-900">{d.shortLabel}</p>
+                                <p className="text-[11px] text-gray-400 truncate">{d.officialLabel}</p>
+                              </div>
+                              {currentBox && currentBox.id !== setupBoxId && (
+                                <span className="shrink-0 text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                                  boîtier {currentBox.letter}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {setupConfirmDuplicate && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+                    <History size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-800">
+                      Ce code a déjà été utilisé récemment sur ce boîtier. Confirmer quand même ?
+                    </p>
+                  </div>
+                )}
               </div>
+
               <div className="p-5 border-t border-gray-100 shrink-0">
                 <button
                   type="button"
-                  onClick={handleConfirmDeposit}
-                  disabled={savingDeposit || depositSelection.length === 0}
-                  className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  onClick={handleConfirmSetup}
+                  disabled={savingSetup}
+                  className={`w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-2 transition-all touch-manipulation ${
+                    setupConfirmDuplicate ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-slate-900 hover:bg-black text-white'
+                  }`}
                 >
-                  {savingDeposit ? <Loader2 className="animate-spin" size={16} /> : <PackagePlus size={16} />}
-                  Confirmer le dépôt
+                  {savingSetup ? <Loader2 className="animate-spin" size={16} /> : null}
+                  {setupConfirmDuplicate ? 'Confirmer malgré tout' : 'Enregistrer'}
                 </button>
               </div>
             </motion.div>
@@ -1151,71 +1244,6 @@ export default function KeyboxCodesView({
                 >
                   {savingRetrieve ? <Loader2 className="animate-spin" size={16} /> : <PackageMinus size={16} />}
                   Confirmer le retrait
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Modal Nouveau code */}
-      <AnimatePresence>
-        {codeBoxId && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 24 }}
-              className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden"
-            >
-              <div className="flex items-center justify-between p-5 border-b border-gray-100">
-                <h3 className="text-sm font-black uppercase tracking-widest">
-                  Nouveau code — Boîtier {units.find((u) => u.id === codeBoxId)?.letter}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCodeBoxId(null);
-                    setCodeConfirmDuplicate(false);
-                  }}
-                  className="p-2 hover:bg-gray-100 rounded-full"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Nouveau code</label>
-                  <input
-                    autoFocus
-                    inputMode="numeric"
-                    value={codeValue}
-                    onChange={(e) => {
-                      setCodeValue(e.target.value);
-                      setCodeConfirmDuplicate(false);
-                    }}
-                    placeholder="Ex. 2048"
-                    className="w-full px-4 py-3 bg-gray-50 rounded-xl text-lg font-black tracking-widest text-center outline-none focus:ring-2 focus:ring-slate-900"
-                  />
-                </div>
-                {codeConfirmDuplicate && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-                    <History size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-amber-800">
-                      Ce code a déjà été utilisé récemment sur ce boîtier. Confirmer quand même ?
-                    </p>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={handleConfirmCode}
-                  disabled={savingCode}
-                  className={`w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-2 transition-all ${
-                    codeConfirmDuplicate ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-slate-900 hover:bg-black text-white'
-                  }`}
-                >
-                  {savingCode ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-                  {codeConfirmDuplicate ? 'Confirmer malgré tout' : 'Enregistrer le code'}
                 </button>
               </div>
             </motion.div>
