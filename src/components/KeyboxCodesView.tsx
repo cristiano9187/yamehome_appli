@@ -12,6 +12,7 @@ import {
   KeyboxDwelling,
   KeyboxUnit,
   KeyboxContentEntry,
+  KeyboxCodeHistoryEntry,
   KeyboxMovementLogEntry,
   KeyboxRemovalReason,
   KeyboxSite,
@@ -91,6 +92,27 @@ function formatDateTimeFr(iso?: string | null): string {
   } catch {
     return iso;
   }
+}
+
+/** Codes récemment utilisés sur ce boîtier (max 5) — affichage anti-doublon. */
+function recentCodesForDisplay(box: KeyboxUnit): KeyboxCodeHistoryEntry[] {
+  if (box.codeHistory.length > 0) return box.codeHistory.slice(0, 5);
+  if (
+    box.previousCode &&
+    box.currentCode &&
+    box.previousCode !== box.currentCode &&
+    box.codeUpdatedAt
+  ) {
+    return [
+      {
+        code: box.previousCode,
+        changedAt: box.codeUpdatedAt,
+        changedByUid: box.codeUpdatedByUid || '',
+        changedByName: box.codeUpdatedByName || '—',
+      },
+    ];
+  }
+  return [];
 }
 
 export default function KeyboxCodesView({
@@ -395,14 +417,21 @@ export default function KeyboxCodesView({
 
   // --- Retirer des clés ---
   function openRetrieve(boxId: string) {
+    const box = units.find((u) => u.id === boxId);
+    const contentIds = box?.contents.map((c) => c.dwellingId) ?? [];
     setRetrieveBoxId(boxId);
-    setRetrieveSelection([]);
+    // Une seule clé dans le boîtier → présélectionnée (cas le plus fréquent)
+    setRetrieveSelection(contentIds.length === 1 ? contentIds : []);
     setRetrieveReason('REMIS_AU_CLIENT');
     setRetrieveNote('');
   }
 
   async function handleConfirmRetrieve() {
-    if (!retrieveBoxId || retrieveSelection.length === 0) return;
+    if (!retrieveBoxId) return;
+    if (retrieveSelection.length === 0) {
+      onAlert('Sélectionnez au moins une clé à retirer.', 'error');
+      return;
+    }
     const box = units.find((u) => u.id === retrieveBoxId);
     if (!box) return;
     setSavingRetrieve(true);
@@ -770,7 +799,7 @@ export default function KeyboxCodesView({
                 <AnimatePresence>
                   {visibleUnits.map((box) => {
                     const currentKey = `${box.id}:current`;
-                    const previousKey = `${box.id}:previous`;
+                    const recentCodes = recentCodesForDisplay(box);
                     const isEmpty = box.contents.length === 0;
                     return (
                       <motion.div
@@ -812,11 +841,11 @@ export default function KeyboxCodesView({
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="space-y-3 mb-3">
                           <div className="bg-gray-50 rounded-xl p-3">
                             <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Code actuel</p>
                             <div className="flex items-center gap-2">
-                              <span className="text-lg font-black tracking-widest text-gray-900 tabular-nums">
+                              <span className="text-2xl sm:text-3xl font-black tracking-widest text-gray-900 tabular-nums">
                                 {box.currentCode ? (revealed.has(currentKey) ? box.currentCode : '••••') : '—'}
                               </span>
                               {box.currentCode && (
@@ -842,25 +871,48 @@ export default function KeyboxCodesView({
                                 </>
                               )}
                             </div>
+                            {box.codeUpdatedAt && (
+                              <p className="text-[10px] text-gray-400 mt-1.5">
+                                Mis à jour {formatDateTimeFr(box.codeUpdatedAt)} · {box.codeUpdatedByName}
+                              </p>
+                            )}
                           </div>
-                          <div className="bg-gray-50 rounded-xl p-3">
-                            <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Ancien code</p>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold tracking-widest text-gray-500 tabular-nums">
-                                {box.previousCode ? (revealed.has(previousKey) ? box.previousCode : '••••') : '—'}
-                              </span>
-                              {box.previousCode && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleReveal(previousKey)}
-                                  className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-100"
-                                  title={revealed.has(previousKey) ? 'Masquer' : 'Afficher'}
-                                >
-                                  {revealed.has(previousKey) ? <EyeOff size={12} /> : <Eye size={12} />}
-                                </button>
-                              )}
+                          {recentCodes.length > 0 && (
+                            <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
+                              <p className="text-[9px] font-black uppercase text-amber-800/70 mb-2 flex items-center gap-1.5">
+                                <History size={11} />
+                                5 derniers codes — à ne pas réutiliser
+                              </p>
+                              <ul className="space-y-1.5">
+                                {recentCodes.map((entry, idx) => {
+                                  const historyKey = `${box.id}:history:${idx}`;
+                                  return (
+                                    <li
+                                      key={`${entry.code}-${entry.changedAt}-${idx}`}
+                                      className="flex items-center justify-between gap-2 text-sm"
+                                    >
+                                      <span className="font-black tracking-widest tabular-nums text-gray-700">
+                                        {revealed.has(historyKey) ? entry.code : '••••'}
+                                      </span>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] text-gray-500 truncate">
+                                          {formatDateTimeFr(entry.changedAt)} · {entry.changedByName}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleReveal(historyKey)}
+                                          className="p-1 rounded-lg bg-white border border-amber-200/80 text-gray-500 hover:bg-amber-50 shrink-0"
+                                          title={revealed.has(historyKey) ? 'Masquer' : 'Afficher'}
+                                        >
+                                          {revealed.has(historyKey) ? <EyeOff size={11} /> : <Eye size={11} />}
+                                        </button>
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
                             </div>
-                          </div>
+                          )}
                         </div>
 
                         <div className="mb-3">
@@ -874,7 +926,7 @@ export default function KeyboxCodesView({
                               {box.contents.map((c) => (
                                 <span
                                   key={c.dwellingId}
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800"
+                                  className="inline-flex items-center gap-1 text-sm sm:text-base font-black px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800"
                                 >
                                   {c.dwellingShortLabel}
                                 </span>
@@ -928,8 +980,8 @@ export default function KeyboxCodesView({
                 return (
                   <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-black text-gray-900 truncate">{d.shortLabel}</p>
-                      <p className="text-[11px] text-gray-400 truncate">{d.officialLabel}</p>
+                      <p className="text-lg sm:text-xl font-black text-gray-900 truncate">{d.shortLabel}</p>
+                      <p className="text-xs sm:text-sm text-gray-400 truncate">{d.officialLabel}</p>
                     </div>
                     <div className="text-right shrink-0">
                       {box ? (
@@ -937,12 +989,14 @@ export default function KeyboxCodesView({
                           <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800">
                             Boîtier {box.letter}
                           </span>
-                          <p className="text-[10px] text-gray-400 mt-1">
-                            Code {revealed.has(`${box.id}:current`) ? box.currentCode : '••••'}{' '}
+                          <p className="text-xs sm:text-sm text-gray-500 mt-1.5">
+                            <span className="text-base sm:text-lg font-black tracking-widest tabular-nums text-gray-900">
+                              {revealed.has(`${box.id}:current`) ? box.currentCode : '••••'}
+                            </span>
                             <button
                               type="button"
                               onClick={() => toggleReveal(`${box.id}:current`)}
-                              className="ml-1 underline"
+                              className="ml-2 text-xs sm:text-sm font-bold text-amber-700 underline"
                             >
                               {revealed.has(`${box.id}:current`) ? 'Masquer' : 'Afficher'}
                             </button>
@@ -1051,6 +1105,26 @@ export default function KeyboxCodesView({
                     placeholder="Ex. 1987"
                     className="w-full px-4 py-3.5 bg-gray-50 rounded-xl text-xl font-black tracking-widest text-center outline-none focus:ring-2 focus:ring-slate-900"
                   />
+                  {(() => {
+                    const setupBox = units.find((u) => u.id === setupBoxId);
+                    const recent = setupBox ? recentCodesForDisplay(setupBox) : [];
+                    if (recent.length === 0) return null;
+                    return (
+                      <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl p-3">
+                        <p className="text-[9px] font-black uppercase text-amber-800/70 mb-2">
+                          Codes déjà utilisés récemment sur ce boîtier
+                        </p>
+                        <ul className="space-y-1">
+                          {recent.map((entry, idx) => (
+                            <li key={`${entry.code}-${entry.changedAt}-${idx}`} className="flex justify-between gap-2 text-xs">
+                              <span className="font-black tracking-widest tabular-nums text-gray-700">{entry.code}</span>
+                              <span className="text-[10px] text-gray-500 shrink-0">{formatDateTimeFr(entry.changedAt)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* 2. Clés à l'intérieur ? */}
@@ -1190,7 +1264,11 @@ export default function KeyboxCodesView({
                 </button>
               </div>
               <div className="p-5 space-y-4">
-                <div className="space-y-2">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                    Clés à retirer {retrieveSelection.length === 0 && '(touchez pour sélectionner)'}
+                  </label>
+                  <div className="space-y-2">
                   {(units.find((u) => u.id === retrieveBoxId)?.contents || []).map((c) => {
                     const isSelected = retrieveSelection.includes(c.dwellingId);
                     return (
@@ -1202,14 +1280,18 @@ export default function KeyboxCodesView({
                             prev.includes(c.dwellingId) ? prev.filter((x) => x !== c.dwellingId) : [...prev, c.dwellingId]
                           )
                         }
-                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-all ${
-                          isSelected ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                        className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border text-left transition-all touch-manipulation ${
+                          isSelected ? 'bg-red-50 border-red-400 ring-2 ring-red-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                         }`}
                       >
-                        <span className="text-xs font-bold text-gray-900">{c.dwellingShortLabel}</span>
+                        <span className="text-sm font-black text-gray-900">{c.dwellingShortLabel}</span>
+                        <span className={`text-[10px] font-black uppercase ${isSelected ? 'text-red-600' : 'text-gray-400'}`}>
+                          {isSelected ? '✓ Sélectionné' : 'Toucher'}
+                        </span>
                       </button>
                     );
                   })}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Raison du retrait</label>
@@ -1239,8 +1321,12 @@ export default function KeyboxCodesView({
                 <button
                   type="button"
                   onClick={handleConfirmRetrieve}
-                  disabled={savingRetrieve || retrieveSelection.length === 0}
-                  className="w-full py-3.5 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  disabled={savingRetrieve}
+                  className={`w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 touch-manipulation transition-all ${
+                    retrieveSelection.length === 0
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-red-600 text-white hover:bg-red-700'
+                  } disabled:opacity-50`}
                 >
                   {savingRetrieve ? <Loader2 className="animate-spin" size={16} /> : <PackageMinus size={16} />}
                   Confirmer le retrait
