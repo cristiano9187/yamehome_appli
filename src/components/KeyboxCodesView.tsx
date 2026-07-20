@@ -988,7 +988,7 @@ export default function KeyboxCodesView({
                           <div className="mb-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
                             <p className="text-[9px] font-black uppercase text-gray-400 mb-2">Journal des mouvements</p>
                             <ul className="space-y-2">
-                              {box.movementLog.slice(0, 5).map((entry, idx) => {
+                              {box.movementLog.slice(0, 2).map((entry, idx) => {
                                 const { title, subtitle } = movementSummary(entry);
                                 return (
                                   <li key={`${entry.type}-${entry.at}-${idx}`}>
