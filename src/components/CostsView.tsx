@@ -17,6 +17,7 @@ import {
   FINANCE_QUICK_RENT_AMOUNT_FALLBACK,
   FINANCE_QUICK_SALARY_AMOUNT_BY_HINT,
   formatCurrency,
+  formatMonthYearFr,
   getFinanceCostsRentQuickFillUnitRows,
   getFinanceCostsUnitRowsFromTarifs,
   getFinanceQuickRentDefaultAmount,
@@ -619,16 +620,13 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
           </div>
         </div>
         <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200 self-start md:self-auto">
-          <button type="button" onClick={() => shiftMonth(-1)} className="p-2 hover:bg-white rounded-lg text-gray-600">
+          <button type="button" onClick={() => shiftMonth(-1)} className="p-2 hover:bg-white rounded-lg text-gray-600" aria-label="Mois précédent">
             <ChevronLeft size={18} />
           </button>
-          <input
-            type="month"
-            value={monthYm}
-            onChange={(e) => setMonthYm(e.target.value)}
-            className="bg-transparent text-xs font-black uppercase tracking-widest text-gray-900 px-2 py-1 rounded-lg border-none focus:ring-2 focus:ring-emerald-500/30"
-          />
-          <button type="button" onClick={() => shiftMonth(1)} className="p-2 hover:bg-white rounded-lg text-gray-600">
+          <span className="min-w-[9rem] text-center text-xs font-black uppercase tracking-widest text-gray-900 px-2 py-1">
+            {formatMonthYearFr(monthYm)}
+          </span>
+          <button type="button" onClick={() => shiftMonth(1)} className="p-2 hover:bg-white rounded-lg text-gray-600" aria-label="Mois suivant">
             <ChevronRight size={18} />
           </button>
         </div>

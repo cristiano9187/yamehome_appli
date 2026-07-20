@@ -31,6 +31,7 @@ import {
   canEditObligations,
   canSeeSalaryObligations,
   OBLIGATION_PUBLIC_CATEGORIES,
+  MOIS_FR,
 } from '../constants';
 import {
   ChevronLeft,
@@ -64,21 +65,6 @@ const CATEGORY_LABELS: Record<ObligationCategory, string> = {
   SALARY: 'Salaires',
   OTHER: 'Autre',
 };
-
-const MOIS_FR = [
-  'Janvier',
-  'Février',
-  'Mars',
-  'Avril',
-  'Mai',
-  'Juin',
-  'Juillet',
-  'Août',
-  'Septembre',
-  'Octobre',
-  'Novembre',
-  'Décembre',
-] as const;
 
 function getLocalDateString(d: Date = new Date()): string {
   const y = d.getFullYear();

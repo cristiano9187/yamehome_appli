@@ -260,6 +260,29 @@ export const formatCurrency = (amount: number) => {
   return amount.toLocaleString('fr-FR', { style: 'currency', currency: 'XAF', minimumFractionDigits: 0, maximumFractionDigits: 0 });
 };
 
+/** Noms de mois en français (affichage UI). */
+export const MOIS_FR = [
+  'Janvier',
+  'Février',
+  'Mars',
+  'Avril',
+  'Mai',
+  'Juin',
+  'Juillet',
+  'Août',
+  'Septembre',
+  'Octobre',
+  'Novembre',
+  'Décembre',
+] as const;
+
+/** Ex. `2026-07` → « Juillet 2026 » */
+export function formatMonthYearFr(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return ym;
+  return `${MOIS_FR[m - 1]} ${y}`;
+}
+
 /** Tous les logements (slug calendrier + intitulé TARIF) — pour jetons kWh, compteurs, etc. */
 export function getAllUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
   const out: { unitSlug: string; apartmentName: string }[] = [];
