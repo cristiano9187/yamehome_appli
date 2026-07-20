@@ -11,6 +11,33 @@ interface UserManagementProps {
   onMenuClick?: () => void;
 }
 
+function AccessPill({
+  active,
+  onClick,
+  label,
+  activeClass,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  activeClass: string;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-colors touch-manipulation ${
+        active ? activeClass : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+      }`}
+    >
+      {label} {active ? '✓' : '○'}
+    </button>
+  );
+}
+
 export default function UserManagement({ onAlert, onMenuClick }: UserManagementProps) {
   const [emails, setEmails] = useState<AuthorizedEmail[]>([]);
   const [newEmail, setNewEmail] = useState('');
@@ -77,12 +104,10 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
-  const handleUpdateRole = async (id: string, newRole: 'admin' | 'agent') => {
+  const handleUpdateRole = async (id: string, role: 'admin' | 'agent') => {
     setIsUpdating(id);
     try {
-      await setDoc(doc(db, 'authorized_emails', id), {
-        role: newRole
-      }, { merge: true });
+      await setDoc(doc(db, 'authorized_emails', id), { role }, { merge: true });
       onAlert("Rôle mis à jour avec succès", 'success');
     } catch (error) {
       console.error("Error updating role:", error);
@@ -95,13 +120,8 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
   const handleToggleSite = async (id: string, current: string[], site: string) => {
     setIsUpdating(id);
     try {
-      const next = current.includes(site)
-        ? current.filter(s => s !== site)
-        : [...current, site];
-      
-      await setDoc(doc(db, 'authorized_emails', id), {
-        allowedSites: next
-      }, { merge: true });
+      const next = current.includes(site) ? current.filter(s => s !== site) : [...current, site];
+      await setDoc(doc(db, 'authorized_emails', id), { allowedSites: next }, { merge: true });
     } catch (error) {
       console.error("Error updating sites:", error);
       onAlert("Erreur lors de la mise à jour des accès", 'error');
@@ -127,7 +147,7 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     setIsUpdating(authEmailId);
     try {
       await setDoc(doc(db, 'authorized_emails', authEmailId), { obligationsAccess: !current }, { merge: true });
-      onAlert(!current ? 'Accès au rail Échéances activé' : 'Accès au rail Échéances retiré', 'success');
+      onAlert(!current ? 'Accès salaires Échéances activé' : 'Accès salaires Échéances retiré', 'success');
     } catch (error) {
       console.error('Error toggling obligations access:', error);
       onAlert('Erreur lors de la mise à jour', 'error');
@@ -166,267 +186,274 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
+  const protectedEmails = ['christian.yamepi@gmail.com', 'cyamepi@gmail.com'];
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex-1 flex items-center justify-center bg-[#F5F5F4] min-h-[50vh]">
         <Loader2 className="animate-spin text-blue-600" size={32} />
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <div className="mb-8 flex items-center gap-4">
+    <div className="flex-1 flex flex-col min-h-0 md:h-full bg-[#F5F5F4] md:overflow-hidden">
+      {/* En-tête fixe */}
+      <div className="shrink-0 bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex items-center gap-3 sticky top-0 z-40">
         {onMenuClick && (
-          <button 
+          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onMenuClick();
-            }} 
-            className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all"
+            }}
+            className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all touch-manipulation"
+            aria-label="Ouvrir le menu"
           >
             <Menu size={20} />
           </button>
         )}
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter flex items-center gap-2">
-            <Shield className="text-blue-600" /> Gestion des Accès
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-black uppercase tracking-widest text-gray-900 flex items-center gap-2">
+            <Shield className="text-blue-600 shrink-0" size={18} />
+            Gestion des accès
           </h2>
-          <p className="text-gray-500 text-sm mt-1">Définissez les emails autorisés à se connecter à l'application.</p>
-          <p className="text-amber-950/90 text-xs mt-4 leading-relaxed max-w-3xl border border-amber-100 bg-amber-50/70 rounded-xl px-4 py-3">
-            <span className="font-black uppercase tracking-wider text-[10px] text-amber-900 block mb-1">
-              Rail « Échéances » (PC)
-            </span>
-            Le bouton <strong className="text-amber-950">« Vue Échéances »</strong> sur chaque ligne autorise l’onglet orange à droite de l’écran : suivi des charges mensuelles, retards et preuves — sans accès au menu « Coûts &amp; marges ».
-            Les <strong className="text-amber-950">super-admins</strong> voient toujours ce rail.
-          </p>
-          <p className="text-emerald-900/85 text-xs mt-4 leading-relaxed max-w-3xl border border-emerald-100 bg-emerald-50/60 rounded-xl px-4 py-3">
-            <span className="font-black uppercase tracking-wider text-[10px] text-emerald-800 block mb-1">
-              Vue Coûts &amp; marges
-            </span>
-            Sur chaque ligne, le bouton <strong className="text-emerald-950">« Vue Coûts »</strong> active ou désactive l’accès au menu vert (saisie des lignes et lecture des marges).
-            Les <strong className="text-emerald-950">super-admins</strong> ont toujours accès. Les autres <strong className="text-emerald-950">administrateurs</strong> aussi, sauf le compte générique Yaoundé (<strong className="font-mono text-[10px]">yamehome.yaounde@gmail.com</strong>) qui n’a la vue Coûts que si vous activez explicitement ce bouton.
+          <p className="text-[10px] font-mono text-gray-400 font-bold mt-0.5">
+            {emails.length} compte{emails.length !== 1 ? 's' : ''} autorisé{emails.length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-        <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Email de l'employé</label>
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="exemple@gmail.com"
-              className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 transition-all"
-              required
-            />
-          </div>
-          <div className="w-full md:w-48">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Rôle</label>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as any)}
-              className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 transition-all"
-            >
-              <option value="agent">Agent (Standard)</option>
-              <option value="admin">Administrateur</option>
-            </select>
-          </div>
-          <div className="w-full md:w-40">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Blocage calendrier</label>
-            <button
-              type="button"
-              onClick={() => setNewCalendarBlockAccess((v) => !v)}
-              className={`w-full px-4 py-3 rounded-xl text-[10px] font-black uppercase transition-all border ${
-                newCalendarBlockAccess
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-              }`}
-            >
-              Bloquer dates {newCalendarBlockAccess ? '✓' : '○'}
-            </button>
-          </div>
-          <div className="flex-1">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Sites Autorisés</label>
-            <div className="flex flex-wrap gap-2">
-              {SITES.map(site => (
-                <button
-                  key={site}
-                  type="button"
-                  onClick={() => {
-                    setNewAllowedSites(prev => 
-                      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
-                    );
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all flex items-center gap-1 ${
-                    newAllowedSites.includes(site) 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                  }`}
-                >
-                  {newAllowedSites.includes(site) ? <CheckSquare size={12} /> : <Square size={12} />}
-                  {site}
-                </button>
-              ))}
+      {/* Zone scrollable */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <div className="max-w-5xl mx-auto p-4 md:p-6 pb-24 space-y-5">
+          <details className="rounded-xl border border-gray-200 bg-white overflow-hidden group">
+            <summary className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-500 cursor-pointer hover:bg-gray-50 select-none">
+              Aide — droits spéciaux par compte
+            </summary>
+            <div className="px-4 pb-4 space-y-3 text-xs text-gray-600 leading-relaxed border-t border-gray-100">
+              <p>
+                Le menu <strong>Échéances</strong> est visible par tous les employés (hors salaires).
+                Le bouton <strong>« Salaires Échéances »</strong> ouvre le cercle privé (salaires dans Échéances).
+              </p>
+              <p>
+                <strong>« Vue Coûts »</strong> active le menu Coûts &amp; marges.
+                Les super-admins y ont toujours accès ; les autres admins aussi, sauf{' '}
+                <span className="font-mono text-[10px]">yamehome.yaounde@gmail.com</span> sans activation explicite.
+              </p>
             </div>
-          </div>
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={isAdding}
-              className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {isAdding ? <Loader2 className="animate-spin" size={14} /> : <UserPlus size={14} />}
-              Autoriser
-            </button>
-          </div>
-        </form>
-      </div>
+          </details>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4">
-          <div className="col-span-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Email</div>
-          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Rôle</div>
-          <div className="col-span-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
-            Accès équipe
-          </div>
-          <div className="col-span-1 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Action</div>
-        </div>
-        <div className="divide-y divide-gray-50">
-          <AnimatePresence>
-            {emails.map((item) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50 transition-all"
-              >
-                <div className="col-span-5 flex items-center gap-3 min-w-0">
-                  <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 shrink-0">
-                    <UserIcon size={14} />
-                  </div>
-                  <span className="text-sm font-medium text-gray-900 truncate">{item.email}</span>
+          {/* Formulaire ajout */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Nouvel accès</p>
+            <form onSubmit={handleAdd} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="exemple@gmail.com"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    required
+                  />
                 </div>
-                <div className="col-span-3">
-                  {isUpdating === item.id ? (
-                    <Loader2 className="animate-spin text-blue-600" size={14} />
-                  ) : (
-                    <div className="space-y-2">
-                      <select
-                        value={item.role}
-                        onChange={(e) => handleUpdateRole(item.id!, e.target.value as 'admin' | 'agent')}
-                        className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter border-none bg-transparent cursor-pointer focus:ring-1 focus:ring-blue-500 transition-all ${
-                          item.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                        }`}
-                      >
-                        <option value="agent">Agent</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                      <div className="flex flex-wrap gap-1">
-                        {SITES.map(site => {
-                          const isAllowed = (item.allowedSites || []).includes(site);
-                          return (
-                            <button
-                              key={site}
-                              onClick={() => handleToggleSite(item.id!, item.allowedSites || [], site)}
-                              className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${
-                                isAllowed ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-300'
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Rôle</label>
+                  <select
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value as 'admin' | 'agent')}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 transition-all"
+                  >
+                    <option value="agent">Agent (Standard)</option>
+                    <option value="admin">Administrateur</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Calendrier</label>
+                  <button
+                    type="button"
+                    onClick={() => setNewCalendarBlockAccess((v) => !v)}
+                    className={`w-full px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all border touch-manipulation ${
+                      newCalendarBlockAccess
+                        ? 'bg-slate-900 border-slate-900 text-white'
+                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                    }`}
+                  >
+                    Bloquer dates {newCalendarBlockAccess ? '✓' : '○'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Sites autorisés</label>
+                <div className="flex flex-wrap gap-2">
+                  {SITES.map(site => (
+                    <button
+                      key={site}
+                      type="button"
+                      onClick={() => {
+                        setNewAllowedSites(prev =>
+                          prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
+                        );
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all flex items-center gap-1 touch-manipulation ${
+                        newAllowedSites.includes(site)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                      }`}
+                    >
+                      {newAllowedSites.includes(site) ? <CheckSquare size={12} /> : <Square size={12} />}
+                      {site}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={isAdding}
+                className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 touch-manipulation"
+              >
+                {isAdding ? <Loader2 className="animate-spin" size={14} /> : <UserPlus size={14} />}
+                Autoriser
+              </button>
+            </form>
+          </div>
+
+          {/* Liste utilisateurs */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">
+              Comptes autorisés
+            </p>
+            <AnimatePresence>
+              {emails.map((item) => (
+                <motion.article
+                  key={item.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5 hover:border-gray-200 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
+                      <UserIcon size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-900 break-all">{item.email}</p>
+                        {!protectedEmails.includes(item.email) && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmId(item.id!)}
+                            className="p-2 -m-1 text-gray-400 hover:text-red-500 transition-all shrink-0 touch-manipulation"
+                            title="Retirer l'accès"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+
+                      {isUpdating === item.id ? (
+                        <div className="flex items-center gap-2 py-2">
+                          <Loader2 className="animate-spin text-blue-600" size={16} />
+                          <span className="text-xs text-gray-400">Mise à jour…</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={item.role}
+                              onChange={(e) => handleUpdateRole(item.id!, e.target.value as 'admin' | 'agent')}
+                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tighter border cursor-pointer focus:ring-2 focus:ring-blue-500 ${
+                                item.role === 'admin' ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-blue-100 text-blue-700 border-blue-200'
                               }`}
                             >
-                              {site}
-                            </button>
-                          );
-                        })}
-                      </div>
+                              <option value="agent">Agent</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                            {SITES.map(site => {
+                              const isAllowed = (item.allowedSites || []).includes(site);
+                              return (
+                                <button
+                                  key={site}
+                                  type="button"
+                                  onClick={() => handleToggleSite(item.id!, item.allowedSites || [], site)}
+                                  className={`px-2 py-1 rounded-md text-[8px] font-bold uppercase transition-all touch-manipulation ${
+                                    isAllowed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                                  }`}
+                                >
+                                  {site}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                              Fiche présence
+                            </label>
+                            <select
+                              value={item.linkedEmployeeId || ''}
+                              onChange={(e) => handleUpdateLinkedEmployee(item.id!, e.target.value)}
+                              className="w-full max-w-md text-xs font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">— Non lié —</option>
+                              {employees.map((emp) => (
+                                <option key={emp.id} value={emp.id}>{emp.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                              Droits spéciaux
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <AccessPill
+                                active={!!item.calendarBlockAccess}
+                                onClick={() => handleToggleCalendarBlockAccess(item.id!, !!item.calendarBlockAccess)}
+                                label="Calendrier"
+                                title="Bloquer / débloquer des dates sur le calendrier"
+                                activeClass="bg-slate-900 border-slate-700 text-white"
+                              />
+                              <AccessPill
+                                active={!!item.obligationsAccess}
+                                onClick={() => handleToggleObligationsAccess(item.id!, !!item.obligationsAccess)}
+                                label="Salaires Éch."
+                                title="Voir les salaires dans Échéances (cercle privé)"
+                                activeClass="bg-amber-100 border-amber-300 text-amber-950"
+                              />
+                              <AccessPill
+                                active={!!item.financeAccess}
+                                onClick={() => handleToggleFinanceAccess(item.id!, !!item.financeAccess)}
+                                label="Coûts"
+                                title="Menu Coûts & marges"
+                                activeClass="bg-emerald-100 border-emerald-300 text-emerald-900"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div className="col-span-3 min-w-0">
-                  {isUpdating === item.id ? (
-                    <Loader2 className="animate-spin text-blue-600" size={14} />
-                  ) : (
-                    <>
-                      <select
-                        value={item.linkedEmployeeId || ''}
-                        onChange={(e) => handleUpdateLinkedEmployee(item.id!, e.target.value)}
-                        className="w-full text-[10px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500"
-                        title="Compte autorisé = cette fiche pour la feuille de présence"
-                      >
-                        <option value="">— Non lié —</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        title="Autoriser ce compte à bloquer / débloquer des dates sur le calendrier"
-                        onClick={() => handleToggleCalendarBlockAccess(item.id!, !!item.calendarBlockAccess)}
-                        className={`mt-1 w-full text-[9px] font-black uppercase py-1.5 rounded-lg border transition-colors ${
-                          item.calendarBlockAccess
-                            ? 'bg-slate-900 border-slate-700 text-white'
-                            : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        Blocage calendrier {item.calendarBlockAccess ? '✓' : '○'}
-                      </button>
-                      <button
-                        type="button"
-                        title="Rail orange à droite sur PC — obligations mensuelles"
-                        onClick={() => handleToggleObligationsAccess(item.id!, !!item.obligationsAccess)}
-                        className={`mt-1 w-full text-[9px] font-black uppercase py-1.5 rounded-lg border transition-colors ${
-                          item.obligationsAccess
-                            ? 'bg-amber-100 border-amber-300 text-amber-950'
-                            : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        Vue Échéances {item.obligationsAccess ? '✓' : '○'}
-                      </button>
-                      <button
-                        type="button"
-                        title="Autoriser ce compte à ouvrir « Coûts & marges » (saisie et totaux du mois)"
-                        onClick={() => handleToggleFinanceAccess(item.id!, !!item.financeAccess)}
-                        className={`mt-1 w-full text-[9px] font-black uppercase py-1.5 rounded-lg border transition-colors ${
-                          item.financeAccess
-                            ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
-                            : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        Vue Coûts {item.financeAccess ? '✓' : '○'}
-                      </button>
-                    </>
-                  )}
-                </div>
-                <div className="col-span-1 text-right">
-                  {item.email !== 'christian.yamepi@gmail.com' && item.email !== 'cyamepi@gmail.com' && (
-                    <button
-                      onClick={() => setDeleteConfirmId(item.id!)}
-                      className="p-2 text-gray-400 hover:text-red-500 transition-all"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-          {emails.length === 0 && (
-            <div className="p-12 text-center">
-              <p className="text-gray-400 text-sm">Aucun email autorisé pour le moment.</p>
-            </div>
-          )}
+                  </div>
+                </motion.article>
+              ))}
+            </AnimatePresence>
+
+            {emails.length === 0 && (
+              <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center">
+                <p className="text-gray-400 text-sm">Aucun email autorisé pour le moment.</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deleteConfirmId && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
@@ -437,19 +464,19 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
               </div>
               <h3 className="text-xl font-black uppercase tracking-tight mb-2">Supprimer l'accès ?</h3>
               <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-                L'utilisateur avec l'email <strong>{emails.find(e => e.id === deleteConfirmId)?.email}</strong> ne pourra plus accéder à l'application.
+                L'utilisateur <strong>{emails.find(e => e.id === deleteConfirmId)?.email}</strong> ne pourra plus accéder à l'application.
               </p>
               <div className="flex flex-col gap-3">
-                <button 
+                <button
                   onClick={() => handleDelete(deleteConfirmId)}
                   disabled={isDeleting}
-                  className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all disabled:opacity-50"
+                  className="w-full bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-red-600/20 hover:bg-red-700 transition-all disabled:opacity-50 touch-manipulation"
                 >
                   {isDeleting ? 'Suppression...' : 'Confirmer la suppression'}
                 </button>
-                <button 
+                <button
                   onClick={() => setDeleteConfirmId(null)}
-                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
+                  className="w-full bg-gray-100 text-gray-600 font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-gray-200 transition-all touch-manipulation"
                 >
                   Annuler
                 </button>
