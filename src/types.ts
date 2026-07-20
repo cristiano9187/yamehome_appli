@@ -172,6 +172,8 @@ export interface UserProfile {
   obligationsAccess?: boolean;
   /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet */
   calendarBlockAccess?: boolean;
+  /** Gardien restreint : à la connexion, va directement sur la vue « Codes keybox » (rien d’autre). Filtré par `allowedSites`. */
+  keyboxGuardOnly?: boolean;
 }
 
 export interface AuthorizedEmail {
@@ -188,6 +190,90 @@ export interface AuthorizedEmail {
   obligationsAccess?: boolean;
   /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet */
   calendarBlockAccess?: boolean;
+  /** Gardien restreint : à la connexion, va directement sur la vue « Codes keybox » (rien d’autre). Filtré par `allowedSites`. */
+  keyboxGuardOnly?: boolean;
+}
+
+/** Site géographique d’un boîtier de clés (v1 : Yaoundé uniquement). */
+export type KeyboxSite = 'MODENA YAMEHOME' | 'MATERA YAMEHOME' | 'RIETI YAMEHOME';
+
+/** Motif de retrait des clés d’un logement hors boîtier. */
+export type KeyboxRemovalReason = 'REMIS_AU_CLIENT' | 'MAINTENANCE' | 'TRANSFERT' | 'AUTRE';
+
+/**
+ * Catalogue des « logements » (au sens large : appartement, magasin, accès extérieur)
+ * dont les clés peuvent être rangées dans un boîtier. Un logement n’est pas forcément
+ * lié à un `unitSlug` calendrier (ex. Magasin Matera, Ext. Fécafoot).
+ */
+export interface KeyboxDwelling {
+  id?: string;
+  /** Nom court / terrain utilisé au téléphone (ex. « Brigade », « B10 201 ») */
+  shortLabel: string;
+  /** Nom officiel affiché en plus petit sous le nom court */
+  officialLabel: string;
+  site: KeyboxSite;
+  /** Lien optionnel vers le slug calendrier (aide à retrouver, pas de contrainte) */
+  unitSlug?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
+/** Une entrée de l’historique des 5 derniers codes d’un boîtier (anti-doublon, pas de notification). */
+export interface KeyboxCodeHistoryEntry {
+  code: string;
+  changedAt: string;
+  changedByUid: string;
+  changedByName: string;
+}
+
+/** Un événement du journal de mouvements (dépôt / retrait / boîtier vide / changement de code). */
+export interface KeyboxMovementLogEntry {
+  type: 'DEPOT' | 'RETRAIT' | 'VIDE' | 'CODE';
+  dwellingId?: string | null;
+  dwellingShortLabel?: string | null;
+  reason?: KeyboxRemovalReason | null;
+  reasonNote?: string | null;
+  actorUid: string;
+  actorName: string;
+  at: string;
+}
+
+/** Ce qui se trouve actuellement dans un boîtier : clés d’un logement Y depuis telle date. */
+export interface KeyboxContentEntry {
+  dwellingId: string;
+  dwellingShortLabel: string;
+  sinceAt: string;
+}
+
+/**
+ * Boîtier physique (lettre) avec son code d’ouverture. Le contenu (clés de quels logements)
+ * est indépendant du code : on peut déplacer des clés sans changer le code, et inversement.
+ */
+export interface KeyboxUnit {
+  id?: string;
+  /** Lettre / identifiant court du boîtier (ex. « A », « H », « J ») */
+  letter: string;
+  site: KeyboxSite;
+  active: boolean;
+  currentCode: string | null;
+  previousCode: string | null;
+  codeUpdatedAt: string | null;
+  codeUpdatedByUid: string | null;
+  codeUpdatedByName: string | null;
+  /** Historique des 5 derniers codes (le plus récent en premier), anti-doublon uniquement */
+  codeHistory: KeyboxCodeHistoryEntry[];
+  /** Clés actuellement dans le boîtier (0, 1 ou plusieurs logements) */
+  contents: KeyboxContentEntry[];
+  contentsUpdatedAt: string | null;
+  contentsUpdatedByUid: string | null;
+  contentsUpdatedByName: string | null;
+  /** Derniers mouvements (dépôt/retrait/vide/code), les plus récents en premier — plafonné à 10 */
+  movementLog: KeyboxMovementLogEntry[];
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
 }
 
 export interface Employee {

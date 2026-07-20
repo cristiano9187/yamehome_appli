@@ -64,6 +64,38 @@ export function canBlockCalendarDates(
   return profile.calendarBlockAccess === true;
 }
 
+/** Vue « Codes keybox » — tout employé connecté (agent, admin) et gardiens restreints. */
+export function canUseKeybox(profile: UserProfile | null): boolean {
+  return !!(profile?.email);
+}
+
+/** Gardien restreint : à la connexion, va directement sur la vue Codes keybox (rien d’autre). */
+export function isKeyboxGuardOnly(profile: UserProfile | null): boolean {
+  return profile?.keyboxGuardOnly === true;
+}
+
+/** Créer / modifier / désactiver un boîtier ou un logement du catalogue — admins uniquement. */
+export function canManageKeyboxCatalog(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  if (isMainAdminEmail(profile.email)) return true;
+  return profile.role === 'admin';
+}
+
+/** Changer un code, déposer des clés — tout agent/admin avec accès app (pas les gardiens). */
+export function canOperateKeybox(profile: UserProfile | null): boolean {
+  return !!(profile?.email) && !isKeyboxGuardOnly(profile);
+}
+
+export const KEYBOX_REMOVAL_REASONS: { id: 'REMIS_AU_CLIENT' | 'MAINTENANCE' | 'TRANSFERT' | 'AUTRE'; label: string }[] = [
+  { id: 'REMIS_AU_CLIENT', label: 'Remis au client' },
+  { id: 'MAINTENANCE', label: 'Maintenance' },
+  { id: 'TRANSFERT', label: 'Transfert' },
+  { id: 'AUTRE', label: 'Autre' },
+];
+
 export const TECHNICIAN_DOMAINS = [
   { id: 'PLOMBERIE' as const, label: 'Plomberie' },
   { id: 'ELECTRICITE' as const, label: 'Électricité' },

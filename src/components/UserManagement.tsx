@@ -169,6 +169,19 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
+  const handleToggleKeyboxGuardOnly = async (authEmailId: string, current: boolean) => {
+    setIsUpdating(authEmailId);
+    try {
+      await setDoc(doc(db, 'authorized_emails', authEmailId), { keyboxGuardOnly: !current }, { merge: true });
+      onAlert(!current ? 'Compte gardien activé (vue Codes keybox exclusive)' : 'Compte gardien désactivé', 'success');
+    } catch (error) {
+      console.error('Error toggling keybox guard flag:', error);
+      onAlert('Erreur lors de la mise à jour', 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
   const handleUpdateLinkedEmployee = async (authEmailId: string, employeeId: string) => {
     setIsUpdating(authEmailId);
     try {
@@ -240,6 +253,12 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                 <strong>« Vue Coûts »</strong> active le menu Coûts &amp; marges.
                 Les super-admins y ont toujours accès ; les autres admins aussi, sauf{' '}
                 <span className="font-mono text-[10px]">yamehome.yaounde@gmail.com</span> sans activation explicite.
+              </p>
+              <p>
+                <strong>« Gardien keybox »</strong> transforme le compte en accès restreint : à la connexion,
+                l'utilisateur arrive directement sur la vue <strong>Codes keybox</strong> (pas de menu, pas de calendrier),
+                filtrée par les <strong>sites autorisés</strong> cochés ci-dessus. Il peut consulter les codes et retirer
+                des clés, mais pas déposer de clés ni changer un code.
               </p>
             </div>
           </details>
@@ -431,7 +450,19 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                                 title="Menu Coûts & marges"
                                 activeClass="bg-emerald-100 border-emerald-300 text-emerald-900"
                               />
+                              <AccessPill
+                                active={!!item.keyboxGuardOnly}
+                                onClick={() => handleToggleKeyboxGuardOnly(item.id!, !!item.keyboxGuardOnly)}
+                                label="Gardien keybox"
+                                title="Compte gardien restreint : accès direct à la vue Codes keybox uniquement, filtrée par sites autorisés"
+                                activeClass="bg-orange-100 border-orange-300 text-orange-950"
+                              />
                             </div>
+                            {item.keyboxGuardOnly && (
+                              <p className="text-[10px] text-orange-600 mt-1.5">
+                                Ce compte n'aura accès qu'à la vue Codes keybox (filtrée par les sites autorisés ci-dessus).
+                              </p>
+                            )}
                           </div>
                         </>
                       )}

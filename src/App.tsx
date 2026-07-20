@@ -29,7 +29,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail } from './constants';
+import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly } from './constants';
 import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
 import {
   defaultCleaningChecklist,
@@ -64,6 +64,7 @@ const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElec
 const TechnicianContactsView = lazy(() => import('./components/TechnicianContactsView'));
 const CostsView = lazy(() => import('./components/CostsView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
+const KeyboxCodesView = lazy(() => import('./components/KeyboxCodesView'));
 import { 
   LogOut, 
   Plus, 
@@ -98,6 +99,7 @@ import {
   ScrollText,
   ArrowLeft,
   CreditCard,
+  KeyRound,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -216,7 +218,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox'>('calendar');
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
   const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | null>(null);
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
@@ -357,6 +359,10 @@ export default function App() {
             const calendarBlockFromProfile = !!(profile as UserProfile & { calendarBlockAccess?: boolean }).calendarBlockAccess;
             const finalCalendarBlockAccess = calendarBlockFromWhitelist || calendarBlockFromProfile;
 
+            const keyboxGuardFromWhitelist = whiteData?.keyboxGuardOnly === true;
+            const keyboxGuardFromProfile = !!(profile as UserProfile & { keyboxGuardOnly?: boolean }).keyboxGuardOnly;
+            const finalKeyboxGuardOnly = keyboxGuardFromWhitelist || keyboxGuardFromProfile;
+
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
               ...restProfile, 
@@ -370,6 +376,7 @@ export default function App() {
               ...(finalFinanceAccess ? { financeAccess: true } : {}),
               ...(finalObligationsAccess ? { obligationsAccess: true } : {}),
               ...(finalCalendarBlockAccess ? { calendarBlockAccess: true } : {}),
+              ...(finalKeyboxGuardOnly ? { keyboxGuardOnly: true } : {}),
             };
             
             // Only update if something actually changed to avoid unnecessary permission checks
@@ -405,6 +412,7 @@ export default function App() {
               ...(whiteData?.financeAccess ? { financeAccess: true } : {}),
               ...(whiteData?.obligationsAccess ? { obligationsAccess: true } : {}),
               ...(whiteData?.calendarBlockAccess ? { calendarBlockAccess: true } : {}),
+              ...(whiteData?.keyboxGuardOnly ? { keyboxGuardOnly: true } : {}),
             };
             console.log("Setting user profile (new):", newProfile);
             try {
@@ -1687,6 +1695,29 @@ export default function App() {
     );
   }
 
+  // Gardien restreint : accès direct à la vue Codes keybox, rien d'autre (pas de sidebar/menu).
+  if (userProfile && isKeyboxGuardOnly(userProfile)) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#F5F5F4] text-[#141414] font-sans">
+        <Suspense fallback={
+          <div className="flex-1 flex items-center justify-center min-h-screen">
+            <div className="w-10 h-10 border-4 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          <KeyboxCodesView
+            userProfile={userProfile}
+            onAlert={(msg, type) => {
+              setAlertType(type || 'info');
+              setAlertMessage(msg);
+            }}
+            onLogout={handleLogout}
+            isMainAdminEmail={isMainAdminEmail}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#F5F5F4] text-[#141414] font-sans selection:bg-blue-100 print:bg-white">
       {/* Cleaning Mode Overlay */}
@@ -2172,6 +2203,19 @@ export default function App() {
                   >
                     <CalendarClock size={16} className={view === 'echeances' ? '' : 'text-orange-600'} />
                     Échéances
+                  </button>
+                )}
+                {canUseKeybox(userProfile) && (
+                  <button
+                    onClick={() => {
+                      setView('keybox');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'keybox' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    <KeyRound size={16} className={view === 'keybox' ? '' : 'text-amber-600'} />
+                    Codes keybox
                   </button>
                 )}
                 {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
@@ -2908,6 +2952,16 @@ export default function App() {
                 setAlertType(type || 'info');
                 setAlertMessage(msg);
               }}
+            />
+          ) : view === 'keybox' ? (
+            <KeyboxCodesView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+              isMainAdminEmail={isMainAdminEmail}
             />
           ) : view === 'echeances' ? (
             <ObligationsDeskRail

@@ -115,6 +115,61 @@ service cloud.firestore {
       return isAdmin();
     }
 
+    /** Gardien restreint (codes keybox) — vue exclusive, filtrée par allowedSites. */
+    function isKeyboxGuardOnly() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            'keyboxGuardOnly' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keyboxGuardOnly == true) ||
+          (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+            'keyboxGuardOnly' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+            get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.keyboxGuardOnly == true)
+        );
+    }
+
+    /** Sites autorisés pour un gardien keybox (réutilise `allowedSites`). */
+    function keyboxGuardAllowedSites() {
+      return (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          'allowedSites' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data) ?
+        get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.allowedSites :
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            'allowedSites' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ?
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.allowedSites : []);
+    }
+
+    /** Lecture Codes keybox : agents/admins voient tout ; gardien filtré par site autorisé. */
+    function canReadKeyboxSite(site) {
+      return isAgent() && (!isKeyboxGuardOnly() || site in keyboxGuardAllowedSites());
+    }
+
+    /** Déposer / retirer des clés, changer un code — agents et admins, pas les gardiens purs. */
+    function isKeyboxOperator() {
+      return isAgent() && !isKeyboxGuardOnly();
+    }
+
+    /** Créer / modifier / désactiver un boîtier ou un logement du catalogue — admins uniquement. */
+    function canManageKeyboxCatalog() {
+      return isAdmin();
+    }
+
+    /** Champs « catalogue » d’un boîtier (lettre, site, actif) inchangés — agent ne gère pas ces champs. */
+    function keyboxCatalogFieldsUnchanged() {
+      return request.resource.data.letter == resource.data.letter &&
+        request.resource.data.site == resource.data.site &&
+        request.resource.data.active == resource.data.active &&
+        request.resource.data.authorUid == resource.data.authorUid &&
+        request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    /** Champs « code » d’un boîtier inchangés — utilisé pour restreindre le gardien au retrait de clés. */
+    function keyboxCodeFieldsUnchanged() {
+      return request.resource.data.currentCode == resource.data.currentCode &&
+        request.resource.data.previousCode == resource.data.previousCode &&
+        request.resource.data.codeHistory == resource.data.codeHistory &&
+        request.resource.data.codeUpdatedAt == resource.data.codeUpdatedAt;
+    }
+
     /** Bloquer / débloquer des dates sur le calendrier — sans rôle admin complet. */
     function canBlockCalendarDates() {
       return isAdmin() ||
@@ -143,25 +198,29 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess', 'obligationsAccess']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
              (!('allowedApartments' in data) || data.allowedApartments is list) &&
              (!('financeAccess' in data) || data.financeAccess is bool) &&
-             (!('obligationsAccess' in data) || data.obligationsAccess is bool);
+             (!('obligationsAccess' in data) || data.obligationsAccess is bool) &&
+             (!('calendarBlockAccess' in data) || data.calendarBlockAccess is bool) &&
+             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool);
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess', 'obligationsAccess']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
              (!('allowedApartments' in data) || data.allowedApartments is list) &&
              (!('linkedEmployeeId' in data) || data.linkedEmployeeId == null || data.linkedEmployeeId is string) &&
              (!('financeAccess' in data) || data.financeAccess is bool) &&
-             (!('obligationsAccess' in data) || data.obligationsAccess is bool);
+             (!('obligationsAccess' in data) || data.obligationsAccess is bool) &&
+             (!('calendarBlockAccess' in data) || data.calendarBlockAccess is bool) &&
+             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool);
     }
 
     function isAuthorizedForApartment(apartmentName) {
@@ -216,6 +275,41 @@ service cloud.firestore {
         data.authorUid is string && data.authorUid.size() > 0 &&
         (!('availability' in data) || data.availability == null || (data.availability is string && data.availability.size() <= 120)) &&
         (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    function isValidKeyboxDwelling(data) {
+      return hasRequiredFields(['shortLabel', 'officialLabel', 'site', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
+        hasOnlyAllowedFields(['shortLabel', 'officialLabel', 'site', 'unitSlug', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.shortLabel is string && data.shortLabel.size() > 0 && data.shortLabel.size() <= 80 &&
+        data.officialLabel is string && data.officialLabel.size() > 0 && data.officialLabel.size() <= 160 &&
+        data.site in ['MODENA YAMEHOME', 'MATERA YAMEHOME', 'RIETI YAMEHOME'] &&
+        data.active is bool &&
+        (!('unitSlug' in data) || data.unitSlug == null || (data.unitSlug is string && data.unitSlug.size() <= 120)) &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string && data.updatedAt is string;
+    }
+
+    function isValidKeyboxUnit(data) {
+      return hasRequiredFields([
+          'letter', 'site', 'active', 'currentCode', 'previousCode', 'codeHistory',
+          'contents', 'movementLog', 'createdAt', 'updatedAt', 'authorUid'
+        ]) &&
+        hasOnlyAllowedFields([
+          'letter', 'site', 'active', 'currentCode', 'previousCode',
+          'codeUpdatedAt', 'codeUpdatedByUid', 'codeUpdatedByName', 'codeHistory',
+          'contents', 'contentsUpdatedAt', 'contentsUpdatedByUid', 'contentsUpdatedByName',
+          'movementLog', 'createdAt', 'updatedAt', 'authorUid'
+        ]) &&
+        data.letter is string && data.letter.size() > 0 && data.letter.size() <= 8 &&
+        data.site in ['MODENA YAMEHOME', 'MATERA YAMEHOME', 'RIETI YAMEHOME'] &&
+        data.active is bool &&
+        (data.currentCode == null || (data.currentCode is string && data.currentCode.size() <= 32)) &&
+        (data.previousCode == null || (data.previousCode is string && data.previousCode.size() <= 32)) &&
+        data.codeHistory is list && data.codeHistory.size() <= 5 &&
+        data.contents is list && data.contents.size() <= 20 &&
+        data.movementLog is list && data.movementLog.size() <= 10 &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string && data.updatedAt is string;
     }
 
     // Employé encore autorisé à pointer sa présence à la date donnée (YYYY-MM-DD)
@@ -704,6 +798,26 @@ service cloud.firestore {
           (isAgent() && isMediaSubscriptionRenewalOnly())
         );
       allow delete: if canEditObligations();
+    }
+
+    match /keybox_dwellings/{dwellingId} {
+      allow read: if canReadKeyboxSite(resource.data.site);
+      allow create: if canManageKeyboxCatalog() && isValidKeyboxDwelling(request.resource.data);
+      allow update: if canManageKeyboxCatalog() && isValidKeyboxDwelling(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /keybox_units/{boxId} {
+      allow read: if canReadKeyboxSite(resource.data.site);
+      allow create: if canManageKeyboxCatalog() && isValidKeyboxUnit(request.resource.data);
+      allow update: if isValidKeyboxUnit(request.resource.data) &&
+        (
+          canManageKeyboxCatalog() ||
+          (isKeyboxOperator() && keyboxCatalogFieldsUnchanged()) ||
+          (isKeyboxGuardOnly() && resource.data.site in keyboxGuardAllowedSites() &&
+            keyboxCatalogFieldsUnchanged() && keyboxCodeFieldsUnchanged())
+        );
+      allow delete: if false;
     }
 
     match /finance_entries/{entryId} {
