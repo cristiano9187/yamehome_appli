@@ -79,6 +79,50 @@ function reasonLabel(reason?: KeyboxRemovalReason | null): string {
   return KEYBOX_REMOVAL_REASONS.find((r) => r.id === reason)?.label || 'Retrait';
 }
 
+function movementTypeClass(type: KeyboxMovementLogEntry['type']): string {
+  switch (type) {
+    case 'RETRAIT':
+      return 'text-red-700';
+    case 'DEPOT':
+      return 'text-emerald-700';
+    case 'CODE':
+      return 'text-amber-700';
+    default:
+      return 'text-gray-600';
+  }
+}
+
+function movementSummary(entry: KeyboxMovementLogEntry): { title: string; subtitle: string } {
+  const dwelling = entry.dwellingShortLabel || '';
+  switch (entry.type) {
+    case 'RETRAIT': {
+      const reason = reasonLabel(entry.reason);
+      const note = entry.reasonNote ? ` — ${entry.reasonNote}` : '';
+      return {
+        title: dwelling ? `Retrait · ${dwelling}` : 'Retrait de clés',
+        subtitle: `${reason}${note}`,
+      };
+    }
+    case 'DEPOT':
+      return {
+        title: dwelling ? `Dépôt · ${dwelling}` : 'Dépôt de clés',
+        subtitle: '',
+      };
+    case 'VIDE':
+      return {
+        title: 'Boîtier vidé',
+        subtitle: dwelling || '',
+      };
+    case 'CODE':
+      return {
+        title: 'Changement de code',
+        subtitle: '',
+      };
+    default:
+      return { title: entry.type, subtitle: '' };
+  }
+}
+
 function formatDateTimeFr(iso?: string | null): string {
   if (!iso) return '—';
   try {
@@ -940,6 +984,30 @@ export default function KeyboxCodesView({
                           )}
                         </div>
 
+                        {(box.movementLog?.length ?? 0) > 0 && (
+                          <div className="mb-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                            <p className="text-[9px] font-black uppercase text-gray-400 mb-2">Journal des mouvements</p>
+                            <ul className="space-y-2">
+                              {box.movementLog.slice(0, 5).map((entry, idx) => {
+                                const { title, subtitle } = movementSummary(entry);
+                                return (
+                                  <li key={`${entry.type}-${entry.at}-${idx}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className={`text-xs font-bold ${movementTypeClass(entry.type)}`}>{title}</span>
+                                      <span className="text-[10px] text-gray-400 shrink-0 text-right">
+                                        {formatDateTimeFr(entry.at)}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">
+                                      {[subtitle, entry.actorName].filter(Boolean).join(' · ')}
+                                    </p>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        )}
+
                         <div className="flex flex-wrap gap-2">
                           {canOperate && (
                             <button
@@ -1009,7 +1077,8 @@ export default function KeyboxCodesView({
                           </span>
                           {lastMovement && (
                             <p className="text-[10px] text-gray-400 mt-1">
-                              {reasonLabel(lastMovement.reason)} du boîtier {lastBoxLetter} · {formatDateTimeFr(lastMovement.at)}
+                              {reasonLabel(lastMovement.reason)} du boîtier {lastBoxLetter}
+                              {lastMovement.actorName ? ` · ${lastMovement.actorName}` : ''} · {formatDateTimeFr(lastMovement.at)}
                             </p>
                           )}
                         </>
