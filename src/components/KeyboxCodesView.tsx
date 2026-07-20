@@ -1046,44 +1046,47 @@ export default function KeyboxCodesView({
               {visibleDwellings.map((d) => {
                 const { box, lastMovement, lastBoxLetter } = locateDwelling(d.id!);
                 return (
-                  <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-lg sm:text-xl font-black text-gray-900 truncate">{d.shortLabel}</p>
-                      <p className="text-xs sm:text-sm text-gray-400 truncate">{d.officialLabel}</p>
-                    </div>
-                    <div className="text-right shrink-0">
+                  <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg sm:text-xl font-black text-gray-900 leading-tight break-words">
+                          {d.shortLabel}
+                        </p>
+                        <p className="text-xs sm:text-sm text-gray-400 mt-0.5 leading-snug break-words">
+                          {d.officialLabel}
+                        </p>
+                      </div>
                       {box ? (
-                        <>
-                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800">
-                            Boîtier {box.letter}
-                          </span>
-                          <p className="text-xs sm:text-sm text-gray-500 mt-1.5">
-                            <span className="text-base sm:text-lg font-black tracking-widest tabular-nums text-gray-900">
-                              {revealed.has(`${box.id}:current`) ? box.currentCode : '••••'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => toggleReveal(`${box.id}:current`)}
-                              className="ml-2 text-xs sm:text-sm font-bold text-amber-700 underline"
-                            >
-                              {revealed.has(`${box.id}:current`) ? 'Masquer' : 'Afficher'}
-                            </button>
-                          </p>
-                        </>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 shrink-0">
+                          Boîtier {box.letter}
+                        </span>
                       ) : (
-                        <>
-                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500">
-                            Hors boîtier
-                          </span>
-                          {lastMovement && (
-                            <p className="text-[10px] text-gray-400 mt-1">
-                              {reasonLabel(lastMovement.reason)} du boîtier {lastBoxLetter}
-                              {lastMovement.actorName ? ` · ${lastMovement.actorName}` : ''} · {formatDateTimeFr(lastMovement.at)}
-                            </p>
-                          )}
-                        </>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 shrink-0">
+                          Hors boîtier
+                        </span>
                       )}
                     </div>
+                    {box ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-base sm:text-lg font-black tracking-widest tabular-nums text-gray-900">
+                          {revealed.has(`${box.id}:current`) ? box.currentCode : '••••'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleReveal(`${box.id}:current`)}
+                          className="text-xs sm:text-sm font-bold text-amber-700 underline"
+                        >
+                          {revealed.has(`${box.id}:current`) ? 'Masquer' : 'Afficher'}
+                        </button>
+                      </div>
+                    ) : (
+                      lastMovement && (
+                        <p className="text-[10px] text-gray-400 leading-snug">
+                          {reasonLabel(lastMovement.reason)} du boîtier {lastBoxLetter}
+                          {lastMovement.actorName ? ` · ${lastMovement.actorName}` : ''} · {formatDateTimeFr(lastMovement.at)}
+                        </p>
+                      )
+                    )}
                   </div>
                 );
               })}
