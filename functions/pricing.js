@@ -70,7 +70,7 @@ const TARIFS = {
     address: 'Odza borne 10, Entrée Ministre, Porte 104 A|B',
     units: ['matera-chambre-a', 'matera-chambre-b'],
     '1-2': { prix: 15000, caution: 5000 },
-    '3+': { prix: 13000, caution: 10000 },
+    '3+': { prix: 15000, caution: 10000 },
   },
   'GALLAGHERS CITY - CHAMBRE STANDARD SIMPLE': {
     address: 'Lieu-dit Troisième Mi-temps. Bangangté',
