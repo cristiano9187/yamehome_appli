@@ -928,32 +928,19 @@ export default function KeyboxCodesView({
                                 5 derniers codes — à ne pas réutiliser
                               </p>
                               <ul className="space-y-1.5">
-                                {recentCodes.map((entry, idx) => {
-                                  const historyKey = `${box.id}:history:${idx}`;
-                                  return (
-                                    <li
-                                      key={`${entry.code}-${entry.changedAt}-${idx}`}
-                                      className="flex items-center justify-between gap-2 text-sm"
-                                    >
-                                      <span className="font-black tracking-widest tabular-nums text-gray-700">
-                                        {revealed.has(historyKey) ? entry.code : '••••'}
-                                      </span>
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <span className="text-[10px] text-gray-500 truncate">
-                                          {formatDateTimeFr(entry.changedAt)} · {entry.changedByName}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleReveal(historyKey)}
-                                          className="p-1 rounded-lg bg-white border border-amber-200/80 text-gray-500 hover:bg-amber-50 shrink-0"
-                                          title={revealed.has(historyKey) ? 'Masquer' : 'Afficher'}
-                                        >
-                                          {revealed.has(historyKey) ? <EyeOff size={11} /> : <Eye size={11} />}
-                                        </button>
-                                      </div>
-                                    </li>
-                                  );
-                                })}
+                                {recentCodes.map((entry, idx) => (
+                                  <li
+                                    key={`${entry.code}-${entry.changedAt}-${idx}`}
+                                    className="flex items-center justify-between gap-2 text-sm"
+                                  >
+                                    <span className="font-black tracking-widest tabular-nums text-gray-700">
+                                      {entry.code}
+                                    </span>
+                                    <span className="text-[10px] text-gray-500 truncate text-right">
+                                      {formatDateTimeFr(entry.changedAt)} · {entry.changedByName}
+                                    </span>
+                                  </li>
+                                ))}
                               </ul>
                             </div>
                           )}
