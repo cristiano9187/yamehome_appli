@@ -175,7 +175,7 @@ export default function KeyboxCodesView({
   const [units, setUnits] = useState<KeyboxUnit[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [tab, setTab] = useState<'boxes' | 'search'>('boxes');
+  const [tab, setTab] = useState<'boxes' | 'search'>('search');
   const [siteFilter, setSiteFilter] = useState<'ALL' | KeyboxSite>('ALL');
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
@@ -778,21 +778,21 @@ export default function KeyboxCodesView({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setTab('boxes')}
-              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                tab === 'boxes' ? 'bg-slate-900 text-white' : 'bg-white text-gray-500 border border-gray-200'
-              }`}
-            >
-              Boîtiers
-            </button>
-            <button
-              type="button"
               onClick={() => setTab('search')}
               className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                 tab === 'search' ? 'bg-slate-900 text-white' : 'bg-white text-gray-500 border border-gray-200'
               }`}
             >
               Où sont les clés ?
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('boxes')}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                tab === 'boxes' ? 'bg-slate-900 text-white' : 'bg-white text-gray-500 border border-gray-200'
+              }`}
+            >
+              Boîtiers
             </button>
           </div>
 
@@ -856,28 +856,23 @@ export default function KeyboxCodesView({
                           box.active === false ? 'border-dashed border-gray-300 opacity-70' : 'border-gray-100'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex items-center justify-between gap-2 mb-4">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0">
-                              {box.letter}
+                            <span className="text-xs font-black uppercase tracking-wide text-gray-400">Boîtier {box.letter}</span>
+                            <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${SITE_BADGE_CLASS[box.site]}`}>
+                              {SITE_LABELS[box.site]}
                             </span>
-                            <div className="min-w-0">
-                              <p className="text-xs font-black uppercase tracking-wide text-gray-900">Boîtier {box.letter}</p>
-                              <span className={`inline-block mt-0.5 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${SITE_BADGE_CLASS[box.site]}`}>
-                                {SITE_LABELS[box.site]}
+                            {box.active === false && (
+                              <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500">
+                                Inactif
                               </span>
-                              {box.active === false && (
-                                <span className="inline-block ml-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">
-                                  Inactif
-                                </span>
-                              )}
-                            </div>
+                            )}
                           </div>
                           {canManage && (
                             <button
                               type="button"
                               onClick={() => openEditBox(box)}
-                              className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all shrink-0"
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all shrink-0"
                               title="Modifier le boîtier"
                             >
                               <Pencil size={14} />
@@ -885,117 +880,109 @@ export default function KeyboxCodesView({
                           )}
                         </div>
 
-                        <div className="space-y-3 mb-3">
-                          <div className="bg-gray-50 rounded-xl p-3">
-                            <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Code actuel</p>
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl sm:text-3xl font-black tracking-widest text-gray-900 tabular-nums">
-                                {box.currentCode ? (revealed.has(currentKey) ? box.currentCode : '••••') : '—'}
-                              </span>
-                              {box.currentCode && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleReveal(currentKey)}
-                                    className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-100"
-                                    title={revealed.has(currentKey) ? 'Masquer' : 'Afficher'}
-                                  >
-                                    {revealed.has(currentKey) ? <EyeOff size={13} /> : <Eye size={13} />}
-                                  </button>
-                                  {revealed.has(currentKey) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => copyCode(box.currentCode!)}
-                                      className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-100"
-                                      title="Copier"
-                                    >
-                                      <Copy size={13} />
-                                    </button>
-                                  )}
-                                </>
+                        {/* Code actuel — élément principal de la carte */}
+                        <div className="flex items-center justify-center gap-3 py-2 mb-4">
+                          <span className="text-5xl sm:text-6xl font-black tracking-[0.15em] text-gray-900 tabular-nums">
+                            {box.currentCode ? (revealed.has(currentKey) ? box.currentCode : '••••') : '—'}
+                          </span>
+                          {box.currentCode && (
+                            <div className="flex flex-col gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleReveal(currentKey)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                                title={revealed.has(currentKey) ? 'Masquer' : 'Afficher'}
+                              >
+                                {revealed.has(currentKey) ? <EyeOff size={15} /> : <Eye size={15} />}
+                              </button>
+                              {revealed.has(currentKey) && (
+                                <button
+                                  type="button"
+                                  onClick={() => copyCode(box.currentCode!)}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                                  title="Copier"
+                                >
+                                  <Copy size={15} />
+                                </button>
                               )}
-                            </div>
-                            {box.codeUpdatedAt && (
-                              <p className="text-[10px] text-gray-400 mt-1.5">
-                                Mis à jour {formatDateTimeFr(box.codeUpdatedAt)} · {box.codeUpdatedByName}
-                              </p>
-                            )}
-                          </div>
-                          {recentCodes.length > 0 && (
-                            <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
-                              <p className="text-[9px] font-black uppercase text-amber-800/70 mb-2 flex items-center gap-1.5">
-                                <History size={11} />
-                                5 derniers codes — à ne pas réutiliser
-                              </p>
-                              <ul className="space-y-1.5">
-                                {recentCodes.map((entry, idx) => (
-                                  <li
-                                    key={`${entry.code}-${entry.changedAt}-${idx}`}
-                                    className="flex items-center justify-between gap-2 text-sm"
-                                  >
-                                    <span className="font-black tracking-widest tabular-nums text-gray-700">
-                                      {entry.code}
-                                    </span>
-                                    <span className="text-[10px] text-gray-500 truncate text-right">
-                                      {formatDateTimeFr(entry.changedAt)} · {entry.changedByName}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
                             </div>
                           )}
                         </div>
 
-                        <div className="mb-3">
-                          <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">Clés dans le boîtier</p>
+                        <div className="flex items-center justify-center mb-4">
                           {isEmpty ? (
-                            <span className="inline-block text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
                               Boîtier vide
                             </span>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap justify-center gap-1.5">
                               {box.contents.map((c) => (
                                 <span
                                   key={c.dwellingId}
-                                  className="inline-flex items-center gap-1 text-sm sm:text-base font-black px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800"
+                                  className="inline-flex items-center gap-1 text-sm font-black px-3 py-1 rounded-lg bg-gray-100 text-gray-700"
                                 >
                                   {c.dwellingShortLabel}
                                 </span>
                               ))}
                             </div>
                           )}
-                          {box.contentsUpdatedAt && (
-                            <p className="text-[10px] text-gray-400 mt-1.5">
-                              Mis à jour {formatDateTimeFr(box.contentsUpdatedAt)} · {box.contentsUpdatedByName}
-                            </p>
-                          )}
                         </div>
 
-                        {(box.movementLog?.length ?? 0) > 0 && (
-                          <div className="mb-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
-                            <p className="text-[9px] font-black uppercase text-gray-400 mb-2">Journal des mouvements</p>
-                            <ul className="space-y-2">
-                              {box.movementLog.slice(0, 2).map((entry, idx) => {
-                                const { title, subtitle } = movementSummary(entry);
-                                return (
-                                  <li key={`${entry.type}-${entry.at}-${idx}`}>
-                                    <div className="flex items-start justify-between gap-2">
-                                      <span className={`text-xs font-bold ${movementTypeClass(entry.type)}`}>{title}</span>
-                                      <span className="text-[10px] text-gray-400 shrink-0 text-right">
-                                        {formatDateTimeFr(entry.at)}
-                                      </span>
-                                    </div>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">
-                                      {[subtitle, entry.actorName].filter(Boolean).join(' · ')}
-                                    </p>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
+                        {(recentCodes.length > 0 || (box.movementLog?.length ?? 0) > 0) && (
+                          <details className="group border-t border-gray-100 pt-3 mb-1">
+                            <summary className="list-none flex items-center justify-center gap-1 text-[9px] font-black uppercase tracking-widest text-gray-400 cursor-pointer select-none hover:text-gray-600">
+                              <History size={11} />
+                              Historique
+                            </summary>
+                            <div className="mt-3 space-y-3">
+                              {recentCodes.length > 0 && (
+                                <div>
+                                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">Anciens codes</p>
+                                  <ul className="space-y-1">
+                                    {recentCodes.map((entry, idx) => (
+                                      <li
+                                        key={`${entry.code}-${entry.changedAt}-${idx}`}
+                                        className="flex items-center justify-between gap-2 text-xs"
+                                      >
+                                        <span className="font-bold tracking-widest tabular-nums text-gray-600">
+                                          {entry.code}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 truncate text-right">
+                                          {formatDateTimeFr(entry.changedAt)} · {entry.changedByName}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {(box.movementLog?.length ?? 0) > 0 && (
+                                <div>
+                                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">Derniers mouvements</p>
+                                  <ul className="space-y-2">
+                                    {box.movementLog.slice(0, 2).map((entry, idx) => {
+                                      const { title, subtitle } = movementSummary(entry);
+                                      return (
+                                        <li key={`${entry.type}-${entry.at}-${idx}`}>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <span className={`text-xs font-bold ${movementTypeClass(entry.type)}`}>{title}</span>
+                                            <span className="text-[10px] text-gray-400 shrink-0 text-right">
+                                              {formatDateTimeFr(entry.at)}
+                                            </span>
+                                          </div>
+                                          <p className="text-[10px] text-gray-500 mt-0.5">
+                                            {[subtitle, entry.actorName].filter(Boolean).join(' · ')}
+                                          </p>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </details>
                         )}
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 mt-4">
                           {canOperate && (
                             <button
                               type="button"
@@ -1032,43 +1019,62 @@ export default function KeyboxCodesView({
             <div className="space-y-2">
               {visibleDwellings.map((d) => {
                 const { box, lastMovement, lastBoxLetter } = locateDwelling(d.id!);
+                const codeKey = box ? `${box.id}:current` : '';
                 return (
-                  <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
+                  <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                    <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-lg sm:text-xl font-black text-gray-900 leading-tight break-words">
                           {d.shortLabel}
                         </p>
-                        <p className="text-xs sm:text-sm text-gray-400 mt-0.5 leading-snug break-words">
+                        <p className="text-xs text-gray-400 mt-0.5 leading-snug break-words">
                           {d.officialLabel}
                         </p>
                       </div>
                       {box ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 shrink-0">
-                          Boîtier {box.letter}
-                        </span>
+                        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 shrink-0">
+                          <span className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-sm shrink-0">
+                            {box.letter}
+                          </span>
+                          <span className="text-sm font-black uppercase tracking-wide text-emerald-800 whitespace-nowrap">
+                            Box {box.letter}
+                          </span>
+                        </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 shrink-0">
-                          Hors boîtier
-                        </span>
+                        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 shrink-0">
+                          <span className="text-sm font-black uppercase tracking-wide text-gray-400 whitespace-nowrap">
+                            Hors box
+                          </span>
+                        </div>
                       )}
                     </div>
                     {box ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-base sm:text-lg font-black tracking-widest tabular-nums text-gray-900">
-                          {revealed.has(`${box.id}:current`) ? box.currentCode : '••••'}
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                        <span className="text-4xl font-black tracking-[0.12em] text-gray-900 tabular-nums">
+                          {revealed.has(codeKey) ? box.currentCode : '••••'}
                         </span>
                         <button
                           type="button"
-                          onClick={() => toggleReveal(`${box.id}:current`)}
-                          className="text-xs sm:text-sm font-bold text-amber-700 underline"
+                          onClick={() => toggleReveal(codeKey)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                          title={revealed.has(codeKey) ? 'Masquer' : 'Afficher'}
                         >
-                          {revealed.has(`${box.id}:current`) ? 'Masquer' : 'Afficher'}
+                          {revealed.has(codeKey) ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
+                        {revealed.has(codeKey) && (
+                          <button
+                            type="button"
+                            onClick={() => copyCode(box.currentCode!)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                            title="Copier"
+                          >
+                            <Copy size={16} />
+                          </button>
+                        )}
                       </div>
                     ) : (
                       lastMovement && (
-                        <p className="text-[10px] text-gray-400 leading-snug">
+                        <p className="text-[11px] text-gray-400 leading-snug mt-2 pt-2 border-t border-gray-100">
                           {reasonLabel(lastMovement.reason)} du boîtier {lastBoxLetter}
                           {lastMovement.actorName ? ` · ${lastMovement.actorName}` : ''} · {formatDateTimeFr(lastMovement.at)}
                         </p>
