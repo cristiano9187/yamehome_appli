@@ -1698,9 +1698,9 @@ export default function App() {
   // Gardien restreint : accès direct à la vue Codes keybox, rien d'autre (pas de sidebar/menu).
   if (userProfile && isKeyboxGuardOnly(userProfile)) {
     return (
-      <div className="min-h-screen flex flex-col bg-[#F5F5F4] text-[#141414] font-sans">
+      <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#F5F5F4] text-[#141414] font-sans">
         <Suspense fallback={
-          <div className="flex-1 flex items-center justify-center min-h-screen">
+          <div className="flex-1 flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
           </div>
         }>
