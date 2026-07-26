@@ -30,7 +30,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly } from './constants';
-import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, AgentProfile } from './types';
+import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, ClientProfileSeed, AgentProfile } from './types';
 import {
   defaultCleaningChecklist,
   normalizeCleaningReport,
@@ -65,6 +65,7 @@ const TechnicianContactsView = lazy(() => import('./components/TechnicianContact
 const CostsView = lazy(() => import('./components/CostsView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 const KeyboxCodesView = lazy(() => import('./components/KeyboxCodesView'));
+const ClientsView = lazy(() => import('./components/ClientsView'));
 import { 
   LogOut, 
   Plus, 
@@ -100,6 +101,7 @@ import {
   ArrowLeft,
   CreditCard,
   KeyRound,
+  BookUser,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -218,9 +220,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
+  const [clientProfileSeed, setClientProfileSeed] = useState<ClientProfileSeed | null>(null);
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
-  const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | null>(null);
+  const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | 'clients' | null>(null);
   const [maintenanceStatus, setMaintenanceStatus] = useState<Record<string, string>>({});
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -1293,6 +1296,13 @@ export default function App() {
     setClientSearch(`${matchedClient.firstName} ${matchedClient.lastName}`.trim());
   };
 
+  const openClientProfile = useCallback((seed: ClientProfileSeed) => {
+    setClientProfileSeed({ ...seed });
+    setView('clients');
+    setShowMobileNav(false);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  }, []);
+
   const selectableApartments = useMemo(() => {
     if (!userProfile) return [] as string[];
     if (userProfile.role === 'admin' || isMainAdminEmail(userProfile.email)) return Object.keys(TARIFS);
@@ -2139,6 +2149,18 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => {
+                    setView('clients');
+                    setClientProfileSeed(null);
+                    setShowMobileNav(false);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'clients' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <BookUser size={16} className={view === 'clients' ? '' : 'text-pink-500'} />
+                  Clients
+                </button>
+                <button
+                  onClick={() => {
                     setView('proInvoices');
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
@@ -2297,8 +2319,31 @@ export default function App() {
                         onClick={() => applyClientSuggestion(client)}
                         className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 transition-all"
                       >
-                        <div className="text-[11px] font-black text-gray-800 uppercase">{client.firstName} {client.lastName}</div>
-                        <div className="text-[10px] text-gray-500">{client.phone || '-'} | {client.email || '-'}</div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-black text-gray-800 uppercase truncate">{client.firstName} {client.lastName}</div>
+                            <div className="text-[10px] text-gray-500 truncate">{client.phone || '-'} | {client.email || '-'}</div>
+                          </div>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openClientProfile(client);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                openClientProfile(client);
+                              }
+                            }}
+                            className="shrink-0 text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 px-1"
+                            title="Voir la fiche client complète"
+                          >
+                            Fiche →
+                          </span>
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -2323,6 +2368,20 @@ export default function App() {
                       <input disabled={isReadOnly} type="tel" name="phone" value={formData.phone} placeholder="Téléphone" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
                       <input disabled={isReadOnly} type="email" name="email" value={formData.email} placeholder="Email" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
                     </div>
+                    {formData.lastName.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => openClientProfile({
+                          firstName: formData.firstName,
+                          lastName: formData.lastName,
+                          phone: formData.phone,
+                          email: formData.email,
+                        })}
+                        className="w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-blue-200 text-blue-700 hover:bg-blue-100 bg-white"
+                      >
+                        Voir la fiche client complète →
+                      </button>
+                    )}
                     {!isReadOnly && (
                       <button type="button" onClick={saveClientDirectoryDetails} disabled={!hasClientDirectoryChanges}
                         className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${hasClientDirectoryChanges ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-white border border-blue-100 text-blue-300 cursor-not-allowed'}`}>
@@ -2827,6 +2886,28 @@ export default function App() {
                   window.print();
                 }, 1000);
               }}
+              onOpenClientProfile={(receipt) => openClientProfile({
+                firstName: receipt.firstName,
+                lastName: receipt.lastName,
+                phone: receipt.phone,
+                email: receipt.email,
+              })}
+            />
+          ) : view === 'clients' ? (
+            <ClientsView
+              userProfile={userProfile}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+              initialSeed={clientProfileSeed}
+              onOpenReceipt={(receipt) => {
+                setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
+                setIsReadOnly(true);
+                setReceiptReturnTarget('clients');
+                setView('form');
+              }}
             />
           ) : view === 'calendar' ? (
             <CalendarView 
@@ -3237,7 +3318,16 @@ export default function App() {
                       </div>
                     )}
                     <div className="mobile-receipt-zoom origin-top transition-transform will-change-transform">
-                      <ReceiptPreview data={debouncedFormData} showPaymentMethods={showReceiptPaymentMethods} />
+                      <ReceiptPreview
+                        data={debouncedFormData}
+                        showPaymentMethods={showReceiptPaymentMethods}
+                        onOpenClientProfile={debouncedFormData.lastName?.trim() ? () => openClientProfile({
+                          firstName: debouncedFormData.firstName,
+                          lastName: debouncedFormData.lastName,
+                          phone: debouncedFormData.phone,
+                          email: debouncedFormData.email,
+                        }) : undefined}
+                      />
                     </div>
                   </div>
                 </motion.div>

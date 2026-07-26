@@ -561,11 +561,13 @@ service cloud.firestore {
 
     function isValidClientProfile(data) {
       return hasRequiredFields(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
-             hasOnlyAllowedFields(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
+             hasOnlyAllowedFields(['firstName', 'lastName', 'phone', 'email', 'preferences', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
              data.firstName is string &&
              data.lastName is string && data.lastName.size() > 0 &&
              data.phone is string &&
              data.email is string &&
+             (!('preferences' in data) || data.preferences is string) &&
+             (!('notes' in data) || data.notes is string) &&
              data.authorUid is string && data.authorUid.size() > 0;
     }
 
@@ -683,7 +685,8 @@ service cloud.firestore {
         request.resource.data.authorUid == request.auth.uid;
       allow update: if isAgent() &&
         isValidClientProfile(request.resource.data);
-      allow delete: if isAdmin();
+      // Autorisé aux agents : fusion des fiches en double détectées dans la vue Clients (V1).
+      allow delete: if isAgent();
     }
 
     match /agents/{agentId} {

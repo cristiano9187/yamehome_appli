@@ -8,6 +8,8 @@ interface ReceiptPreviewProps {
   data: ReceiptData;
   /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
+  /** Si fourni, le nom du client devient cliquable (ouvre sa fiche) ; masqué à l'impression/export PDF. */
+  onOpenClientProfile?: () => void;
 }
 
 /**
@@ -34,7 +36,7 @@ function formatApartmentNameForPdfDisplay(name: string): string {
   return name.replace(/\bappartements?\b/gi, 'APT');
 }
 
-const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: ReceiptPreviewProps) => {
+const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenClientProfile }: ReceiptPreviewProps) => {
   if (!data.lastName && !data.apartmentName) {
     return (
       <div className="w-full max-w-[210mm] h-[297mm] bg-white shadow-lg flex items-center justify-center text-gray-400 italic text-sm">
@@ -150,7 +152,21 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
         <div className="border rounded-lg p-3 bg-gray-50 text-[11px]">
           <h3 className="text-[#2B4B8C] font-bold border-b mb-2 uppercase pb-1">Client</h3>
           <div className="space-y-1">
-            <p><span className="font-bold">Nom:</span> {data.firstName} {data.lastName}</p>
+            <p>
+              <span className="font-bold">Nom:</span>{' '}
+              {onOpenClientProfile ? (
+                <button
+                  type="button"
+                  onClick={onOpenClientProfile}
+                  className="underline decoration-dotted text-[#2B4B8C] hover:text-blue-700 print:no-underline print:text-inherit print:pointer-events-none print:cursor-auto bg-transparent border-0 p-0 m-0 font-sans text-[11px] align-baseline"
+                  title="Voir la fiche client"
+                >
+                  {data.firstName} {data.lastName}
+                </button>
+              ) : (
+                <>{data.firstName} {data.lastName}</>
+              )}
+            </p>
             <p className="flex items-center gap-1.5 flex-wrap">
               <span className="font-bold">Tél:</span>
               {data.phone ? (

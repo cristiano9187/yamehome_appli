@@ -41,9 +41,11 @@ interface HistoryViewProps {
   onMenuClick?: () => void;
   userProfile: UserProfile | null;
   onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
+  /** Ouvre la fiche client (profil, préférences, historique) pour ce reçu — clic sur le nom. */
+  onOpenClientProfile?: (receipt: ReceiptData) => void;
 }
 
-export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile, onAlert }: HistoryViewProps) {
+export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile, onAlert, onOpenClientProfile }: HistoryViewProps) {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -454,9 +456,20 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                       <div className="col-span-2">
                         <div className="flex items-center gap-2">
                           <div className="flex flex-col">
-                            <span className="text-xs font-bold text-gray-900 uppercase tracking-tight truncate max-w-[100px]">
-                              {receipt.firstName} {receipt.lastName}
-                            </span>
+                            {onOpenClientProfile ? (
+                              <button
+                                type="button"
+                                onClick={() => onOpenClientProfile(receipt)}
+                                className="text-xs font-bold text-gray-900 hover:text-blue-600 hover:underline uppercase tracking-tight truncate max-w-[100px] text-left"
+                                title="Voir la fiche client"
+                              >
+                                {receipt.firstName} {receipt.lastName}
+                              </button>
+                            ) : (
+                              <span className="text-xs font-bold text-gray-900 uppercase tracking-tight truncate max-w-[100px]">
+                                {receipt.firstName} {receipt.lastName}
+                              </span>
+                            )}
                             {receipt.phone
                               ? <PhoneLinks phone={receipt.phone} />
                               : <span className="text-[10px] text-gray-300">Pas de tél</span>}
@@ -605,7 +618,18 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">{receipt.receiptId}</span>
-                      <span className="text-sm font-black uppercase text-gray-900">{receipt.firstName} {receipt.lastName}</span>
+                      {onOpenClientProfile ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenClientProfile(receipt)}
+                          className="text-sm font-black uppercase text-gray-900 hover:text-blue-600 hover:underline text-left w-fit"
+                          title="Voir la fiche client"
+                        >
+                          {receipt.firstName} {receipt.lastName}
+                        </button>
+                      ) : (
+                        <span className="text-sm font-black uppercase text-gray-900">{receipt.firstName} {receipt.lastName}</span>
+                      )}
                       {receipt.phone && <PhoneLinks phone={receipt.phone} />}
                       <span className="text-[10px] text-gray-400 font-bold">{new Date(receipt.createdAt).toLocaleDateString('fr-FR')}</span>
                     </div>

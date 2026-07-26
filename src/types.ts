@@ -362,9 +362,21 @@ export interface ClientProfile {
   lastName: string;
   phone: string;
   email: string;
+  /** Préférences logement (étage, lit, climatisation, allergies...) — modifiable par l'équipe à tout moment. */
+  preferences?: string;
+  /** Notes internes équipe (VIP, vigilance, habitudes de paiement...) — jamais affichées au client. */
+  notes?: string;
   createdAt: string;
   updatedAt: string;
   authorUid: string;
+}
+
+/** Identité minimale utilisée pour ouvrir/retrouver une fiche client depuis un reçu, l'historique ou la recherche. */
+export interface ClientProfileSeed {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
 }
 
 export interface AgentProfile {
