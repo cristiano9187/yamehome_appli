@@ -414,7 +414,7 @@ const PREPAID_SHARED_METER_BY_SLUG: Record<
   /** Compteur réel sur chambre B ; A et B = même compteur. */
   'matera-chambre-b': {
     hideSlugs: ['matera-chambre-a'],
-    displayLabel: 'MATERA YAMEHOME RECEPTION P 104',
+    displayLabel: 'MATERA YAMEHOME - RECEPTION P 104',
   },
 };
 
