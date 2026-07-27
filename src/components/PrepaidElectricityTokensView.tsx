@@ -12,8 +12,23 @@ import {
 import { db, auth } from '../firebase';
 import { TARIFS, SITE_MAPPING, getPrepaidEligibleUnitRowsFromTarifs, formatCurrency } from '../constants';
 import { PrepaidElectricityToken, UserProfile, UnitElectricitySettings } from '../types';
-import { Zap, Menu, Loader2, Trash2, Plus, CheckCircle2, Unlock } from 'lucide-react';
+import { Zap, Menu, Loader2, Trash2, Plus, CheckCircle2, Unlock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+/** Décale un mois `YYYY-MM` de `delta` mois. */
+function shiftMonthYm(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Libellé français du mois (ex. « juillet 2026 »). */
+function formatMonthLabelFr(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m) return ym;
+  const label = new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
 
 type TokenConfirmDialog = {
   type: 'markUsed' | 'reopen' | 'delete';
@@ -122,6 +137,19 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
   }, [tokens, summaryMonth]);
 
   const availableCount = useMemo(() => tokens.filter((t) => !t.used).length, [tokens]);
+
+  /** Liste affichée : stock non utilisé + jetons utilisés dans le mois sélectionné. */
+  const visibleTokens = useMemo(() => {
+    const prefix = `${summaryMonth}-`;
+    return tokens
+      .filter((t) => !t.used || (t.usedAt && t.usedAt.startsWith(prefix)))
+      .sort((a, b) => {
+        // Non utilisés d’abord (plus récents en création), puis utilisés du mois (plus récents en usage).
+        if (a.used !== b.used) return a.used ? 1 : -1;
+        if (!a.used && !b.used) return (b.createdAt || '').localeCompare(a.createdAt || '');
+        return (b.usedAt || '').localeCompare(a.usedAt || '');
+      });
+  }, [tokens, summaryMonth]);
 
   const saveMeter = async () => {
     if (!isAdmin || !selectedRow) return;
@@ -378,20 +406,42 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
           </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-end gap-4">
-          <div>
-            <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">Synthèse mois</label>
-            <input
-              type="month"
-              value={summaryMonth}
-              onChange={(e) => setSummaryMonth(e.target.value)}
-              className="text-sm border border-slate-200 rounded-xl px-2 py-1.5"
-            />
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Synthèse mois</label>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSummaryMonth((m) => shiftMonthYm(m, -1))}
+                className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all"
+                title="Mois précédent"
+                aria-label="Mois précédent"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="min-w-[9.5rem] text-center text-sm font-black text-slate-900 capitalize px-2">
+                {formatMonthLabelFr(summaryMonth)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSummaryMonth((m) => shiftMonthYm(m, 1))}
+                className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all"
+                title="Mois suivant"
+                aria-label="Mois suivant"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
           </div>
-          <div className="text-sm">
-            Dépensé (jetons cochés ce mois) : <strong>{formatCurrency(monthSpent)}</strong> — {monthUsedCount} jeton(s)
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <span>
+              Dépensé (jetons cochés ce mois) : <strong>{formatCurrency(monthSpent)}</strong> — {monthUsedCount} jeton(s)
+            </span>
+            <span className="text-emerald-700">En stock (non utilisés) : {availableCount}</span>
           </div>
-          <div className="text-sm text-emerald-700">En stock (non utilisés) : {availableCount}</div>
+          <p className="text-[10px] text-slate-400">
+            Liste ci-dessous : jetons encore en stock + jetons utilisés en {formatMonthLabelFr(summaryMonth).toLowerCase()}.
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -401,9 +451,13 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
             </div>
           ) : tokens.length === 0 ? (
             <p className="p-8 text-center text-slate-500 text-sm">Aucun jeton pour ce logement.</p>
+          ) : visibleTokens.length === 0 ? (
+            <p className="p-8 text-center text-slate-500 text-sm">
+              Aucun jeton en stock ni utilisé en {formatMonthLabelFr(summaryMonth).toLowerCase()}.
+            </p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {tokens.map((t) => (
+              {visibleTokens.map((t) => (
                 <li key={t.id} className="p-4 flex flex-col gap-2 hover:bg-slate-50/80">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
