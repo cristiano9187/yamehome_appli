@@ -403,11 +403,40 @@ export const RECEIPT_PAYMENT_BADGE_SRC = {
   paypal: '/receipt-payment/paypal-badge.svg',
 } as const;
 
+/**
+ * Compteurs partagés entre plusieurs logements (prépayé uniquement).
+ * Le calendrier / réservations garde les chambres séparées ; ici une seule ligne UI.
+ */
+const PREPAID_SHARED_METER_BY_SLUG: Record<
+  string,
+  { hideSlugs: string[]; displayLabel: string }
+> = {
+  /** Compteur réel sur chambre B ; A et B = même compteur. */
+  'matera-chambre-b': {
+    hideSlugs: ['matera-chambre-a'],
+    displayLabel: 'MATERA YAMEHOME RECEPTION P 104',
+  },
+};
+
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
-export function getPrepaidEligibleUnitRowsFromTarifs(): { unitSlug: string; apartmentName: string }[] {
-  return getAllUnitRowsFromTarifs().filter(({ apartmentName }) => {
-    if (apartmentName.toUpperCase().includes('GALLAGHERS')) return false;
-    if (apartmentName.includes('mode STUDIO')) return false;
-    return true;
-  });
+export function getPrepaidEligibleUnitRowsFromTarifs(): {
+  unitSlug: string;
+  apartmentName: string;
+  displayLabel: string;
+}[] {
+  const hideSlugs = new Set(
+    Object.values(PREPAID_SHARED_METER_BY_SLUG).flatMap((o) => o.hideSlugs)
+  );
+
+  return getAllUnitRowsFromTarifs()
+    .filter(({ apartmentName, unitSlug }) => {
+      if (apartmentName.toUpperCase().includes('GALLAGHERS')) return false;
+      if (apartmentName.includes('mode STUDIO')) return false;
+      if (hideSlugs.has(unitSlug)) return false;
+      return true;
+    })
+    .map((r) => ({
+      ...r,
+      displayLabel: PREPAID_SHARED_METER_BY_SLUG[r.unitSlug]?.displayLabel ?? r.apartmentName,
+    }));
 }

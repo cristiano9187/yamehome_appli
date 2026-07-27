@@ -49,7 +49,7 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
 
   const allRows = useMemo(() => getPrepaidEligibleUnitRowsFromTarifs(), []);
   const allowedUnitRows = useMemo(() => {
-    if (!userProfile) return [] as { unitSlug: string; apartmentName: string }[];
+    if (!userProfile) return [] as typeof allRows;
     if (isAdmin) return allRows;
     const allowedApartments = (userProfile.allowedSites || []).flatMap((s) => SITE_MAPPING[s] || []);
     return allRows.filter((r) => allowedApartments.includes(r.apartmentName));
@@ -328,7 +328,9 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
           >
             {allowedUnitRows.map((r) => (
               <option key={r.unitSlug} value={r.unitSlug}>
-                {r.apartmentName} — {r.unitSlug}
+                {r.displayLabel === r.apartmentName
+                  ? `${r.apartmentName} — ${r.unitSlug}`
+                  : r.displayLabel}
               </option>
             ))}
           </select>
