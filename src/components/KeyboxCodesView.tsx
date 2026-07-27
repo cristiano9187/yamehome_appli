@@ -856,16 +856,25 @@ export default function KeyboxCodesView({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2 mb-4">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs font-black uppercase tracking-wide text-gray-400">Boîtier {box.letter}</span>
-                            <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${SITE_BADGE_CLASS[box.site]}`}>
-                              {SITE_LABELS[box.site]}
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-[#141414] text-white flex items-center justify-center font-black text-xl sm:text-2xl shrink-0 shadow-sm">
+                              {box.letter}
                             </span>
-                            {box.active === false && (
-                              <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500">
-                                Inactif
-                              </span>
-                            )}
+                            <div className="min-w-0">
+                              <p className="text-sm sm:text-base font-black uppercase tracking-wide text-gray-900 leading-tight">
+                                Boîtier {box.letter}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${SITE_BADGE_CLASS[box.site]}`}>
+                                  {SITE_LABELS[box.site]}
+                                </span>
+                                {box.active === false && (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500">
+                                    Inactif
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                           {canManage && (
                             <button
