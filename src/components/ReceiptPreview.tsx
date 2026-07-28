@@ -8,7 +8,7 @@ interface ReceiptPreviewProps {
   data: ReceiptData;
   /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
-  /** Si fourni, le nom du client devient cliquable (ouvre sa fiche) ; masqué à l'impression/export PDF. */
+  /** Si fourni, le nom du client devient cliquable (ouvre sa fiche) à l'écran. */
   onOpenClientProfile?: () => void;
 }
 
@@ -155,14 +155,18 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenCli
             <p>
               <span className="font-bold">Nom:</span>{' '}
               {onOpenClientProfile ? (
-                <button
-                  type="button"
-                  onClick={onOpenClientProfile}
-                  className="underline decoration-dotted text-[#2B4B8C] hover:text-blue-700 print:no-underline print:text-inherit print:pointer-events-none print:cursor-auto bg-transparent border-0 p-0 m-0 font-sans text-[11px] align-baseline"
-                  title="Voir la fiche client"
-                >
-                  {data.firstName} {data.lastName}
-                </button>
+                <>
+                  {/* Texte seul à l'impression : index.css masque tous les <button> en @media print */}
+                  <span className="hidden print:inline">{data.firstName} {data.lastName}</span>
+                  <button
+                    type="button"
+                    onClick={onOpenClientProfile}
+                    className="print:hidden underline decoration-dotted text-[#2B4B8C] hover:text-blue-700 bg-transparent border-0 p-0 m-0 font-sans text-[11px] align-baseline cursor-pointer"
+                    title="Voir la fiche client"
+                  >
+                    {data.firstName} {data.lastName}
+                  </button>
+                </>
               ) : (
                 <>{data.firstName} {data.lastName}</>
               )}
