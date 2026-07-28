@@ -66,6 +66,50 @@ const CATEGORY_LABELS: Record<ObligationCategory, string> = {
   OTHER: 'Autre',
 };
 
+const CATEGORY_TONE: Record<
+  ObligationCategory,
+  { row: string; badge: string; label: string }
+> = {
+  RENT: {
+    row: 'bg-amber-50/45 border-amber-100',
+    badge: 'bg-amber-100 text-amber-900 border border-amber-200',
+    label: 'text-amber-900',
+  },
+  UTILITIES: {
+    row: 'bg-sky-50/45 border-sky-100',
+    badge: 'bg-sky-100 text-sky-900 border border-sky-200',
+    label: 'text-sky-900',
+  },
+  INTERNET: {
+    row: 'bg-violet-50/45 border-violet-100',
+    badge: 'bg-violet-100 text-violet-900 border border-violet-200',
+    label: 'text-violet-900',
+  },
+  SALARY: {
+    row: 'bg-rose-50/45 border-rose-100',
+    badge: 'bg-rose-100 text-rose-900 border border-rose-200',
+    label: 'text-rose-900',
+  },
+  OTHER: {
+    row: 'bg-stone-50 border-stone-200',
+    badge: 'bg-stone-100 text-stone-800 border border-stone-200',
+    label: 'text-stone-800',
+  },
+};
+
+const SHARED_WATER_METER_BY_UNIT: Partial<
+  Record<YaoundeUnitSlug, { canonicalUnitSlug: YaoundeUnitSlug; displayTitle: string }>
+> = {
+  'matera-chambre-a': {
+    canonicalUnitSlug: 'matera-chambre-b',
+    displayTitle: 'Eau - Matera - Reception P 104',
+  },
+  'matera-chambre-b': {
+    canonicalUnitSlug: 'matera-chambre-b',
+    displayTitle: 'Eau - Matera - Reception P 104',
+  },
+};
+
 function getLocalDateString(d: Date = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -86,7 +130,17 @@ function occDocId(templateId: string, periodYm: string): string {
 
 function recurringRowTitle(occ: ObligationOccurrence, tpl: ObligationTemplate): string {
   const t = occ.displayTitle?.trim();
-  return t ? t : tpl.title;
+  if (t) return t;
+  return getSharedWaterMeterMeta(tpl)?.displayTitle || tpl.title;
+}
+
+function getSharedWaterMeterMeta(
+  tpl: Pick<ObligationTemplate, 'category' | 'unitSlug' | 'title'>
+): { canonicalUnitSlug: YaoundeUnitSlug; displayTitle: string } | null {
+  if (tpl.category !== 'UTILITIES') return null;
+  if (!tpl.unitSlug) return null;
+  if (!(tpl.title || '').toLowerCase().includes('eau')) return null;
+  return SHARED_WATER_METER_BY_UNIT[tpl.unitSlug as YaoundeUnitSlug] || null;
 }
 
 function recurringRowExpectedAmount(occ: ObligationOccurrence, tpl: ObligationTemplate): number | null {
@@ -154,6 +208,7 @@ export default function ObligationsDeskRail({
 }: ObligationsDeskRailProps) {
   const canEdit = canEditObligations(userProfile, isMainAdminEmail);
   const canSeeSalary = canSeeSalaryObligations(userProfile, isMainAdminEmail);
+  const canManageAdvancedOptions = isMainAdminEmail(userProfile.email);
   const [viewMonth, setViewMonth] = useState(calendarMonthFromDate);
   const dataYear = viewMonth.year;
   const [templates, setTemplates] = useState<ObligationTemplate[]>([]);
@@ -166,6 +221,7 @@ export default function ObligationsDeskRail({
   const [ensuringYear, setEnsuringYear] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false);
+  const [showMediaPanel, setShowMediaPanel] = useState(false);
   /** Formulaire obligation ponctuelle par mois (periodYm ou null = fermé) */
   const [oneOffFormYm, setOneOffFormYm] = useState<string | null>(null);
   const [oneOffForm, setOneOffForm] = useState({
@@ -428,6 +484,24 @@ export default function ObligationsDeskRail({
       if (!canSeeSalary && tpl.category === 'SALARY') return;
       const list = map.get(occ.periodYm);
       if (!list) return;
+      const sharedWater = getSharedWaterMeterMeta(tpl);
+      if (sharedWater) {
+        const existingIndex = list.findIndex(
+          (row) =>
+            row.kind === 'recurring' &&
+            getSharedWaterMeterMeta(row.tpl)?.canonicalUnitSlug === sharedWater.canonicalUnitSlug
+        );
+        if (existingIndex >= 0) {
+          const existing = list[existingIndex];
+          const existingIsCanonical =
+            existing.kind === 'recurring' && existing.tpl.unitSlug === sharedWater.canonicalUnitSlug;
+          const nextIsCanonical = tpl.unitSlug === sharedWater.canonicalUnitSlug;
+          if (!existingIsCanonical && nextIsCanonical) {
+            list[existingIndex] = { kind: 'recurring', occ, tpl };
+          }
+          return;
+        }
+      }
       list.push({ kind: 'recurring', occ, tpl });
     });
     oneOffsYear.forEach((oo) => {
@@ -442,8 +516,8 @@ export default function ObligationsDeskRail({
         const dueB = b.kind === 'recurring' ? b.occ.dueDate : b.oo.dueDate;
         const da = dueA.localeCompare(dueB);
         if (da !== 0) return da;
-        const titleA = a.kind === 'recurring' ? a.tpl.title : a.oo.title;
-        const titleB = b.kind === 'recurring' ? b.tpl.title : b.oo.title;
+        const titleA = a.kind === 'recurring' ? recurringRowTitle(a.occ, a.tpl) : a.oo.title;
+        const titleB = b.kind === 'recurring' ? recurringRowTitle(b.occ, b.tpl) : b.oo.title;
         return titleA.localeCompare(titleB);
       });
     });
@@ -465,6 +539,42 @@ export default function ObligationsDeskRail({
     () => rowsByMonth.get(visiblePeriodYm) ?? [],
     [rowsByMonth, visiblePeriodYm]
   );
+
+  const monthlySummary = useMemo(() => {
+    let paid = 0;
+    let overdue = 0;
+    let dueSoon = 0;
+    let totalExpected = 0;
+
+    visibleRows.forEach((row) => {
+      const status = row.kind === 'recurring' ? row.occ.status : row.oo.status;
+      const dueDate = row.kind === 'recurring' ? row.occ.dueDate : row.oo.dueDate;
+      const amount =
+        row.kind === 'recurring'
+          ? recurringRowExpectedAmount(row.occ, row.tpl) ?? 0
+          : row.oo.expectedAmount != null && row.oo.expectedAmount > 0
+            ? row.oo.expectedAmount
+            : row.oo.paidAmount || 0;
+
+      if (amount > 0) totalExpected += amount;
+      if (status === 'PAID') {
+        paid += 1;
+        return;
+      }
+      const urgency = urgencyLabel(status, dueDate);
+      if (urgency === 'Dépassé') overdue += 1;
+      if (urgency === 'À régler') dueSoon += 1;
+    });
+
+    return {
+      total: visibleRows.length,
+      paid,
+      overdue,
+      dueSoon,
+      open: Math.max(0, visibleRows.length - paid),
+      totalExpected,
+    };
+  }, [visibleRows]);
 
   useEffect(() => {
     setOneOffFormYm((prev) => (prev != null && prev !== visiblePeriodYm ? null : prev));
@@ -507,6 +617,7 @@ export default function ObligationsDeskRail({
 
       // —— Eau Yaoundé ——
       for (const [slug, dueDay] of Object.entries(YAOUNDE_WATER_DUE_DAY) as [YaoundeUnitSlug, number][]) {
+        if (slug === 'matera-chambre-a') continue;
         const seedKey = `yaounde-water:${slug}`;
         const dup = templates.some(
           (t) =>
@@ -515,13 +626,18 @@ export default function ObligationsDeskRail({
               (t.category === 'UTILITIES' && t.unitSlug === slug && (t.title || '').toLowerCase().includes('eau')))
         );
         if (dup) continue;
-        await addDoc(collection(db, 'obligation_templates'), {
+        const sharedWater = getSharedWaterMeterMeta({
+          category: 'UTILITIES',
+          unitSlug: slug,
           title: `Eau — ${YAOUNDE_UNIT_LABELS[slug]}`,
+        });
+        await addDoc(collection(db, 'obligation_templates'), {
+          title: sharedWater?.displayTitle || `Eau — ${YAOUNDE_UNIT_LABELS[slug]}`,
           category: 'UTILITIES',
           dueDayOfMonth: dueDay,
           expectedAmount: null,
           unitSlug: slug,
-          apartmentName: YAOUNDE_UNIT_LABELS[slug],
+          apartmentName: sharedWater?.displayTitle || YAOUNDE_UNIT_LABELS[slug],
           active: true,
           notes: seedKey,
           createdAt: now,
@@ -796,6 +912,10 @@ export default function ObligationsDeskRail({
 
   const handleSubmitOneOff = async (e: React.FormEvent, periodYm: string) => {
     e.preventDefault();
+    if (!canManageAdvancedOptions) {
+      onAlert('Action réservée au super admin.', 'error');
+      return;
+    }
     const title = oneOffForm.title.trim();
     if (!title) {
       onAlert('Indiquez un libellé.', 'error');
@@ -952,6 +1072,10 @@ export default function ObligationsDeskRail({
 
   const handleAddTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageAdvancedOptions) {
+      onAlert('Action réservée au super admin.', 'error');
+      return;
+    }
     if (!newTpl.title.trim()) return;
     const now = new Date().toISOString();
     const uid = auth.currentUser?.uid || userUid;
@@ -1068,183 +1192,242 @@ export default function ObligationsDeskRail({
               </header>
 
               <div className="flex-1 flex flex-col min-h-0 md:overflow-hidden px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
-                <div className="shrink-0">
-                  <MediaSubscriptionsPanel
-                    userUid={userUid}
-                    userProfile={userProfile}
-                    canEdit={canEdit}
-                    onAlert={onAlert}
-                  />
-                </div>
-                {canEdit && (
-                <div className="shrink-0 md:overflow-y-auto md:max-h-[38vh] space-y-4 md:pr-1">
-                <button
-                  type="button"
-                  onClick={() => setShowTemplatesEditor((v) => !v)}
-                  className="text-[10px] font-black uppercase tracking-widest text-orange-700 hover:text-orange-900"
-                >
-                  {showTemplatesEditor ? '▼ Masquer obligations récurrentes (modèles)' : '▶ Gérer les obligations récurrentes'}
-                </button>
-
-                {showTemplatesEditor && (
-                  <div className="rounded-xl border border-stone-200 bg-white p-4 grid md:grid-cols-2 gap-4">
-                    <form onSubmit={handleAddTemplate} className="space-y-2">
-                      <p className="text-[11px] font-bold text-stone-700">Ajouter une ligne récurrente</p>
-                      <input
-                        placeholder="Libellé (ex. Internet Orange)"
-                        value={newTpl.title}
-                        onChange={(e) => setNewTpl((s) => ({ ...s, title: e.target.value }))}
-                        className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={newTpl.category}
-                          onChange={(e) =>
-                            setNewTpl((s) => ({ ...s, category: e.target.value as ObligationCategory }))
-                          }
-                          className="text-xs rounded-lg border border-stone-200 px-2 py-2"
-                        >
-                          {categoryOptions.map((k) => (
-                            <option key={k} value={k}>
-                              {CATEGORY_LABELS[k]}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min={1}
-                          max={31}
-                          placeholder="Jour échéance"
-                          value={newTpl.dueDayOfMonth}
-                          onChange={(e) =>
-                            setNewTpl((s) => ({ ...s, dueDayOfMonth: Number(e.target.value) }))
-                          }
-                          className="text-xs rounded-lg border border-stone-200 px-2 py-2"
-                        />
-                      </div>
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder="Montant XAF (optionnel)"
-                        value={newTpl.expectedAmount}
-                        onChange={(e) => setNewTpl((s) => ({ ...s, expectedAmount: e.target.value }))}
-                        className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
-                      />
-                      {newTpl.category === 'RENT' && (
-                        <select
-                          value={newTpl.unitSlug}
-                          onChange={(e) => setNewTpl((s) => ({ ...s, unitSlug: e.target.value }))}
-                          className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
-                        >
-                          <option value="">— Unité —</option>
-                          {rentRows.map((r) => (
-                            <option key={r.unitSlug} value={r.unitSlug}>
-                              {r.apartmentName} · {r.unitSlug}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      <button
-                        type="submit"
-                        className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-lg"
-                      >
-                        <Plus size={14} /> Ajouter
-                      </button>
-                    </form>
-                    <div className="border-t md:border-t-0 md:border-l border-stone-100 pt-4 md:pt-0 md:pl-4 space-y-2 max-h-56 overflow-y-auto">
-                      <p className="text-[11px] font-bold text-stone-700">Modèles existants</p>
-                      {templates.map((t) => (
-                        <div
-                          key={t.id}
-                          className="flex items-start justify-between gap-2 text-[11px] bg-stone-50 rounded-lg px-2 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-bold truncate">{t.title}</div>
-                            <div className="text-[10px] text-stone-500">
-                              {CATEGORY_LABELS[t.category]} · jour {t.dueDayOfMonth}
-                              {t.expectedAmount != null && t.expectedAmount > 0 && (
-                                <> · {formatCurrency(t.expectedAmount)}</>
-                              )}
-                              {!t.active && <span className="text-orange-700 font-black ml-1">(off)</span>}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => toggleTemplateActive(t)}
-                              className="text-[9px] font-black uppercase px-2 py-1 rounded bg-white border border-stone-200"
-                            >
-                              {t.active ? 'Off' : 'On'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTemplate(t)}
-                              className="text-[9px] text-red-600 px-2 py-1"
-                            >
-                              <Trash2 size={12} className="inline" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {!templates.length && (
-                        <p className="text-[10px] text-stone-400">Aucun modèle — importez depuis le parc ou ajoutez.</p>
-                      )}
-                    </div>
+                <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 shrink-0">
+                  <div className="rounded-2xl border border-stone-200 bg-white px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-500">Lignes du mois</p>
+                    <p className="mt-1 text-2xl font-black text-stone-900">{monthlySummary.total}</p>
                   </div>
-                )}
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Réglées</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-900">{monthlySummary.paid}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">À suivre</p>
+                    <p className="mt-1 text-2xl font-black text-amber-900">{monthlySummary.open}</p>
+                  </div>
+                  <div className="rounded-2xl border border-red-200 bg-red-50/80 px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-red-700">En retard</p>
+                    <p className="mt-1 text-2xl font-black text-red-900">{monthlySummary.overdue}</p>
+                  </div>
+                  <div className="col-span-2 xl:col-span-1 rounded-2xl border border-stone-200 bg-white px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-500">Montant prévu</p>
+                    <p className="mt-1 text-lg font-black text-stone-900">
+                      {monthlySummary.totalExpected > 0 ? formatCurrency(monthlySummary.totalExpected) : '—'}
+                    </p>
+                    <p className="text-[10px] text-stone-400 mt-1">
+                      {monthlySummary.dueSoon > 0 ? `${monthlySummary.dueSoon} à régler bientôt` : 'Aucune urgence proche'}
+                    </p>
+                  </div>
                 </div>
-                )}
 
-                <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase text-stone-400">
-                  {busy && <Loader2 size={14} className="animate-spin text-orange-600" />}
-                  {busy
-                    ? 'chargement…'
-                    : `${visibleRows.length} obligation(s) ce mois · ${occurrencesYear.length + oneOffsYear.length} ligne(s) sur ${dataYear}`}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                  <div className="flex flex-wrap items-center gap-2 font-black uppercase text-stone-400">
+                    {busy && <Loader2 size={14} className="animate-spin text-orange-600" />}
+                    {busy
+                      ? 'chargement…'
+                      : `${visibleRows.length} obligation(s) ce mois · ${occurrencesYear.length + oneOffsYear.length} ligne(s) sur ${dataYear}`}
+                  </div>
+                  <div className="text-[11px] text-stone-500">
+                    Une seule vue de pilotage: suivi du mois, abonnements et modèles avancés.
+                  </div>
                 </div>
 
-                <div className="md:flex-1 md:min-h-0 flex flex-col border-t border-stone-200/80 pt-3">
+                <div className="md:flex-1 md:min-h-0 flex flex-col">
                   <section
                     key={visiblePeriodYm}
                     className="flex flex-col md:flex-1 md:min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
                   >
-                        <div className="px-3 sm:px-4 py-2.5 bg-stone-100 border-b border-stone-200 flex flex-wrap justify-between items-center gap-2">
-                          <h3 className="text-sm font-black text-stone-900">
-                            {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
-                          </h3>
-                          <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                        <div className="px-3 sm:px-4 py-3.5 bg-stone-50 border-b border-stone-200 space-y-3">
+                          <div className="flex flex-wrap justify-between items-start gap-2">
+                            <div>
+                              <h3 className="text-base font-black text-stone-900">
+                                Charges du mois · {MOIS_FR[viewMonth.month - 1]} {viewMonth.year}
+                              </h3>
+                              <p className="text-[11px] text-stone-500 mt-1">
+                                Loyer, eau, internet, TV et lignes ponctuelles dans une seule surface de suivi.
+                              </p>
+                            </div>
                             <span className="text-[10px] font-bold text-stone-500 tabular-nums">
                               {visibleRows.length} obligation(s)
                             </span>
-                            {canEdit && (
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => {
-                                setOneOffFormYm((prev) => {
-                                  const next = prev === visiblePeriodYm ? null : visiblePeriodYm;
-                                  if (next) {
-                                    setOneOffForm({
-                                      title: '',
-                                      category: 'OTHER',
-                                      dueDate: `${visiblePeriodYm}-15`,
-                                      expectedAmount: '',
-                                    });
-                                  }
-                                  return next;
-                                });
-                              }}
+                              onClick={() => setShowMediaPanel((v) => !v)}
                               className={`text-[10px] font-black uppercase tracking-wider px-3 py-2.5 rounded-lg border transition-colors touch-manipulation ${
-                                oneOffFormYm === visiblePeriodYm
-                                  ? 'bg-orange-600 border-orange-700 text-white'
-                                  : 'bg-white border-stone-200 text-orange-800 hover:bg-orange-50'
+                                showMediaPanel
+                                  ? 'bg-indigo-600 border-indigo-700 text-white'
+                                  : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-100'
                               }`}
                             >
-                              {oneOffFormYm === visiblePeriodYm ? 'Fermer' : '+ Ponctuelle'}
+                              {showMediaPanel ? 'Masquer TV / IPTV' : 'Gérer TV / IPTV'}
                             </button>
+                            {canManageAdvancedOptions && (
+                              <button
+                                type="button"
+                                onClick={() => setShowTemplatesEditor((v) => !v)}
+                                className={`text-[10px] font-black uppercase tracking-wider px-3 py-2.5 rounded-lg border transition-colors touch-manipulation ${
+                                  showTemplatesEditor
+                                    ? 'bg-orange-600 border-orange-700 text-white'
+                                    : 'bg-white border-stone-200 text-orange-800 hover:bg-orange-50'
+                                }`}
+                              >
+                                {showTemplatesEditor ? 'Masquer modèles' : 'Gérer modèles récurrents'}
+                              </button>
+                            )}
+                            {canManageAdvancedOptions && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOneOffFormYm((prev) => {
+                                    const next = prev === visiblePeriodYm ? null : visiblePeriodYm;
+                                    if (next) {
+                                      setOneOffForm({
+                                        title: '',
+                                        category: 'OTHER',
+                                        dueDate: `${visiblePeriodYm}-15`,
+                                        expectedAmount: '',
+                                      });
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={`text-[10px] font-black uppercase tracking-wider px-3 py-2.5 rounded-lg border transition-colors touch-manipulation ${
+                                  oneOffFormYm === visiblePeriodYm
+                                    ? 'bg-stone-900 border-stone-950 text-white'
+                                    : 'bg-white border-stone-200 text-stone-800 hover:bg-stone-100'
+                                }`}
+                              >
+                                {oneOffFormYm === visiblePeriodYm ? 'Fermer ponctuelle' : '+ Ajouter ponctuelle'}
+                              </button>
                             )}
                           </div>
                         </div>
 
-                        {canEdit && oneOffFormYm === visiblePeriodYm && (
+                        {showMediaPanel && (
+                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-stone-50/70">
+                            <MediaSubscriptionsPanel
+                              userUid={userUid}
+                              userProfile={userProfile}
+                              canEdit={canEdit}
+                              embedded
+                              onAlert={onAlert}
+                            />
+                          </div>
+                        )}
+
+                        {canManageAdvancedOptions && showTemplatesEditor && (
+                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-orange-50/40">
+                            <div className="rounded-xl border border-stone-200 bg-white p-4 grid md:grid-cols-2 gap-4">
+                              <form onSubmit={handleAddTemplate} className="space-y-2">
+                                <p className="text-[11px] font-bold text-stone-700">Ajouter une ligne récurrente</p>
+                                <input
+                                  placeholder="Libellé (ex. Internet Orange)"
+                                  value={newTpl.title}
+                                  onChange={(e) => setNewTpl((s) => ({ ...s, title: e.target.value }))}
+                                  className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
+                                />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <select
+                                    value={newTpl.category}
+                                    onChange={(e) =>
+                                      setNewTpl((s) => ({ ...s, category: e.target.value as ObligationCategory }))
+                                    }
+                                    className="text-xs rounded-lg border border-stone-200 px-2 py-2"
+                                  >
+                                    {categoryOptions.map((k) => (
+                                      <option key={k} value={k}>
+                                        {CATEGORY_LABELS[k]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={31}
+                                    placeholder="Jour échéance"
+                                    value={newTpl.dueDayOfMonth}
+                                    onChange={(e) =>
+                                      setNewTpl((s) => ({ ...s, dueDayOfMonth: Number(e.target.value) }))
+                                    }
+                                    className="text-xs rounded-lg border border-stone-200 px-2 py-2"
+                                  />
+                                </div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="Montant XAF (optionnel)"
+                                  value={newTpl.expectedAmount}
+                                  onChange={(e) => setNewTpl((s) => ({ ...s, expectedAmount: e.target.value }))}
+                                  className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
+                                />
+                                {newTpl.category === 'RENT' && (
+                                  <select
+                                    value={newTpl.unitSlug}
+                                    onChange={(e) => setNewTpl((s) => ({ ...s, unitSlug: e.target.value }))}
+                                    className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
+                                  >
+                                    <option value="">— Unité —</option>
+                                    {rentRows.map((r) => (
+                                      <option key={r.unitSlug} value={r.unitSlug}>
+                                        {r.apartmentName} · {r.unitSlug}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                                <button
+                                  type="submit"
+                                  className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-lg"
+                                >
+                                  <Plus size={14} /> Ajouter
+                                </button>
+                              </form>
+                              <div className="border-t md:border-t-0 md:border-l border-stone-100 pt-4 md:pt-0 md:pl-4 space-y-2 max-h-56 overflow-y-auto">
+                                <p className="text-[11px] font-bold text-stone-700">Modèles existants</p>
+                                {templates.map((t) => (
+                                  <div
+                                    key={t.id}
+                                    className="flex items-start justify-between gap-2 text-[11px] bg-stone-50 rounded-lg px-2 py-2"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="font-bold truncate">{t.title}</div>
+                                      <div className="text-[10px] text-stone-500">
+                                        {CATEGORY_LABELS[t.category]} · jour {t.dueDayOfMonth}
+                                        {t.expectedAmount != null && t.expectedAmount > 0 && (
+                                          <> · {formatCurrency(t.expectedAmount)}</>
+                                        )}
+                                        {!t.active && <span className="text-orange-700 font-black ml-1">(off)</span>}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-col gap-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleTemplateActive(t)}
+                                        className="text-[9px] font-black uppercase px-2 py-1 rounded bg-white border border-stone-200"
+                                      >
+                                        {t.active ? 'Off' : 'On'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteTemplate(t)}
+                                        className="text-[9px] text-red-600 px-2 py-1"
+                                      >
+                                        <Trash2 size={12} className="inline" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                                {!templates.length && (
+                                  <p className="text-[10px] text-stone-400">Aucun modèle — importez depuis le parc ou ajoutez.</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {canManageAdvancedOptions && oneOffFormYm === visiblePeriodYm && (
                           <form
                             onSubmit={(e) => void handleSubmitOneOff(e, visiblePeriodYm)}
                             className="px-3 sm:px-4 py-3 bg-orange-50/80 border-b border-orange-100 flex flex-col sm:flex-wrap sm:flex-row gap-2 sm:items-end"
@@ -1328,6 +1511,7 @@ export default function ObligationsDeskRail({
                                 const { occ, tpl } = row;
                                 const alert = urgencyLabel(occ.status, occ.dueDate);
                                 const amount = recurringRowExpectedAmount(occ, tpl);
+                                const categoryTone = CATEGORY_TONE[tpl.category];
                                 const rowBg =
                                   occ.status === 'PAID'
                                     ? 'bg-emerald-50/80 border-emerald-100'
@@ -1335,14 +1519,16 @@ export default function ObligationsDeskRail({
                                       ? 'bg-red-50/80 border-red-100'
                                       : alert === 'À régler'
                                         ? 'bg-amber-50/80 border-amber-100'
-                                        : 'bg-white border-stone-200';
+                                        : categoryTone.row;
                                 return (
                                   <article key={occ.id} className={`rounded-xl border p-3.5 space-y-4 ${rowBg}`}>
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
                                         <p className="font-bold text-stone-900 text-sm leading-snug">{recurringRowTitle(occ, tpl)}</p>
                                         <p className="text-[11px] text-stone-500 mt-0.5">
-                                          {CATEGORY_LABELS[tpl.category]}
+                                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${categoryTone.badge}`}>
+                                            {CATEGORY_LABELS[tpl.category]}
+                                          </span>
                                           {amount != null && amount > 0 ? ` · ${formatCurrency(amount)}` : ''}
                                         </p>
                                         <p className="text-[11px] tabular-nums text-stone-600 mt-1">Échéance {occ.dueDate}</p>
@@ -1393,6 +1579,7 @@ export default function ObligationsDeskRail({
                               }
                               const oo = row.oo;
                               const alert = urgencyLabel(oo.status, oo.dueDate);
+                              const categoryTone = CATEGORY_TONE[oo.category];
                               const rowBg =
                                 oo.status === 'PAID'
                                   ? 'bg-emerald-50/80 border-emerald-100'
@@ -1400,14 +1587,19 @@ export default function ObligationsDeskRail({
                                     ? 'bg-red-50/80 border-red-100'
                                     : alert === 'À régler'
                                       ? 'bg-amber-50/80 border-amber-100'
-                                      : 'bg-orange-50/50 border-orange-100';
+                                      : categoryTone.row;
                               return (
                                 <article key={oo.id} className={`rounded-xl border p-3.5 space-y-4 ${rowBg}`}>
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0">
-                                      <p className="text-[9px] font-black uppercase text-orange-800">Ponctuelle</p>
+                                      <p className={`text-[9px] font-black uppercase ${categoryTone.label}`}>Ponctuelle</p>
                                       <p className="font-bold text-stone-900 text-sm">{oo.title}</p>
-                                      <p className="text-[11px] text-stone-500 mt-0.5">{CATEGORY_LABELS[oo.category]}{oo.expectedAmount != null && oo.expectedAmount > 0 ? ` · ${formatCurrency(oo.expectedAmount)}` : ''}</p>
+                                      <p className="text-[11px] text-stone-500 mt-0.5">
+                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${categoryTone.badge}`}>
+                                          {CATEGORY_LABELS[oo.category]}
+                                        </span>
+                                        {oo.expectedAmount != null && oo.expectedAmount > 0 ? ` · ${formatCurrency(oo.expectedAmount)}` : ''}
+                                      </p>
                                       <p className="text-[11px] tabular-nums text-stone-600 mt-1">Échéance {oo.dueDate}</p>
                                     </div>
                                     {alert && oo.status !== 'PAID' && (
@@ -1478,6 +1670,7 @@ export default function ObligationsDeskRail({
                                 if (row.kind === 'recurring') {
                                   const { occ, tpl } = row;
                                   const alert = urgencyLabel(occ.status, occ.dueDate);
+                                  const categoryTone = CATEGORY_TONE[tpl.category];
                                   const rowBg =
                                     occ.status === 'PAID'
                                       ? 'bg-emerald-50/50'
@@ -1485,7 +1678,7 @@ export default function ObligationsDeskRail({
                                         ? 'bg-red-50/60'
                                         : alert === 'À régler'
                                           ? 'bg-amber-50/70'
-                                          : '';
+                                          : categoryTone.row;
                                   return (
                                     <tr key={occ.id} className={`border-b border-stone-100 ${rowBg}`}>
                                       <td className="px-3 py-2 align-top">
@@ -1494,8 +1687,10 @@ export default function ObligationsDeskRail({
                                           <div className="text-[10px] text-stone-400 font-mono">{tpl.unitSlug}</div>
                                         )}
                                       </td>
-                                      <td className="px-3 py-2 align-top text-stone-600">
-                                        {CATEGORY_LABELS[tpl.category]}
+                                      <td className="px-3 py-2 align-top">
+                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${categoryTone.badge}`}>
+                                          {CATEGORY_LABELS[tpl.category]}
+                                        </span>
                                       </td>
                                       <td className="px-3 py-2 align-top tabular-nums text-stone-700">
                                         {(() => {
@@ -1627,6 +1822,7 @@ export default function ObligationsDeskRail({
 
                                 const oo = row.oo;
                                 const alert = urgencyLabel(oo.status, oo.dueDate);
+                                const categoryTone = CATEGORY_TONE[oo.category];
                                 const rowBg =
                                   oo.status === 'PAID'
                                     ? 'bg-emerald-50/50'
@@ -1634,17 +1830,19 @@ export default function ObligationsDeskRail({
                                       ? 'bg-red-50/60'
                                       : alert === 'À régler'
                                         ? 'bg-amber-50/70'
-                                        : 'bg-orange-50/30';
+                                        : categoryTone.row;
                                 return (
                                   <tr key={oo.id} className={`border-b border-stone-100 ${rowBg}`}>
                                     <td className="px-3 py-2 align-top">
                                       <div className="font-bold text-stone-900">{oo.title}</div>
-                                      <div className="text-[9px] font-black uppercase text-orange-800 tracking-wide">
+                                      <div className={`text-[9px] font-black uppercase tracking-wide ${categoryTone.label}`}>
                                         Ponctuelle
                                       </div>
                                     </td>
-                                    <td className="px-3 py-2 align-top text-stone-600">
-                                      {CATEGORY_LABELS[oo.category]}
+                                    <td className="px-3 py-2 align-top">
+                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${categoryTone.badge}`}>
+                                        {CATEGORY_LABELS[oo.category]}
+                                      </span>
                                     </td>
                                     <td className="px-3 py-2 align-top tabular-nums text-stone-700">
                                       {oo.expectedAmount != null && oo.expectedAmount > 0

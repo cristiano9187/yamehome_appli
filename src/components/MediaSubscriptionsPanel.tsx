@@ -19,6 +19,7 @@ interface MediaSubscriptionsPanelProps {
   userUid: string;
   userProfile: UserProfile;
   canEdit?: boolean;
+  embedded?: boolean;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -78,6 +79,7 @@ export default function MediaSubscriptionsPanel({
   userUid,
   userProfile,
   canEdit = false,
+  embedded = false,
   onAlert,
 }: MediaSubscriptionsPanelProps) {
   const [rows, setRows] = useState<UnitMediaSubscription[]>([]);
@@ -249,14 +251,24 @@ export default function MediaSubscriptionsPanel({
   const renewTarget = editingId ? rows.find((r) => r.id === editingId) : null;
 
   return (
-    <div className="rounded-xl border border-indigo-200 bg-white overflow-hidden">
-      <div className="px-3 sm:px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-center gap-2">
+    <div
+      className={`overflow-hidden ${
+        embedded
+          ? 'rounded-2xl border border-stone-200 bg-stone-50/80'
+          : 'rounded-xl border border-indigo-200 bg-white'
+      }`}
+    >
+      <div
+        className={`px-3 sm:px-4 py-3 flex flex-wrap items-center gap-2 ${
+          embedded ? 'bg-white/70 border-b border-stone-200' : 'bg-indigo-50 border-b border-indigo-100'
+        }`}
+      >
         <Tv size={16} className="text-indigo-700 shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-900">
-            Abonnements TV (Canal+ · IPTV)
+          <p className={`text-[11px] font-black uppercase tracking-widest ${embedded ? 'text-stone-800' : 'text-indigo-900'}`}>
+            Abonnements TV et IPTV
           </p>
-          <p className="text-[10px] text-indigo-700/80">
+          <p className={`text-[10px] ${embedded ? 'text-stone-500' : 'text-indigo-700/80'}`}>
             Alerte : Canal+ {MEDIA_WARN_DAYS_BEFORE.CANAL_PLUS} j · IPTV {MEDIA_WARN_DAYS_BEFORE.IPTV} j
             {alertCount > 0 ? ` · ${alertCount} à surveiller` : ''}
           </p>
@@ -268,7 +280,11 @@ export default function MediaSubscriptionsPanel({
               type="button"
               onClick={() => setFilterKind(k)}
               className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase touch-manipulation ${
-                filterKind === k ? 'bg-indigo-700 text-white' : 'bg-white text-indigo-700 border border-indigo-200'
+                filterKind === k
+                  ? 'bg-indigo-700 text-white'
+                  : embedded
+                    ? 'bg-white text-stone-700 border border-stone-200'
+                    : 'bg-white text-indigo-700 border border-indigo-200'
               }`}
             >
               {k === 'ALL' ? 'Tous' : KIND_LABEL[k]}
@@ -287,7 +303,7 @@ export default function MediaSubscriptionsPanel({
         </div>
       </div>
 
-      <div className="md:max-h-[28vh] md:overflow-y-auto divide-y divide-stone-100">
+      <div className={`${embedded ? 'md:max-h-[24vh]' : 'md:max-h-[28vh]'} md:overflow-y-auto divide-y divide-stone-100`}>
         {loading ? (
           <div className="p-6 flex justify-center">
             <Loader2 className="animate-spin text-indigo-600" size={20} />
