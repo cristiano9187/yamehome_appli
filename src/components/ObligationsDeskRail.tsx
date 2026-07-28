@@ -60,7 +60,7 @@ const WARN_DAYS_BEFORE = 5;
 
 const CATEGORY_LABELS: Record<ObligationCategory, string> = {
   RENT: 'Loyer',
-  UTILITIES: 'Eau / électricité',
+  UTILITIES: 'Eau',
   INTERNET: 'Internet',
   SALARY: 'Salaires',
   OTHER: 'Autre',
