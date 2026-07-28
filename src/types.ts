@@ -143,6 +143,9 @@ export interface PrepaidElectricityToken {
   usedAt: string | null;
   usedByUid: string | null;
   usedByDisplayName: string | null;
+  /** Séjour rattaché au moment du marquage « utilisé » (si séjour actif unique). */
+  usedForReceiptId?: string | null;
+  usedForSegmentId?: string | null;
   createdAt: string;
   updatedAt: string;
   createdByUid: string;

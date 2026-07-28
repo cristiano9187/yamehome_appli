@@ -8,10 +8,18 @@ import {
   deleteDoc,
   doc,
   setDoc,
+  getDocs,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { TARIFS, SITE_MAPPING, getPrepaidEligibleUnitRowsFromTarifs, formatCurrency } from '../constants';
-import { PrepaidElectricityToken, UserProfile, UnitElectricitySettings } from '../types';
+import {
+  TARIFS,
+  SITE_MAPPING,
+  getPrepaidEligibleUnitRowsFromTarifs,
+  formatCurrency,
+  calendarSlugsSharingPrepaidMeter,
+} from '../constants';
+import { PrepaidElectricityToken, UserProfile, UnitElectricitySettings, ReceiptData } from '../types';
+import { getReceiptSegments } from '../utils/receiptSegments';
 import { Zap, Menu, Loader2, Trash2, Plus, CheckCircle2, Unlock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -28,6 +36,35 @@ function formatMonthLabelFr(ym: string): string {
   if (!y || !m) return ym;
   const label = new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/**
+ * Séjour actif unique sur le compteur du jeton au moment `atIso` :
+ * check-in fait, pas encore check-out (ou check-out après atIso).
+ * Retourne null s’il n’y en a aucun ou plusieurs (ex. A et B occupés en même temps).
+ */
+async function findUniqueActiveStayForMeter(
+  meterUnitSlug: string,
+  atIso: string
+): Promise<{ receiptId: string; segmentId: string } | null> {
+  const slugs = new Set(calendarSlugsSharingPrepaidMeter(meterUnitSlug));
+  const day = atIso.slice(0, 10);
+  const snap = await getDocs(query(collection(db, 'receipts'), where('endDate', '>=', day)));
+  const hits: { receiptId: string; segmentId: string }[] = [];
+  for (const d of snap.docs) {
+    const receipt = { id: d.id, ...d.data() } as ReceiptData;
+    if (receipt.status === 'ANNULE' || !receipt.id) continue;
+    for (const seg of getReceiptSegments(receipt)) {
+      if (!slugs.has(seg.calendarSlug)) continue;
+      if (seg.startDate > day || seg.endDate <= day) continue;
+      const checkIn = receipt.checkInsBySegmentId?.[seg.id];
+      if (!checkIn?.validatedAt || checkIn.validatedAt > atIso) continue;
+      const checkOut = receipt.checkOutsBySegmentId?.[seg.id];
+      if (checkOut?.validatedAt && checkOut.validatedAt < atIso) continue;
+      hits.push({ receiptId: receipt.id, segmentId: seg.id });
+    }
+  }
+  return hits.length === 1 ? hits[0] : null;
 }
 
 type TokenConfirmDialog = {
@@ -232,6 +269,7 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
     const display = (auth.currentUser?.displayName || userProfile?.email || 'Agent').trim() || 'Agent';
     setConfirmDialog(null);
     try {
+      const stay = await findUniqueActiveStayForMeter(t.unitSlug, now);
       await setDoc(
         doc(db, 'prepaid_electricity_tokens', id),
         {
@@ -240,11 +278,18 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
           usedAt: now,
           usedByUid: auth.currentUser?.uid || '',
           usedByDisplayName: display,
+          usedForReceiptId: stay?.receiptId ?? null,
+          usedForSegmentId: stay?.segmentId ?? null,
           updatedAt: now,
         } as Record<string, unknown>,
         { merge: true }
       );
-      onAlert('Utilisation enregistrée', 'success');
+      onAlert(
+        stay
+          ? 'Utilisation enregistrée et rattachée au séjour en cours.'
+          : 'Utilisation enregistrée (aucun séjour unique en cours pour rattachement).',
+        'success'
+      );
     } catch (e) {
       onAlert('Erreur de mise à jour', 'error');
     }
@@ -264,6 +309,8 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
           usedAt: null,
           usedByUid: null,
           usedByDisplayName: null,
+          usedForReceiptId: null,
+          usedForSegmentId: null,
           updatedAt: now,
         } as Record<string, unknown>,
         { merge: true }

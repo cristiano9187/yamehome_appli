@@ -418,6 +418,27 @@ const PREPAID_SHARED_METER_BY_SLUG: Record<
   },
 };
 
+/**
+ * Slug du stock de jetons / compteur prépayé pour un logement calendrier.
+ * Ex. matera-chambre-a → matera-chambre-b (compteur partagé Reception P 104).
+ */
+export function resolvePrepaidMeterUnitSlug(unitSlug: string): string {
+  for (const [canonical, meta] of Object.entries(PREPAID_SHARED_METER_BY_SLUG)) {
+    if (unitSlug === canonical || meta.hideSlugs.includes(unitSlug)) {
+      return canonical;
+    }
+  }
+  return unitSlug;
+}
+
+/** Tous les logements calendrier qui partagent le même compteur / stock de jetons. */
+export function calendarSlugsSharingPrepaidMeter(unitSlug: string): string[] {
+  const canonical = resolvePrepaidMeterUnitSlug(unitSlug);
+  const meta = PREPAID_SHARED_METER_BY_SLUG[canonical];
+  if (meta) return [canonical, ...meta.hideSlugs];
+  return [canonical];
+}
+
 /** Liste jetons prépayés : exclut Gallaghers (pas de prépayé) et les doublons « mode STUDIO » (même compteur que l’appart classique). */
 export function getPrepaidEligibleUnitRowsFromTarifs(): {
   unitSlug: string;

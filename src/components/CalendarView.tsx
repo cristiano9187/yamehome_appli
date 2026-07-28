@@ -8,8 +8,15 @@ import {
   ReceiptStaySegment,
   GuestCheckInRecord,
   GuestCheckOutRecord,
+  PrepaidElectricityToken,
 } from '../types';
-import { TARIFS, SITES, SITE_MAPPING, canBlockCalendarDates } from '../constants';
+import {
+  TARIFS,
+  SITES,
+  SITE_MAPPING,
+  canBlockCalendarDates,
+  resolvePrepaidMeterUnitSlug,
+} from '../constants';
 
 const isMainAdminEmail = (email?: string | null) => {
   const em = (email || '').toLowerCase();
@@ -34,6 +41,7 @@ import {
   Menu,
   BadgeCheck,
   ChevronDown,
+  Zap,
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
 import {
@@ -200,6 +208,7 @@ export default function CalendarView({
   const [checkInSubmitting, setCheckInSubmitting] = useState(false);
   const [checkOutDraft, setCheckOutDraft] = useState({ kwh: '', damageNotes: '' });
   const [checkOutSubmitting, setCheckOutSubmitting] = useState(false);
+  const [stayPrepaidTokens, setStayPrepaidTokens] = useState<PrepaidElectricityToken[]>([]);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   
@@ -216,7 +225,56 @@ export default function CalendarView({
   useEffect(() => {
     setCheckInDraft({ kwh: '', idPiece: '', comment: '' });
     setCheckOutDraft({ kwh: '', damageNotes: '' });
+    setStayPrepaidTokens([]);
   }, [selectedBookingContext?.receipt.id, selectedBookingContext?.segment.id]);
+
+  /** Jetons marqués utilisés pendant le séjour = recharges automatiques (stock lié au compteur du logement). */
+  useEffect(() => {
+    if (!selectedBookingContext) {
+      setStayPrepaidTokens([]);
+      return;
+    }
+    const live =
+      receipts.find((r) => r.id === selectedBookingContext.receipt.id) || selectedBookingContext.receipt;
+    const seg = selectedBookingContext.segment;
+    const checkIn = live.checkInsBySegmentId?.[seg.id];
+    if (!checkIn?.validatedAt || !live.id) {
+      setStayPrepaidTokens([]);
+      return;
+    }
+    const meterSlug = resolvePrepaidMeterUnitSlug(seg.calendarSlug);
+    const receiptId = live.id;
+    const segmentId = seg.id;
+    const windowStart = checkIn.validatedAt;
+    const windowEnd = live.checkOutsBySegmentId?.[seg.id]?.validatedAt || null;
+    const q = query(collection(db, 'prepaid_electricity_tokens'), where('unitSlug', '==', meterSlug));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as PrepaidElectricityToken))
+          .filter((t) => {
+            if (!t.used || !t.usedAt) return false;
+            // Rattachement explicite au séjour (marquage « utilisé » pendant un séjour unique actif).
+            if (t.usedForReceiptId && t.usedForSegmentId) {
+              return t.usedForReceiptId === receiptId && t.usedForSegmentId === segmentId;
+            }
+            // Fallback jetons legacy : fenêtre [check-in ; check-out] inclusive.
+            if (t.usedAt < windowStart) return false;
+            if (windowEnd && t.usedAt > windowEnd) return false;
+            return true;
+          })
+          .sort((a, b) => (a.usedAt || '').localeCompare(b.usedAt || ''));
+        setStayPrepaidTokens(list);
+      },
+      () => setStayPrepaidTokens([])
+    );
+  }, [
+    selectedBookingContext?.receipt.id,
+    selectedBookingContext?.segment.id,
+    selectedBookingContext?.segment.calendarSlug,
+    receipts,
+  ]);
 
   // Restore scroll position on mount
   useEffect(() => {
@@ -870,7 +928,9 @@ export default function CalendarView({
   }
 
   const detailCtx = selectedBookingContext;
-  const detailReceipt = detailCtx?.receipt;
+  const detailReceipt = detailCtx
+    ? receipts.find((r) => r.id === detailCtx.receipt.id) || detailCtx.receipt
+    : undefined;
   const detailSegment = detailCtx?.segment;
   const detailCheckIn =
     detailReceipt && detailSegment
@@ -884,6 +944,18 @@ export default function CalendarView({
     !!detailSegment && userCanManageUnitOnCalendar(userProfile, detailSegment.calendarSlug);
   const detailCanManageCheckOut = detailCanManageCheckIn;
   const kwhRequiredNow = isCameroonStrictlyBefore18h(new Date());
+  const stayRechargeKwh = stayPrepaidTokens.reduce(
+    (sum, t) => sum + (Number.isFinite(t.expectedKwh) ? t.expectedKwh : 0),
+    0
+  );
+  const stayConsumptionKwh = (() => {
+    const start = detailCheckIn?.kwhCompteurPrepaye;
+    const end = detailCheckOut?.kwhCompteurPrepaye;
+    if (start == null || end == null || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return null;
+    }
+    return Math.round((start + stayRechargeKwh - end) * 100) / 100;
+  })();
 
   return (
     <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
@@ -1425,6 +1497,77 @@ export default function CalendarView({
                   </div>
                 )}
               </div>
+
+              {detailCheckIn && (
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                    <Zap size={14} className="text-amber-500" />
+                    Recharges kWh (jetons utilisés)
+                  </h4>
+                  <p className="text-[10px] text-gray-500 leading-snug">
+                    Automatique : un jeton marqué « utilisé » pendant le séjour (après check-in
+                    {detailCheckOut ? ', avant check-out' : ''}) est rattaché ici
+                    {detailSegment &&
+                    resolvePrepaidMeterUnitSlug(detailSegment.calendarSlug) !== detailSegment.calendarSlug
+                      ? ' — chambres A/B = même compteur Reception P 104'
+                      : ''}
+                    .
+                  </p>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-4 space-y-2 text-xs">
+                    {stayPrepaidTokens.length === 0 ? (
+                      <p className="text-gray-500 italic">Aucune recharge enregistrée pour ce séjour.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {stayPrepaidTokens.map((t) => (
+                          <li
+                            key={t.id}
+                            className="flex flex-wrap items-baseline justify-between gap-2 border-b border-amber-100/80 pb-2 last:border-0 last:pb-0"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-mono font-bold text-stone-900 truncate">{t.tokenCode}</p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                {t.usedAt
+                                  ? formatCameroonDateTimeVerbose(new Date(t.usedAt))
+                                  : '—'}
+                                {t.usedByDisplayName ? ` · ${t.usedByDisplayName}` : ''}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-black tabular-nums text-amber-900">
+                              +{t.expectedKwh} kWh
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="pt-2 border-t border-amber-200/70 flex flex-wrap justify-between gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                        Total rechargé
+                      </span>
+                      <span className="font-black tabular-nums text-amber-950">
+                        {stayRechargeKwh > 0 ? `+${stayRechargeKwh} kWh` : '0 kWh'}
+                      </span>
+                    </div>
+                    {stayConsumptionKwh != null ? (
+                      <div className="rounded-xl bg-white/80 border border-amber-200 px-3 py-2.5">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-500">
+                          Consommation client
+                        </p>
+                        <p className="text-lg font-black tabular-nums text-stone-900 mt-0.5">
+                          {stayConsumptionKwh} kWh
+                        </p>
+                        <p className="text-[10px] text-stone-500 mt-1">
+                          (check-in {detailCheckIn.kwhCompteurPrepaye} + recharges {stayRechargeKwh}) − check-out{' '}
+                          {detailCheckOut?.kwhCompteurPrepaye}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-stone-500">
+                        La consommation s’affiche dès que le check-out kWh est enregistré.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
