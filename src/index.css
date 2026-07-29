@@ -139,10 +139,13 @@
   .text-red-600 { color: #dc2626 !important; }
   .text-green-700 { color: #15803d !important; }
   .text-green-600 { color: #16a34a !important; }
+  .text-green-800 { color: #166534 !important; }
   .text-orange-600 { color: #ea580c !important; }
   .bg-green-50 { background-color: #f0fdf4 !important; }
+  .bg-blue-50 { background-color: #eff6ff !important; }
   .bg-red-50 { background-color: #fef2f2 !important; }
   .bg-gray-50 { background-color: #f9fafb !important; }
+  .bg-gray-50\/80 { background-color: rgba(249, 250, 251, 0.8) !important; }
   .text-gray-400 { color: #9ca3af !important; }
   .text-gray-500 { color: #6b7280 !important; }
   .text-gray-600 { color: #4b5563 !important; }
