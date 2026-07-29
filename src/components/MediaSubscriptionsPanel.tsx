@@ -181,6 +181,7 @@ export default function MediaSubscriptionsPanel({
         if (!prev) return;
         await updateDoc(doc(db, 'unit_media_subscriptions', editingId), {
           expiresOn,
+          bouquet: form.bouquet.trim() || null,
           updatedAt: now,
           lastModifiedByUid: uid,
           lastModifiedByName: name,
@@ -457,17 +458,6 @@ export default function MediaSubscriptionsPanel({
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-black uppercase text-stone-400">
-                    Bouquet / pack
-                  </label>
-                  <input
-                    value={form.bouquet}
-                    onChange={(e) => setForm((f) => ({ ...f, bouquet: e.target.value }))}
-                    placeholder="Ex. Access, Évasion…"
-                    className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
-                  />
-                </div>
                 {form.kind === 'CANAL_PLUS' && (
                   <div>
                     <label className="text-[9px] font-black uppercase text-stone-400">
@@ -490,6 +480,18 @@ export default function MediaSubscriptionsPanel({
                 </div>
               </>
             )}
+
+            <div>
+              <label className="text-[9px] font-black uppercase text-stone-400">
+                {formMode === 'renew' ? 'Bouquet activé' : 'Bouquet / pack'}
+              </label>
+              <input
+                value={form.bouquet}
+                onChange={(e) => setForm((f) => ({ ...f, bouquet: e.target.value }))}
+                placeholder="Ex. Access, Évasion, Tout Canal…"
+                className="w-full text-xs rounded-lg border border-stone-200 px-2 py-2"
+              />
+            </div>
 
             <div>
               <label className="text-[9px] font-black uppercase text-stone-400">
