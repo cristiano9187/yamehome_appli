@@ -118,6 +118,34 @@ function sanitizeReceiptClone(root: HTMLElement): HTMLElement {
   return clone;
 }
 
+/**
+ * Attend que toutes les images du clone (logo, pastilles de paiement) soient chargées
+ * avant de mesurer la hauteur du reçu. Sur mobile (réseau plus lent), une image pas
+ * encore chargée peut fausser `scrollHeight` et donc le calcul de mise à l'échelle.
+ * Timeout de sécurité pour ne jamais bloquer l'impression indéfiniment.
+ */
+function waitForImages(root: HTMLElement, timeoutMs = 1500): Promise<void> {
+  const images = Array.from(root.querySelectorAll('img'));
+  if (images.length === 0) return Promise.resolve();
+
+  const perImage = images.map(
+    (img) =>
+      new Promise<void>((resolve) => {
+        if (img.complete) {
+          resolve();
+          return;
+        }
+        img.addEventListener('load', () => resolve(), { once: true });
+        img.addEventListener('error', () => resolve(), { once: true });
+      })
+  );
+
+  return Promise.race([
+    Promise.all(perImage).then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
 function copyStylesToDocument(targetDoc: Document): Promise<void> {
   const nodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
   const tasks = nodes.map((node) => {
@@ -187,8 +215,12 @@ export async function printReceiptElement(options?: {
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
+  // Important : dimensions RÉELLES (pas 0x0) positionnées hors écran. Un iframe 0x0 n'est
+  // pas mis en page correctement sur Safari iOS (scrollHeight y revient à 0 ou faux),
+  // ce qui empêchait la mise à l'échelle sur une seule page et faisait déborder le reçu
+  // sur 2 pages à l'impression mobile alors que tout semblait correct sur PC.
   iframe.style.cssText =
-    'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+    'position:fixed;top:-10000px;left:-10000px;width:794px;height:1123px;border:0;';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;
@@ -210,9 +242,14 @@ export async function printReceiptElement(options?: {
   extraStyle.textContent = IFRAME_PRINT_CSS;
   doc.head.appendChild(extraStyle);
 
-  doc.body.appendChild(sanitizeReceiptClone(source));
+  const clone = sanitizeReceiptClone(source);
+  doc.body.appendChild(clone);
 
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await waitForImages(clone);
+  // Une frame supplémentaire après le chargement des images pour laisser le moteur
+  // de rendu (surtout WebKit mobile) recalculer la mise en page avant la mesure.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 
   fitReceiptToSinglePage(doc);
 
