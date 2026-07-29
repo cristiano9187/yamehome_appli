@@ -31,20 +31,51 @@
 }
 
 @media print {
-  /* Supprimer les en-têtes et pieds de page du navigateur */
+  /* Supprimer les en-têtes et pieds de page du navigateur : Chrome/Edge ne les affichent
+     que s'il reste de la place réservée dans la marge de page. Marge à 0 + padding géré
+     par .print-container = plus de titre/date/URL/numéro de page ajoutés par le navigateur. */
   @page {
     margin: 0;
     size: A4;
   }
+  @page {
+    @top-left { content: ""; }
+    @top-center { content: ""; }
+    @top-right { content: ""; }
+    @bottom-left { content: ""; }
+    @bottom-center { content: ""; }
+    @bottom-right { content: ""; }
+  }
 
-  /* Configuration globale pour l'impression */
+  /* Fallback Ctrl+P : n'imprimer que le reçu */
+  body * {
+    visibility: hidden;
+  }
+
+  .print-container,
+  .print-container * {
+    visibility: visible;
+  }
+
+  .print-container {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 100%;
+  }
+
+  /* Configuration globale pour l'impression (fallback Ctrl+P — le bouton "Exporter PDF"
+     utilise un moteur dédié dans src/utils/printReceipt.ts, plus fiable). On évite ici
+     tout overflow/max-height "hidden" qui pourrait couper du contenu sans prévenir : en
+     cas de reçu exceptionnellement long via Ctrl+P, mieux vaut déborder sur une 2e page
+     que perdre des informations. */
   html, body {
     background: white !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
     height: auto !important;
-    width: 210mm !important;
+    width: auto !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -54,7 +85,9 @@
   .min-h-screen, 
   .main-content-wrapper, 
   .receipt-viewer-main, 
-  .receipt-motion-wrapper {
+  .receipt-motion-wrapper,
+  .mobile-receipt-container,
+  .mobile-receipt-zoom {
     display: block !important;
     background: white !important;
     box-shadow: none !important;
@@ -63,7 +96,11 @@
     padding: 0 !important;
     overflow: visible !important;
     height: auto !important;
-    min-width: 210mm !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    transform: none !important;
+    position: static !important;
   }
 
   /* Ciblage précis : Masquer uniquement les éléments inutiles */
@@ -74,17 +111,28 @@
     display: none !important;
   }
 
-  /* Forcer l'affichage du reçu et son cadrage A4 */
+  /* Forcer l'affichage du reçu (fallback Ctrl+P) — pas de max-height/overflow hidden
+     ici pour ne jamais couper de contenu ; le fit-to-1-page se fait côté JS pour le
+     flux normal "Exporter PDF" / "Imprimer PDF". */
   .print-container {
     display: block !important;
     visibility: visible !important;
     width: 210mm !important;
-    min-height: 297mm !important;
+    max-width: 210mm !important;
+    min-height: 0 !important;
+    height: auto !important;
     margin: 0 auto !important;
-    padding: 10mm !important; /* Marge interne pour éviter les coupures */
+    padding: 10mm !important;
     box-sizing: border-box !important;
     background: white !important;
+    overflow: visible !important;
     z-index: 9999 !important;
+  }
+
+  /* Pied de page (signature + remerciement) : ne pas couper entre deux pages */
+  .receipt-print-footer {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   /* Assurer que les couleurs sont conservées */
@@ -95,6 +143,11 @@
   .bg-green-50 { background-color: #f0fdf4 !important; }
   .bg-red-50 { background-color: #fef2f2 !important; }
   .bg-gray-50 { background-color: #f9fafb !important; }
+  .text-gray-400 { color: #9ca3af !important; }
+  .text-gray-500 { color: #6b7280 !important; }
+  .text-gray-600 { color: #4b5563 !important; }
+  .text-gray-700 { color: #374151 !important; }
+  .text-[#2B4B8C] { color: #2B4B8C !important; }
 
   /* Désactiver les transitions et animations pour l'impression */
   * {

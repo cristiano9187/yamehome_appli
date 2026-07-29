@@ -8,8 +8,6 @@ interface ReceiptPreviewProps {
   data: ReceiptData;
   /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
-  /** Si fourni, le nom du client devient cliquable (ouvre sa fiche) à l'écran. */
-  onOpenClientProfile?: () => void;
 }
 
 /**
@@ -36,7 +34,7 @@ function formatApartmentNameForPdfDisplay(name: string): string {
   return name.replace(/\bappartements?\b/gi, 'APT');
 }
 
-const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenClientProfile }: ReceiptPreviewProps) => {
+const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: ReceiptPreviewProps) => {
   if (!data.lastName && !data.apartmentName) {
     return (
       <div className="w-full max-w-[210mm] h-[297mm] bg-white shadow-lg flex items-center justify-center text-gray-400 italic text-sm">
@@ -96,7 +94,7 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenCli
   const totalKwConfort = kwPerNightConfort * nights;
 
   return (
-    <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:p-0 relative">
+    <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:min-h-0 relative">
       {/* Header */}
       <div className="text-center mb-6 border-b-2 border-[#2B4B8C] pb-4">
         <div className="mb-4 flex justify-center">
@@ -153,23 +151,7 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenCli
           <h3 className="text-[#2B4B8C] font-bold border-b mb-2 uppercase pb-1">Client</h3>
           <div className="space-y-1">
             <p>
-              <span className="font-bold">Nom:</span>{' '}
-              {onOpenClientProfile ? (
-                <>
-                  {/* Texte seul à l'impression : index.css masque tous les <button> en @media print */}
-                  <span className="hidden print:inline">{data.firstName} {data.lastName}</span>
-                  <button
-                    type="button"
-                    onClick={onOpenClientProfile}
-                    className="print:hidden underline decoration-dotted text-[#2B4B8C] hover:text-blue-700 bg-transparent border-0 p-0 m-0 font-sans text-[11px] align-baseline cursor-pointer"
-                    title="Voir la fiche client"
-                  >
-                    {data.firstName} {data.lastName}
-                  </button>
-                </>
-              ) : (
-                <>{data.firstName} {data.lastName}</>
-              )}
+              <span className="font-bold">Nom:</span> {data.firstName} {data.lastName}
             </p>
             <p className="flex items-center gap-1.5 flex-wrap">
               <span className="font-bold">Tél:</span>
@@ -402,16 +384,18 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, onOpenCli
         )}
       </div>
 
-      {/* Signature */}
-      <div className="mt-auto flex justify-end pr-4">
-        <div className="text-center">
-          <p className="text-[#2B4B8C] font-bold text-lg italic">{data.signature || 'PAOLA'}</p>
-          <div className="border-t border-gray-400 mt-1 pt-1">
-            <p className="text-[10px] font-bold uppercase text-gray-500">SIGNATURE GÉRANT / YAMEHOME</p>
+      {/* Signature & remerciement — toujours imprimés en bas du reçu */}
+      <div className="receipt-print-footer mt-6 pt-2">
+        <div className="flex justify-end pr-4">
+          <div className="text-center">
+            <p className="text-[#2B4B8C] font-bold text-lg italic">{data.signature || 'PAOLA'}</p>
+            <div className="border-t border-gray-400 mt-1 pt-1">
+              <p className="text-[10px] font-bold uppercase text-gray-500">SIGNATURE GÉRANT / YAMEHOME</p>
+            </div>
           </div>
         </div>
+        <p className="text-center text-[10px] text-gray-500 italic mt-6 pb-2">Merci pour votre confiance !</p>
       </div>
-      <p className="text-center text-[10px] text-gray-400 italic mt-8">Merci pour votre confiance !</p>
     </div>
   );
 });

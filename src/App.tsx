@@ -52,6 +52,7 @@ import {
   sumCautionsForSegments,
   findBookingConflictAcrossSegments,
 } from './utils/receiptSegments';
+import { printReceiptElement } from './utils/printReceipt';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import ObligationsDeskRail from './components/ObligationsDeskRail';
@@ -771,7 +772,7 @@ export default function App() {
       setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
       return;
     }
-    window.print();
+    void printReceiptElement({ title: document.title, waitMs: 150 });
   }, [isReadOnly]);
 
   // --- HANDLERS ---
@@ -2881,10 +2882,7 @@ export default function App() {
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
-                // The useEffect will handle the title sync automatically
-                setTimeout(() => {
-                  window.print();
-                }, 1000);
+                void printReceiptElement({ title: document.title, waitMs: 1200 });
               }}
               onOpenClientProfile={(receipt) => openClientProfile({
                 firstName: receipt.firstName,
@@ -3321,12 +3319,6 @@ export default function App() {
                       <ReceiptPreview
                         data={debouncedFormData}
                         showPaymentMethods={showReceiptPaymentMethods}
-                        onOpenClientProfile={debouncedFormData.lastName?.trim() ? () => openClientProfile({
-                          firstName: debouncedFormData.firstName,
-                          lastName: debouncedFormData.lastName,
-                          phone: debouncedFormData.phone,
-                          email: debouncedFormData.email,
-                        }) : undefined}
                       />
                     </div>
                   </div>
