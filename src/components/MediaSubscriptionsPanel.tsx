@@ -41,6 +41,18 @@ function formatModifStamp(iso: string | undefined | null): string {
   });
 }
 
+/** Date d’expiration lisible à l’œil (ex. « 7 mars 2026 »). */
+function formatExpiryDate(ymd: string | null | undefined): string {
+  if (!ymd) return 'Date manquante';
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 function expiryUrgency(
   expiresOn: string | null,
   kind: MediaSubscriptionKind
@@ -319,7 +331,7 @@ export default function MediaSubscriptionsPanel({
             return (
               <div
                 key={r.id}
-                className={`px-3 sm:px-4 py-3 flex flex-col md:flex-row md:flex-wrap md:items-start gap-3 ${
+                className={`px-3 sm:px-4 py-3 flex items-start gap-3 ${
                   urg === 'expired'
                     ? 'bg-red-50/80'
                     : urg === 'soon'
@@ -327,8 +339,8 @@ export default function MediaSubscriptionsPanel({
                       : ''
                 }`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap gap-1.5 mb-0.5">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
                       {KIND_LABEL[r.kind]}
                     </span>
@@ -342,53 +354,88 @@ export default function MediaSubscriptionsPanel({
                         {urg === 'expired' ? 'Expiré' : 'Expire bientôt'}
                       </span>
                     )}
+                    <span className="text-sm font-bold text-stone-900 truncate">
+                      {r.apartmentName}
+                    </span>
                   </div>
-                  <p className="text-sm font-bold text-stone-900">{r.apartmentName}</p>
-                  <p className="text-[11px] text-stone-600 mt-0.5">
-                    {r.expiresOn ? `Expire le ${r.expiresOn}` : 'Date d’expiration manquante'}
-                    {r.bouquet ? ` · ${r.bouquet}` : ''}
+
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                        Expiration
+                      </p>
+                      <p
+                        className={`text-base sm:text-lg font-black leading-tight tabular-nums ${
+                          urg === 'expired'
+                            ? 'text-red-700'
+                            : urg === 'soon'
+                              ? 'text-amber-700'
+                              : 'text-stone-900'
+                        }`}
+                      >
+                        {formatExpiryDate(r.expiresOn)}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                        Bouquet
+                      </p>
+                      {r.bouquet ? (
+                        <span className="inline-block mt-0.5 text-[11px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-stone-900 text-white">
+                          {r.bouquet}
+                        </span>
+                      ) : (
+                        <p className="text-sm font-semibold text-stone-400 italic">Non renseigné</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-stone-400 leading-snug">
+                    {r.boxNumber ? (
+                      <span className="font-mono">Boîtier {r.boxNumber}</span>
+                    ) : null}
+                    {r.boxNumber && (r.lastModifiedByName || r.updatedAt) ? ' · ' : null}
+                    {(r.lastModifiedByName || r.updatedAt) && (
+                      <span>
+                        Modif
+                        {r.lastModifiedByName ? ` ${r.lastModifiedByName}` : ''}
+                        {r.updatedAt ? ` · ${formatModifStamp(r.updatedAt)}` : ''}
+                      </span>
+                    )}
                   </p>
-                  {r.boxNumber && (
-                    <p className="text-[10px] font-mono text-stone-500 mt-0.5">Boîtier {r.boxNumber}</p>
-                  )}
-                  {(r.lastModifiedByName || r.updatedAt) && (
-                    <p className="text-[10px] text-stone-400 mt-1">
-                      Dernière modif
-                      {r.lastModifiedByName ? ` : ${r.lastModifiedByName}` : ''}
-                      {r.updatedAt ? ` · ${formatModifStamp(r.updatedAt)}` : ''}
-                    </p>
-                  )}
                 </div>
-                <div className="flex flex-col md:flex-row flex-wrap gap-3 shrink-0 w-full md:w-auto">
+
+                <div className="flex items-center gap-1 shrink-0 pt-0.5">
                   <button
                     type="button"
                     onClick={() => openRenew(r)}
-                    className="inline-flex items-center justify-center gap-1.5 w-full md:w-auto px-3 py-3 md:py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black uppercase tracking-wide touch-manipulation"
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[9px] font-black uppercase tracking-wide touch-manipulation"
+                    title="Renouveler"
                   >
-                    <RefreshCw size={14} />
-                    Renouveler
+                    <RefreshCw size={12} />
+                    <span className="hidden sm:inline">Renouveler</span>
                   </button>
                   {canEdit && (
-                    <div className="grid grid-cols-2 md:flex gap-3 w-full md:w-auto">
+                    <>
                       <button
                         type="button"
                         onClick={() => openEdit(r)}
-                        className="inline-flex items-center justify-center gap-1 px-2.5 py-2.5 md:py-2 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 text-[10px] font-black uppercase touch-manipulation"
-                        title="Modifier tous les champs"
+                        className="inline-flex items-center justify-center p-1.5 rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-800 touch-manipulation"
+                        title="Modifier"
+                        aria-label="Modifier"
                       >
-                        <Pencil size={12} />
-                        Modifier
+                        <Pencil size={14} />
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleDeactivate(r)}
-                        className="inline-flex items-center justify-center gap-1 px-2.5 py-2.5 md:py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-[10px] font-black uppercase touch-manipulation"
+                        className="inline-flex items-center justify-center p-1.5 rounded-md text-stone-400 hover:bg-red-50 hover:text-red-600 touch-manipulation"
                         title="Retirer"
+                        aria-label="Retirer"
                       >
-                        <Trash2 size={12} />
-                        Retirer
+                        <Trash2 size={14} />
                       </button>
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
