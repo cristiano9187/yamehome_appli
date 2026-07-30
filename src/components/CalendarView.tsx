@@ -702,12 +702,20 @@ export default function CalendarView({
       return;
     }
 
+    const authorDisplayName =
+      (auth.currentUser?.displayName ||
+        userProfile?.displayName ||
+        userProfile?.email ||
+        'Agent')
+        .trim() || 'Agent';
+
     try {
       const newBlockRef = await addDoc(collection(db, 'blocked_dates'), {
         date,
         calendarSlug: unitSlug,
         createdAt: new Date().toISOString(),
         authorUid: userProfile?.uid || '',
+        authorDisplayName,
         reason: 'Travaux / Maintenance'
       });
 
@@ -1169,9 +1177,17 @@ export default function CalendarView({
                         className={`border-r border-b border-gray-50 h-16 relative transition-colors cursor-pointer group ${isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''}`}
                       >
                         {viewMode === 'reservations' && isBlocked && (
-                          <div className="absolute inset-0 bg-red-50/50 flex items-center justify-center overflow-hidden">
+                          <div
+                            className="absolute inset-0 bg-red-50/50 flex flex-col items-center justify-center gap-0.5 overflow-hidden px-0.5"
+                            title={`Date bloquée${blockedDate?.authorDisplayName ? ` — par ${blockedDate.authorDisplayName}` : ''}`}
+                          >
                             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #ef4444, #ef4444 10px, transparent 10px, transparent 20px)' }} />
-                            <Lock size={14} className="text-red-400 relative z-10" />
+                            <Lock size={14} className="text-red-400 relative z-10 shrink-0" />
+                            {blockedDate?.authorDisplayName && (
+                              <span className="relative z-10 w-full max-w-full truncate text-center text-[7px] md:text-[8px] font-bold uppercase leading-none tracking-tight text-red-400/90">
+                                {blockedDate.authorDisplayName}
+                              </span>
+                            )}
                           </div>
                         )}
 
@@ -1305,16 +1321,26 @@ export default function CalendarView({
                 <div className="grid grid-cols-1 gap-3">
                   { canBlockCalendarDates(userProfile, isMainAdminEmail) ? (
                     blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date) ? (
-                      <button 
-                        onClick={() => {
+                      <>
+                        {(() => {
                           const b = blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date);
-                          if (b?.id) handleUnblockDate(b.id);
-                        }}
-                        className="w-full flex items-center justify-center gap-3 bg-emerald-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all"
-                      >
-                        <Unlock size={16} />
-                        Ouvrir la date
-                      </button>
+                          return b?.authorDisplayName ? (
+                            <p className="text-center text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                              Bloqué par <span className="text-gray-700">{b.authorDisplayName}</span>
+                            </p>
+                          ) : null;
+                        })()}
+                        <button 
+                          onClick={() => {
+                            const b = blockedDates.find(b => b.calendarSlug === selectedCell.unitSlug && b.date === selectedCell.date);
+                            if (b?.id) handleUnblockDate(b.id);
+                          }}
+                          className="w-full flex items-center justify-center gap-3 bg-emerald-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all"
+                        >
+                          <Unlock size={16} />
+                          Ouvrir la date
+                        </button>
+                      </>
                     ) : (() => {
                       const d = new Date(selectedCell.date);
                       d.setHours(0, 0, 0, 0);

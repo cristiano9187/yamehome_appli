@@ -537,7 +537,7 @@ service cloud.firestore {
 
     function isValidBlockedDate(data) {
       return hasRequiredFields(['date', 'calendarSlug', 'createdAt', 'authorUid']) &&
-             hasOnlyAllowedFields(['date', 'calendarSlug', 'createdAt', 'authorUid', 'reason']) &&
+             hasOnlyAllowedFields(['date', 'calendarSlug', 'createdAt', 'authorUid', 'reason', 'authorDisplayName']) &&
              data.date is string && data.date.size() > 0 &&
              data.calendarSlug is string && data.calendarSlug.size() > 0 &&
              data.authorUid == request.auth.uid;

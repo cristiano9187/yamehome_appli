@@ -329,6 +329,8 @@ export interface BlockedDate {
   reason?: string;
   createdAt: string;
   authorUid: string;
+  /** Nom affiché de l'opérateur ayant bloqué la date (affiché sur la case calendrier). */
+  authorDisplayName?: string;
 }
 
 export type ProspectStatus = 'NOUVEAU' | 'A_RELANCER' | 'EN_NEGOCIATION' | 'CONVERTI' | 'PERDU' | 'ANNULE';
