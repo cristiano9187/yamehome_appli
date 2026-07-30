@@ -112,6 +112,12 @@ export default function MediaSubscriptionsPanel({
           .map((d) => ({ id: d.id, ...d.data() } as UnitMediaSubscription))
           .filter((r) => r.active !== false)
           .sort((a, b) => {
+            // Canal+ d’abord, IPTV ensuite
+            if (a.kind !== b.kind) {
+              if (a.kind === 'CANAL_PLUS') return -1;
+              if (b.kind === 'CANAL_PLUS') return 1;
+              return a.kind.localeCompare(b.kind);
+            }
             const ua = a.expiresOn || '9999';
             const ub = b.expiresOn || '9999';
             if (ua !== ub) return ua.localeCompare(ub);
