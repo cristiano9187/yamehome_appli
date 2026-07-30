@@ -4,8 +4,17 @@ export const RECEIPT_PRINT_ROOT_ID = 'receipt-content';
 /** A4 plein format : @page margin = 0 (voir note dans index.css), la marge visuelle est
  * gérée par le padding du reçu (`.print-container` en `@media print`). */
 const PRINTABLE_HEIGHT_MM = 297;
+/** Marge de sécurité PHYSIQUE (en mm) : certains moteurs d'export PDF mobile (notamment
+ * "Imprimer" → "Enregistrer en PDF" sur iOS) conservent une petite zone non imprimable même
+ * avec `@page { margin: 0 }`. Sans cette marge, un reçu dont la hauteur mesurée est tout
+ * juste sous la limite d'une page A4 passait le test "tient déjà sur une page" (donc aucune
+ * réduction appliquée), puis se faisait rogner de quelques mm tout en bas à l'impression
+ * réelle — coupant pile la dernière ligne (le "Merci pour votre confiance !"). On réserve
+ * donc cette marge AVANT tout calcul, pour que même les reçus "limite" soient légèrement
+ * réduits par sécurité plutôt que risquer de perdre la fin du reçu. */
+const PRINT_SAFETY_MARGIN_MM = 6;
 /** Marge de sécurité anti-arrondi (évite qu'un reçu pile à la limite déborde d'1px). */
-const FIT_SAFETY = 0.995;
+const FIT_SAFETY = 0.99;
 /** Id du wrapper temporaire inséré autour de #receipt-content pendant l'impression (voir
  * `fitReceiptToSinglePage`). Nom dédié : ne doit correspondre à AUCUN sélecteur CSS existant
  * (notamment pas les règles "ne jamais couper les parents" du fallback Ctrl+P dans
@@ -82,7 +91,7 @@ function waitForImages(root: HTMLElement, timeoutMs = 1500): Promise<void> {
  * par la fonction de restauration retournée, appelée juste après l'impression.
  */
 function fitReceiptToSinglePage(container: HTMLElement): () => void {
-  const maxHeight = mmToPx(PRINTABLE_HEIGHT_MM);
+  const maxHeight = mmToPx(PRINTABLE_HEIGHT_MM - PRINT_SAFETY_MARGIN_MM);
   const naturalHeight = container.scrollHeight;
 
   if (naturalHeight <= maxHeight) {
@@ -102,7 +111,8 @@ function fitReceiptToSinglePage(container: HTMLElement): () => void {
   const scale = (maxHeight * FIT_SAFETY) / naturalHeight;
   container.style.transformOrigin = 'top center';
   container.style.transform = `scale(${scale})`;
-  wrapper.style.height = `${Math.ceil(naturalHeight * scale)}px`;
+  // +2px de coussin anti-arrondi sub-pixel (moteurs de rendu mobile notamment).
+  wrapper.style.height = `${Math.ceil(naturalHeight * scale) + 2}px`;
   wrapper.style.overflow = 'hidden';
 
   return () => {
