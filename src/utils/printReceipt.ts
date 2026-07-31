@@ -4,34 +4,33 @@ export const RECEIPT_PRINT_ROOT_ID = 'receipt-content';
 /** A4 plein format : @page margin = 0 (voir note dans index.css), la marge visuelle est
  * gérée par le padding du reçu (`.print-container` en `@media print`). */
 const PRINTABLE_HEIGHT_MM = 297;
-/** Marge de sécurité PHYSIQUE (en mm) : certains moteurs d'export PDF mobile (notamment
- * "Imprimer" → "Enregistrer en PDF" sur iOS) conservent une petite zone non imprimable même
- * avec `@page { margin: 0 }`. Sans cette marge, un reçu dont la hauteur mesurée est tout
- * juste sous la limite d'une page A4 passait le test "tient déjà sur une page" (donc aucune
- * réduction appliquée), puis se faisait rogner de quelques mm tout en bas à l'impression
- * réelle — coupant pile la dernière ligne (le "Merci pour votre confiance !"). On réserve
- * donc cette marge AVANT tout calcul, pour que même les reçus "limite" soient légèrement
- * réduits par sécurité plutôt que risquer de perdre la fin du reçu. */
-const PRINT_SAFETY_MARGIN_MM = 6;
-/** Marge de sécurité anti-arrondi (évite qu'un reçu pile à la limite déborde d'1px). */
-const FIT_SAFETY = 0.99;
-/** Id du wrapper temporaire inséré autour de #receipt-content pendant l'impression (voir
- * `fitReceiptToSinglePage`). Nom dédié : ne doit correspondre à AUCUN sélecteur CSS existant
- * (notamment pas les règles "ne jamais couper les parents" du fallback Ctrl+P dans
- * index.css), pour que sa hauteur figée ne soit jamais écrasée par une règle `!important`. */
+/**
+ * Marge de sécurité physique (mm). Certains moteurs d'export PDF mobile (iOS Safari,
+ * MIUI / Xiaomi / Redmi « Enregistrer en PDF ») gardent une zone non imprimable même
+ * avec `@page { margin: 0 }`. On réserve cette marge avant le calcul pour que les reçus
+ * « juste à la limite » soient légèrement réduits plutôt que de perdre le pied de page.
+ */
+const PRINT_SAFETY_MARGIN_MM = 8;
+/** Marge anti-arrondi supplémentaire sur le facteur d'échelle. */
+const FIT_SAFETY = 0.985;
+/** Id du wrapper temporaire autour de #receipt-content pendant l'impression. */
 const PRINT_FIT_WRAPPER_ID = 'receipt-print-fit-wrapper';
+/** Id de la balise <style> injectée pour forcer l'échelle UNIQUEMENT en @media print. */
+const PRINT_FIT_STYLE_ID = 'receipt-print-fit-style';
 
 /**
  * IMPORTANT — pourquoi on n'utilise plus d'iframe dédiée :
  * `iframe.contentWindow.print()` n'isole PAS le contenu sur Safari iOS / Chrome iOS
- * (tous basés sur WebKit) : ces navigateurs impriment systématiquement le document
- * principal, en ignorant l'iframe (limitation connue, non contournable côté web). Sur PC,
- * ça fonctionnait car Chrome/Edge desktop respectent bien l'iframe — mais sur iPhone, tout
- * notre travail de mise à l'échelle sur une page ne s'appliquait jamais : seul le CSS
- * `@media print` "de secours" de `index.css` s'appliquait (d'où le reçu correct mais étalé
- * sur 2 pages). On applique donc désormais la même logique de mise à l'échelle DIRECTEMENT
- * sur le reçu affiché à l'écran, puis on imprime la fenêtre principale (`window.print()`) :
- * un seul chemin de code, identique sur PC et mobile.
+ * (WebKit) : ces navigateurs impriment le document principal. On scale donc le reçu
+ * affiché, puis `window.print()`.
+ *
+ * Sur Xiaomi / Redmi (MIUI Browser / WebView Chromium), un second piège apparaît :
+ * l'événement `afterprint` est souvent déclenché IMMÉDIATEMENT (avant même que
+ * l'utilisateur valide « Enregistrer en PDF »). Si on restaure le DOM à ce moment-là,
+ * le PDF part sans mise à l'échelle → 2 pages (signature / remerciement isolés en page 2).
+ * Contre-mesure : (1) injecter l'échelle dans une règle `@media print` (pas seulement
+ * en style inline), (2) ignorer les `afterprint` prématurés, (3) ne nettoyer qu'à la
+ * sortie réelle du mode print (matchMedia) ou après un délai long.
  */
 
 function mmToPx(mm: number): number {
@@ -43,14 +42,9 @@ function mmToPx(mm: number): number {
   document.body.appendChild(probe);
   const px = probe.getBoundingClientRect().height;
   probe.remove();
-  return px;
+  return px || mm * (96 / 25.4);
 }
 
-/**
- * Attend que toutes les images du reçu (logo, pastilles de paiement) soient chargées avant
- * de mesurer sa hauteur : une image pas encore chargée fausserait `scrollHeight` et donc le
- * calcul de mise à l'échelle. Timeout de sécurité pour ne jamais bloquer l'impression.
- */
 function waitForImages(root: HTMLElement, timeoutMs = 1500): Promise<void> {
   const images = Array.from(root.querySelectorAll('img'));
   if (images.length === 0) return Promise.resolve();
@@ -73,29 +67,58 @@ function waitForImages(root: HTMLElement, timeoutMs = 1500): Promise<void> {
   ]);
 }
 
+function removePrintFitStyle(): void {
+  document.getElementById(PRINT_FIT_STYLE_ID)?.remove();
+}
+
 /**
- * Ne réduit QUE si le reçu dépasse réellement une page A4. Utilise un `transform: scale()`
- * pur (jamais `zoom`, qui perturbe le calcul des largeurs à l'impression et peut tronquer
- * du texte) : la mise en page interne du reçu (largeur des colonnes, retours à la ligne)
- * reste identique à l'écran, seul le rendu final est réduit visuellement — donc jamais de
- * coupure de texte ni de perte d'information, juste un reçu légèrement plus petit si besoin.
- *
- * Applique directement sur le nœud RÉEL affiché à l'écran (pas un clone), afin que la mise
- * à l'échelle soit prise en compte quel que soit le chemin d'impression emprunté par le
- * navigateur (isolation via iframe ou impression de toute la page, cas de Safari iOS).
- *
- * Insère un wrapper dédié (au lieu de réutiliser `.mobile-receipt-zoom`) car ce dernier est
- * ciblé par une règle `@media print` "ne jamais couper les parents" (`overflow: visible
- * !important; height: auto !important`) nécessaire au fallback Ctrl+P — elle écraserait
- * sinon notre hauteur figée. Le wrapper est retiré (et le nœud remis à sa place d'origine)
- * par la fonction de restauration retournée, appelée juste après l'impression.
+ * Injecte une règle `@media print` avec l'échelle calculée.
+ * Avantage vs styles inline seuls : même si un `afterprint` prématuré restaure le DOM
+ * trop tôt, le moteur d'impression (qui applique @media print) conserve l'échelle.
+ * `zoom` est ajouté en filet pour les WebView Android / MIUI qui ignorent parfois
+ * `transform` à l'impression.
+ */
+function injectPrintFitStyle(scale: number, scaledHeightPx: number): void {
+  removePrintFitStyle();
+  const style = document.createElement('style');
+  style.id = PRINT_FIT_STYLE_ID;
+  style.textContent = `
+    @media print {
+      #${PRINT_FIT_WRAPPER_ID} {
+        height: ${scaledHeightPx}px !important;
+        max-height: ${PRINTABLE_HEIGHT_MM}mm !important;
+        overflow: hidden !important;
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+      }
+      #${RECEIPT_PRINT_ROOT_ID},
+      #${RECEIPT_PRINT_ROOT_ID}.print-container {
+        transform: scale(${scale}) !important;
+        transform-origin: top center !important;
+        zoom: ${scale};
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+      }
+      .receipt-print-footer {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/**
+ * Met le reçu à l'échelle d'une page A4 si nécessaire.
+ * Retourne une fonction de restauration (DOM + style injecté).
  */
 function fitReceiptToSinglePage(container: HTMLElement): () => void {
   const maxHeight = mmToPx(PRINTABLE_HEIGHT_MM - PRINT_SAFETY_MARGIN_MM);
-  const naturalHeight = container.scrollHeight;
+  // getBoundingClientRect().height ignore un éventuel scale parent (mobile-receipt-zoom)
+  // pour la boîte layout ; scrollHeight reste la hauteur « naturelle » du contenu.
+  const naturalHeight = Math.max(container.scrollHeight, container.offsetHeight);
 
-  if (naturalHeight <= maxHeight) {
-    // Tient déjà sur une page : aucune modification, rendu identique à l'aperçu.
+  if (!naturalHeight || naturalHeight <= maxHeight) {
     return () => {};
   }
 
@@ -103,31 +126,92 @@ function fitReceiptToSinglePage(container: HTMLElement): () => void {
   const nextSibling = container.nextSibling;
   if (!parent) return () => {};
 
+  // Retirer un éventuel wrapper précédent (double clic / export raté).
+  const existing = document.getElementById(PRINT_FIT_WRAPPER_ID);
+  if (existing) {
+    while (existing.firstChild) parent.insertBefore(existing.firstChild, existing);
+    existing.remove();
+  }
+
   const wrapper = document.createElement('div');
   wrapper.id = PRINT_FIT_WRAPPER_ID;
   parent.insertBefore(wrapper, container);
   wrapper.appendChild(container);
 
-  const scale = (maxHeight * FIT_SAFETY) / naturalHeight;
+  const scale = Math.min(1, (maxHeight * FIT_SAFETY) / naturalHeight);
+  const scaledHeightPx = Math.ceil(naturalHeight * scale) + 2;
+
   container.style.transformOrigin = 'top center';
   container.style.transform = `scale(${scale})`;
-  // +2px de coussin anti-arrondi sub-pixel (moteurs de rendu mobile notamment).
-  wrapper.style.height = `${Math.ceil(naturalHeight * scale) + 2}px`;
+  (container.style as CSSStyleDeclaration & { zoom?: string }).zoom = String(scale);
+  wrapper.style.height = `${scaledHeightPx}px`;
   wrapper.style.overflow = 'hidden';
+
+  injectPrintFitStyle(scale, scaledHeightPx);
 
   return () => {
     container.style.transform = '';
     container.style.transformOrigin = '';
-    parent.insertBefore(container, nextSibling);
-    wrapper.remove();
+    (container.style as CSSStyleDeclaration & { zoom?: string }).zoom = '';
+    if (wrapper.parentNode) {
+      parent.insertBefore(container, nextSibling);
+      wrapper.remove();
+    }
+    removePrintFitStyle();
   };
 }
 
 /**
- * Export PDF / impression : imprime la fenêtre principale directement (voir note ci-dessus
- * sur l'abandon de l'iframe dédiée). Le reçu est mis à l'échelle sur place si nécessaire
- * pour toujours tenir sur 1 page A4 ; le CSS `@media print` de `index.css` masque tout le
- * reste de l'application (boutons, barre latérale, etc.).
+ * Attend la fin réelle de l'impression.
+ * - Ignore les `afterprint` qui arrivent trop tôt (bug MIUI / certains Android).
+ * - Préfère la sortie de `matchMedia('print')` quand disponible.
+ * - Filet de sécurité temporel pour ne jamais bloquer l'UI.
+ */
+function waitForPrintCycleEnd(printStartedAt: number): Promise<void> {
+  const MIN_AFTERPRINT_MS = 1500;
+  const HARD_TIMEOUT_MS = 90_000;
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('afterprint', onAfterPrint);
+      try {
+        mql?.removeEventListener('change', onMqlChange);
+      } catch {
+        /* older browsers */
+      }
+      clearTimeout(hardTimer);
+      resolve();
+    };
+
+    const onAfterPrint = () => {
+      if (Date.now() - printStartedAt < MIN_AFTERPRINT_MS) {
+        // afterprint prématuré (MIUI) : on ignore et on attend matchMedia / timeout.
+        return;
+      }
+      // Petite latence : certains moteurs finalisent le PDF juste après afterprint.
+      setTimeout(finish, 400);
+    };
+
+    const onMqlChange = (e: MediaQueryListEvent) => {
+      if (!e.matches && Date.now() - printStartedAt >= MIN_AFTERPRINT_MS) {
+        setTimeout(finish, 300);
+      }
+    };
+
+    window.addEventListener('afterprint', onAfterPrint);
+    const mql = window.matchMedia?.('print') ?? null;
+    mql?.addEventListener?.('change', onMqlChange);
+
+    const hardTimer = window.setTimeout(finish, HARD_TIMEOUT_MS);
+  });
+}
+
+/**
+ * Export PDF / impression : met à l'échelle sur place si besoin, imprime la fenêtre
+ * principale. Le CSS `@media print` de `index.css` masque le reste de l'app.
  */
 export async function printReceiptElement(options?: {
   title?: string;
@@ -148,28 +232,28 @@ export async function printReceiptElement(options?: {
   }
 
   await waitForImages(container);
-  // Laisse le moteur de rendu recalculer la mise en page après le chargement des images
-  // avant de mesurer la hauteur réelle du reçu.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
   const restore = fitReceiptToSinglePage(container);
 
-  let didCleanup = false;
-  const cleanup = () => {
-    if (didCleanup) return;
-    didCleanup = true;
+  // Laisse le navigateur peindre l'état scalé avant d'ouvrir le dialogue d'impression
+  // (crucial sur WebView Android / MIUI).
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const printStartedAt = Date.now();
+  try {
+    window.print();
+  } catch {
     restore();
-    if (requestedTitle) {
-      document.title = originalTitle;
-    }
-    window.removeEventListener('afterprint', cleanup);
-  };
+    if (requestedTitle) document.title = originalTitle;
+    return false;
+  }
 
-  window.addEventListener('afterprint', cleanup, { once: true });
-  // Filet de sécurité : certains navigateurs mobiles ne déclenchent pas toujours
-  // `afterprint` de façon fiable.
-  setTimeout(cleanup, 20_000);
-
-  window.print();
+  await waitForPrintCycleEnd(printStartedAt);
+  restore();
+  if (requestedTitle) {
+    document.title = originalTitle;
+  }
   return true;
 }
