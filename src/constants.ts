@@ -404,6 +404,32 @@ export const RECEIPT_PAYMENT_BADGE_SRC = {
 } as const;
 
 /**
+ * Numéro de porte / appartement « terrain » (celui que l’équipe utilise sur place).
+ * Aligné sur les shortLabels keybox (B10 103 → 103, F202 → 202, etc.).
+ * Affiché au calendrier entre parenthèses pour aider les nouveaux à se repérer.
+ */
+export const UNIT_DOOR_NUMBER_BY_SLUG: Record<string, string> = {
+  'matera-studio': '203',
+  'matera-studio-superior': '103',
+  'matera-chambre-a': '104A',
+  'matera-chambre-b': '104B',
+  'matera-deluxe': '201',
+  'rieti-terracotta': '201',
+  'rieti-emeraude': '202',
+};
+
+/** Numéro de porte pour un slug calendrier, ou null s’il n’y en a pas. */
+export function doorNumberForUnitSlug(unitSlug: string): string | null {
+  return UNIT_DOOR_NUMBER_BY_SLUG[unitSlug] ?? null;
+}
+
+/** Ajoute « (203) » au libellé si un numéro de porte est connu. */
+export function withDoorNumber(label: string, unitSlug: string): string {
+  const door = doorNumberForUnitSlug(unitSlug);
+  return door ? `${label} (${door})` : label;
+}
+
+/**
  * Compteurs partagés entre plusieurs logements (prépayé uniquement).
  * Le calendrier / réservations garde les chambres séparées ; ici une seule ligne UI.
  */

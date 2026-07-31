@@ -16,6 +16,8 @@ import {
   SITE_MAPPING,
   canBlockCalendarDates,
   resolvePrepaidMeterUnitSlug,
+  withDoorNumber,
+  doorNumberForUnitSlug,
 } from '../constants';
 
 const isMainAdminEmail = (email?: string | null) => {
@@ -507,13 +509,19 @@ export default function CalendarView({
             else if (slug.includes('terracotta')) refinedShortName = 'Terracotta';
             else if (slug.includes('haut-standing')) refinedShortName = 'Haut Standing';
 
-            units.push({ slug, category, color, site: siteName, shortName: refinedShortName });
+            units.push({
+              slug,
+              category,
+              color,
+              site: siteName,
+              shortName: withDoorNumber(refinedShortName, slug),
+            });
           }
         });
       } else {
         const slug = category.toLowerCase();
         if (!units.find(u => u.slug === slug)) {
-          units.push({ slug, category, color, site: siteName, shortName });
+          units.push({ slug, category, color, site: siteName, shortName: withDoorNumber(shortName, slug) });
         }
       }
     });
@@ -1108,8 +1116,13 @@ export default function CalendarView({
                               <div className="flex flex-col gap-1">
                                 <span className="text-[8px] md:text-[10px] font-black text-blue-600 uppercase tracking-widest">{group.site}</span>
                                 <span className="text-sm md:text-base font-black text-gray-900 uppercase tracking-tight">
-                                  {unit.slug}
+                                  {unit.shortName}
                                 </span>
+                                {doorNumberForUnitSlug(unit.slug) && (
+                                  <span className="text-[10px] md:text-xs font-bold text-blue-700">
+                                    Porte {doorNumberForUnitSlug(unit.slug)}
+                                  </span>
+                                )}
                                 <span className="text-[8px] md:text-[10px] font-medium text-gray-400 leading-tight whitespace-normal">{unit.category}</span>
                               </div>
                               {/* Arrow */}
