@@ -40,10 +40,13 @@ function isIOSDevice(): boolean {
 
 /**
  * Génère le PDF du reçu et déclenche son téléchargement / affichage.
- * - Desktop & Android : téléchargement direct via <a download>.
- * - iOS (Safari/Chrome, tous basés sur WebKit) : l'attribut download sur un blob: n'est pas fiable ;
- *   on ouvre le PDF dans un nouvel onglet, où le lecteur PDF natif de Safari permet
- *   Partager / Enregistrer dans Fichiers / Imprimer.
+ * - Desktop & Android : téléchargement direct via <a download> (nom de fichier fiable).
+ * - iOS (Safari/Chrome, tous basés sur WebKit) : l'attribut download sur un blob: n'est pas fiable,
+ *   et le nom de fichier proposé par Safari dans sa feuille de partage se base sur l'identifiant
+ *   technique de l'URL blob: (ex. « 5cdc83a5-... ») plutôt que sur le titre du PDF. On utilise donc
+ *   l'API Web Share avec un vrai objet File nommé correctement : Safari respecte alors ce nom aussi
+ *   bien dans « Enregistrer dans Fichiers » que lors d'un partage (WhatsApp, Mail, AirDrop…).
+ *   Si l'API Web Share n'est pas disponible, on retombe sur l'ouverture dans un nouvel onglet.
  */
 export async function exportReceiptPdf(
   data: ReceiptData,
@@ -51,18 +54,37 @@ export async function exportReceiptPdf(
 ): Promise<void> {
   const blob = await buildReceiptPdfBlob(data, options);
   const fileName = `${buildReceiptFileName(data)}.pdf`;
-  const url = URL.createObjectURL(blob);
 
   if (isIOSDevice()) {
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    const nav = navigator as Navigator & {
+      canShare?: (data?: ShareData) => boolean;
+      share?: (data?: ShareData) => Promise<void>;
+    };
+    if (nav.canShare && nav.canShare({ files: [file] }) && nav.share) {
+      try {
+        await nav.share({ files: [file] });
+        return;
+      } catch (err: any) {
+        if (err && err.name === 'AbortError') {
+          // L'utilisateur a annulé le partage : ne rien faire d'autre.
+          return;
+        }
+        // Échec inattendu du partage : on retombe sur l'ouverture en nouvel onglet ci-dessous.
+      }
+    }
+    const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
-  } else {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
   }
 
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
