@@ -13,10 +13,13 @@
     "deploy:functions-prospect-email": "firebase deploy --only functions:archive:onProspectCreatedSendEmail",
     "deploy:functions-whatsapp-prospect-lookup": "firebase deploy --only functions:archive:whatsappProspectLookup",
     "deploy:functions-whatsapp-prospect-feed": "firebase deploy --only functions:archive:whatsappProspectFeed",
+    "deploy:functions-whatsapp-media-proof": "firebase deploy --only functions:archive:whatsappMediaProofExtract",
+    "deploy:functions-whatsapp-admin-note": "firebase deploy --only functions:archive:whatsappAdminNote,functions:archive:whatsappProspectContext",
     "deploy:functions": "firebase deploy --only functions"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "date-fns": "^4.1.0",

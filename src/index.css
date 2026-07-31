@@ -64,11 +64,12 @@
     width: 100%;
   }
 
-  /* Configuration globale pour l'impression (fallback Ctrl+P — le bouton "Exporter PDF"
-     utilise un moteur dédié dans src/utils/printReceipt.ts, plus fiable). On évite ici
-     tout overflow/max-height "hidden" qui pourrait couper du contenu sans prévenir : en
-     cas de reçu exceptionnellement long via Ctrl+P, mieux vaut déborder sur une 2e page
-     que perdre des informations. */
+  /* Configuration globale pour l'impression (fallback Ctrl+P uniquement — le bouton
+     "Exporter PDF" du reçu génère désormais un vrai PDF côté client via
+     src/utils/generateReceiptPdf.ts, indépendant du moteur d'impression du navigateur).
+     On évite ici tout overflow/max-height "hidden" qui pourrait couper du contenu sans
+     prévenir : en cas de reçu exceptionnellement long via Ctrl+P, mieux vaut déborder sur
+     une 2e page que perdre des informations. */
   html, body {
     background: white !important;
     margin: 0 !important;

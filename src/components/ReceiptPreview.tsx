@@ -1,37 +1,13 @@
 import React from 'react';
 import { Mail, Globe, Phone, MessageCircle, Landmark, Banknote } from 'lucide-react';
 import { ReceiptData } from '../types';
-import { getRateForApartment, LOGO_BASE64, formatCurrency, RECEIPT_OFFICIAL_PAYMENT_METHODS, RECEIPT_PAYMENT_BADGE_SRC } from '../constants';
-import { getReceiptSegments, receiptHasMultipleSegments, totalNightsAcrossReceipt } from '../utils/receiptSegments';
+import { LOGO_BASE64, formatCurrency, RECEIPT_OFFICIAL_PAYMENT_METHODS, RECEIPT_PAYMENT_BADGE_SRC } from '../constants';
+import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone } from '../utils/receiptCalculations';
 
 interface ReceiptPreviewProps {
   data: ReceiptData;
   /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
-}
-
-/**
- * Normalise un numéro de téléphone pour les protocoles tel: et wa.me/
- * Gère les formats camerounais : 6XXXXXXXX, +2376XXXXXXXX, 002376XXXXXXXX
- */
-function normalizePhone(raw: string): { tel: string; wa: string } {
-  const digits = raw.replace(/[\s\-\.\(\)]/g, '');
-  let international = digits;
-  if (digits.startsWith('00')) international = '+' + digits.slice(2);
-  else if (digits.startsWith('237')) international = '+' + digits;
-  else if (!digits.startsWith('+')) international = '+237' + digits;
-  const waDigits = international.replace(/[^\d]/g, '');
-  return { tel: international, wa: waDigits };
-}
-
-/**
- * Sur le PDF, les libellés « … APPARTEMENT … STUDIO » sont souvent coupés avant « mode studio ».
- * Si le nom contient STUDIO, on remplace « Appartement » / « Appartements » par « APT » pour l’affichage uniquement.
- */
-function formatApartmentNameForPdfDisplay(name: string): string {
-  if (!name.trim()) return name;
-  if (!name.toUpperCase().includes('STUDIO')) return name;
-  return name.replace(/\bappartements?\b/gi, 'APT');
 }
 
 const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: ReceiptPreviewProps) => {
@@ -43,55 +19,27 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
     );
   }
 
-  const segments = getReceiptSegments(data);
-  const multiStay = receiptHasMultipleSegments(data);
-  const nights = multiStay
-    ? totalNightsAcrossReceipt(data)
-    : Math.max(0, Math.ceil((new Date(data.endDate).getTime() - new Date(data.startDate).getTime()) / (1000 * 3600 * 24)));
-  
-  const rateInfo = getRateForApartment(data.apartmentName, nights);
-  
-  const totalPaid = data.payments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = data.grandTotal - totalPaid;
-  
-  const pricePerNight = data.isCustomRate 
-    ? (nights > 0 ? Math.round(data.customLodgingTotal / nights) : 0)
-    : (data.isNegotiatedRate ? data.negotiatedPricePerNight : rateInfo.prix);
-
-  const lodgingTotal = data.isCustomRate ? data.customLodgingTotal : (pricePerNight * nights);
-
-  /** Caution : total enregistré sur le reçu (somme segments en multi-barème dans l’app). */
-  const cautionDisplay = multiStay ? data.cautionAmount : rateInfo.caution;
-
-  const latePenalty = Math.round(pricePerNight / 2);
-
-  const basePrice = rateInfo.prix;
-  const discountPercent = (data.isNegotiatedRate || data.isCustomRate) && basePrice > 0 && pricePerNight < basePrice
-    ? Math.round(((basePrice - pricePerNight) / basePrice) * 100)
-    : 0;
-
-  const priceLabel = data.isCustomRate 
-    ? '(Ajusté Plateforme)' 
-    : (data.isNegotiatedRate ? '(Tarif Négocié)' : '');
-
-  const isAppartement = data.apartmentName.toUpperCase().includes('APPARTEMENT') && !data.apartmentName.toUpperCase().includes('STUDIO');
-  const isStudio = data.apartmentName.toUpperCase().includes('STUDIO');
-
-  const logementDisplay = formatApartmentNameForPdfDisplay(data.apartmentName);
-  
-  const kwPerNightEco = isAppartement ? 8 : 6;
-  const totalKwEco = kwPerNightEco * nights;
-
-  let kwPerNightConfort = 8; // Default for Chambre
-  let towelsCount = 2;
-  if (isAppartement) {
-    kwPerNightConfort = 15;
-    towelsCount = 4;
-  } else if (isStudio) {
-    kwPerNightConfort = 10;
-    towelsCount = 2;
-  }
-  const totalKwConfort = kwPerNightConfort * nights;
+  const {
+    segments,
+    multiStay,
+    nights,
+    rateInfo,
+    pricePerNight,
+    lodgingTotal,
+    cautionDisplay,
+    latePenalty,
+    basePrice,
+    discountPercent,
+    priceLabel,
+    logementDisplay,
+    totalKwEco,
+    kwPerNightEco,
+    totalKwConfort,
+    kwPerNightConfort,
+    towelsCount,
+    totalPaid,
+    remaining,
+  } = computeReceiptCalculations(data);
 
   return (
     <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:min-h-0 relative">

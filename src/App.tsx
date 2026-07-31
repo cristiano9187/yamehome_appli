@@ -52,7 +52,6 @@ import {
   sumCautionsForSegments,
   findBookingConflictAcrossSegments,
 } from './utils/receiptSegments';
-import { printReceiptElement } from './utils/printReceipt';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import ObligationsDeskRail from './components/ObligationsDeskRail';
@@ -772,8 +771,16 @@ export default function App() {
       setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
       return;
     }
-    void printReceiptElement({ title: document.title, waitMs: 150 });
-  }, [isReadOnly]);
+    // Chargé à la demande : le moteur de génération PDF (react-pdf) est volumineux, on évite
+    // de l'inclure dans le bundle principal chargé au démarrage de l'app.
+    import('./utils/generateReceiptPdf')
+      .then(({ exportReceiptPdf }) => exportReceiptPdf(formData, { showPaymentMethods: showReceiptPaymentMethods }))
+      .catch((err) => {
+        console.error('Échec de la génération du PDF du reçu :', err);
+        setAlertType('error');
+        setAlertMessage("La génération du PDF a échoué. Veuillez réessayer.");
+      });
+  }, [isReadOnly, formData, showReceiptPaymentMethods]);
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -2878,11 +2885,20 @@ export default function App() {
                 setView('form');
               }}
               onPrint={(receipt) => {
-                setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
+                const flattened = flattenStaySegmentsIfSingleton({ ...receipt });
+                setFormData(flattened);
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
-                void printReceiptElement({ title: document.title, waitMs: 1200 });
+                // Génération PDF directe depuis les données du reçu — n'a plus besoin d'attendre
+                // le rendu DOM (aucune dépendance au moteur d'impression du navigateur).
+                import('./utils/generateReceiptPdf')
+                  .then(({ exportReceiptPdf }) => exportReceiptPdf(flattened, { showPaymentMethods: showReceiptPaymentMethods }))
+                  .catch((err) => {
+                    console.error('Échec de la génération du PDF du reçu :', err);
+                    setAlertType('error');
+                    setAlertMessage("La génération du PDF a échoué. Veuillez réessayer.");
+                  });
               }}
               onOpenClientProfile={(receipt) => openClientProfile({
                 firstName: receipt.firstName,
