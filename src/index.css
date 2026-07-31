@@ -80,9 +80,7 @@
     print-color-adjust: exact !important;
   }
 
-  /* Ne JAMAIS masquer les parents, mais forcer leur fond en blanc et retirer les ombres.
-     Exception : #receipt-print-fit-wrapper garde sa hauteur figée / overflow (échelle 1 page)
-     injectée par printReceipt.ts — ne pas l'écraser ici. */
+  /* Ne JAMAIS masquer les parents, mais forcer leur fond en blanc et retirer les ombres */
   #root, 
   .min-h-screen, 
   .main-content-wrapper, 
@@ -103,16 +101,6 @@
     min-width: 0 !important;
     transform: none !important;
     position: static !important;
-  }
-
-  /* Le wrapper de mise à l'échelle 1 page (printReceipt.ts) : ne pas le forcer en height:auto. */
-  #receipt-print-fit-wrapper {
-    display: block !important;
-    background: white !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: static !important;
-    /* height / overflow / transform restent ceux injectés par le JS */
   }
 
   /* Ciblage précis : Masquer uniquement les éléments inutiles */
