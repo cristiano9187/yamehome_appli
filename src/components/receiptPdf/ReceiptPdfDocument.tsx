@@ -2,7 +2,7 @@ import React from 'react';
 import { Document, Page, View, Text, Image, Link, StyleSheet } from '@react-pdf/renderer';
 import { ReceiptData } from '../../types';
 import { LOGO_BASE64, RECEIPT_OFFICIAL_PAYMENT_METHODS } from '../../constants';
-import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone } from '../../utils/receiptCalculations';
+import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildReceiptFileName } from '../../utils/receiptCalculations';
 
 const BLUE = '#2B4B8C';
 
@@ -132,7 +132,8 @@ const styles = StyleSheet.create({
   bulletRow: { flexDirection: 'row', marginBottom: 2.5 },
   bulletMark: { fontSize: 7.5, width: 8, color: '#57534e' },
   bulletText: { fontSize: 7.5, color: '#57534e', flex: 1, lineHeight: 1.4 },
-  subBulletRow: { flexDirection: 'row', marginBottom: 2, paddingLeft: 10 },
+  underline: { fontWeight: 700, textDecoration: 'underline' },
+  subBulletRow: { flexDirection: 'row', marginBottom: 2, marginLeft: 10 },
 
   footer: { marginTop: 10 },
   signatureWrap: { alignItems: 'flex-end', paddingRight: 8 },
@@ -181,7 +182,7 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
   const phoneInfo = data.phone ? normalizePhone(data.phone) : null;
 
   return (
-    <Document title={data.receiptId} author="YameHome">
+    <Document title={buildReceiptFileName(data)} author="YameHome">
       <Page size="A4" style={styles.page} wrap>
         {/* Header */}
         <View style={styles.header}>
@@ -394,32 +395,30 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
           )}
           <View style={styles.bulletRow}>
             <Text style={styles.bulletMark}>-</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.bulletText, { fontWeight: 700, textDecoration: 'underline' }]}>
-                Politique d'Annulation (1/3 Sous-total Séjour) :
-              </Text>
-              <View style={styles.subBulletRow}>
-                <Text style={styles.bulletMark}>-</Text>
-                <Text style={styles.bulletText}>
-                  <Text style={[styles.bold, { color: '#15803d' }]}>100% remboursé : </Text>
-                  Annulation sous 24h (si séjour dans +14j).
-                </Text>
-              </View>
-              <View style={styles.subBulletRow}>
-                <Text style={styles.bulletMark}>-</Text>
-                <Text style={styles.bulletText}>
-                  <Text style={[styles.bold, { color: '#c2410c' }]}>50% remboursé : </Text>
-                  Jusqu'à 7 jours avant l'arrivée.
-                </Text>
-              </View>
-              <View style={styles.subBulletRow}>
-                <Text style={styles.bulletMark}>-</Text>
-                <Text style={styles.bulletText}>
-                  <Text style={[styles.bold, { color: '#dc2626' }]}>Non remboursable : </Text>
-                  Moins de 7 jours avant l'arrivée.
-                </Text>
-              </View>
-            </View>
+            <Text style={[styles.bulletText, styles.underline]}>
+              Politique d'Annulation (1/3 Sous-total Séjour) :
+            </Text>
+          </View>
+          <View style={styles.subBulletRow}>
+            <Text style={styles.bulletMark}>-</Text>
+            <Text style={styles.bulletText}>
+              <Text style={[styles.bold, { color: '#15803d' }]}>100% remboursé : </Text>
+              Annulation sous 24h (si séjour dans +14j).
+            </Text>
+          </View>
+          <View style={styles.subBulletRow}>
+            <Text style={styles.bulletMark}>-</Text>
+            <Text style={styles.bulletText}>
+              <Text style={[styles.bold, { color: '#c2410c' }]}>50% remboursé : </Text>
+              Jusqu'à 7 jours avant l'arrivée.
+            </Text>
+          </View>
+          <View style={styles.subBulletRow}>
+            <Text style={styles.bulletMark}>-</Text>
+            <Text style={styles.bulletText}>
+              <Text style={[styles.bold, { color: '#dc2626' }]}>Non remboursable : </Text>
+              Moins de 7 jours avant l'arrivée.
+            </Text>
           </View>
           {data.observations && (
             <View style={styles.bulletRow}>
