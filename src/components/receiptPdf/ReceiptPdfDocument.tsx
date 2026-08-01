@@ -200,7 +200,7 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
           <Text style={styles.subtitle}>Location d'appartements, chambres et studios meublés</Text>
           <View style={styles.contactRow}>
             <Link src="https://wa.me/237657507671" style={styles.contactText}>
-              +237 6 57 50 76 71 (WhatsApp)
+              +237 6 57 50 76 71 (WhatsApp - Agent IA 24h/24)
             </Link>
             <Text style={styles.contactSep}>|</Text>
             <Link src="mailto:christian@yamehome.com" style={styles.contactText}>
