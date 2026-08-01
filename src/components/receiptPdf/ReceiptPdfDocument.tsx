@@ -137,10 +137,19 @@ const styles = StyleSheet.create({
 
   footer: { marginTop: 10 },
   signatureWrap: { alignItems: 'flex-end', paddingRight: 8 },
-  signatureBlock: { alignItems: 'center', minWidth: 120 },
+  signatureBlock: { alignItems: 'center' },
   signatureName: { fontSize: 12, fontWeight: 700, color: BLUE, fontStyle: 'italic', marginBottom: 3 },
-  signatureLine: { borderTopWidth: 1, borderTopColor: '#a8a29e', width: '100%', paddingTop: 2 },
-  signatureCaption: { fontSize: 6.5, fontWeight: 700, color: '#78716c', textTransform: 'uppercase', textAlign: 'center' },
+  signatureCaption: {
+    fontSize: 6.5,
+    fontWeight: 700,
+    color: '#78716c',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#a8a29e',
+    paddingTop: 2,
+    minWidth: 130,
+  },
   thanksText: { fontSize: 7.5, color: '#78716c', fontStyle: 'italic', textAlign: 'center', marginTop: 14 },
 });
 
@@ -438,9 +447,7 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
           <View style={styles.signatureWrap}>
             <View style={styles.signatureBlock}>
               <Text style={styles.signatureName}>{pdfSafeText(data.signature) || 'PAOLA'}</Text>
-              <View style={styles.signatureLine}>
-                <Text style={styles.signatureCaption}>SIGNATURE GÉRANT / YAMEHOME</Text>
-              </View>
+              <Text style={styles.signatureCaption}>SIGNATURE GÉRANT / YAMEHOME</Text>
             </View>
           </View>
           <Text style={styles.thanksText}>Merci pour votre confiance !</Text>
