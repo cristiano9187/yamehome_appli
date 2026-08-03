@@ -3260,6 +3260,19 @@ export default function App() {
                 </button>
                 {!isReadOnly ? (
                   <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5 md:gap-2 ml-auto">
+                    {(isProformaMode || receiptReturnTarget) && (
+                      <button
+                        type="button"
+                        onClick={handleCloseReceiptPreview}
+                        className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 touch-manipulation md:h-auto md:w-auto md:px-5 md:py-3 md:gap-2"
+                        title={isProformaMode ? 'Fermer le proforma et revenir aux prospects' : "Fermer l'aperçu"}
+                        aria-label="Fermer"
+                      >
+                        <X size={18} className="md:hidden" />
+                        <ArrowLeft size={14} className="hidden md:block" />
+                        <span className="hidden md:inline font-black text-[10px] md:text-xs uppercase tracking-widest">Fermer</span>
+                      </button>
+                    )}
                     <button 
                       onClick={() => setIsSidebarOpen(true)} 
                       className="md:hidden h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 touch-manipulation"
