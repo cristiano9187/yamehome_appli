@@ -548,7 +548,7 @@ service cloud.firestore {
              hasOnlyAllowedFields([
                'source', 'status', 'firstName', 'lastName', 'phone', 'email',
                'apartmentName', 'calendarSlug', 'startDate', 'endDate', 'totalStayPrice', 'guestCount', 'budget',
-               'assignedTo', 'nextFollowUpDate', 'notes', 'convertedReceiptId',
+               'assignedTo', 'nextFollowUpDate', 'notes', 'proformaDraft', 'convertedReceiptId',
                'createdAt', 'updatedAt', 'authorUid'
              ]) &&
              data.source in ['FACEBOOK', 'AIRBNB', 'BOOKING', 'TELEPHONE', 'WHATSAPP', 'AUTRE', 'SITE_WEB'] &&
@@ -556,6 +556,7 @@ service cloud.firestore {
              data.lastName is string && data.lastName.size() > 0 &&
              data.phone is string && data.phone.size() > 0 &&
              (!('totalStayPrice' in data) || data.totalStayPrice is number) &&
+             (!('proformaDraft' in data) || data.proformaDraft is string) &&
              data.authorUid is string && data.authorUid.size() > 0;
     }
 

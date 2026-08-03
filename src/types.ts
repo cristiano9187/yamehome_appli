@@ -355,6 +355,11 @@ export interface Prospect {
   assignedTo?: string;
   nextFollowUpDate?: string;
   notes?: string;
+  /**
+   * Brouillon proforma (JSON) : packs, hôtes, tarif custom, observations formulaire.
+   * Optionnel — aussi embarqué dans `notes` derrière un marqueur pour compatibilité.
+   */
+  proformaDraft?: string;
   convertedReceiptId?: string;
   createdAt: string;
   updatedAt: string;

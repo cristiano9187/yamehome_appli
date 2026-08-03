@@ -18,6 +18,7 @@ import {
   updateDoc,
   addDoc,
   getDoc, 
+  getDocFromServer,
   getDocs, 
   query, 
   where, 
@@ -52,6 +53,12 @@ import {
   sumCautionsForSegments,
   findBookingConflictAcrossSegments,
 } from './utils/receiptSegments';
+import {
+  embedProformaDraftInNotes,
+  parseProformaDraftJson,
+  stripProformaDraftFromNotes,
+  type ProformaProspectDraft,
+} from './utils/proformaProspectDraft';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import ObligationsDeskRail from './components/ObligationsDeskRail';
@@ -231,6 +238,8 @@ export default function App() {
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
   /** Mode proforma : aperçu/export PDF sans sauvegarde ni blocage calendrier. */
   const [isProformaMode, setIsProformaMode] = useState(false);
+  /** Notes CRM du prospect (sans le brouillon proforma embarqué) — pour ne pas les écraser à la sauvegarde. */
+  const [sourceProspectNotesClean, setSourceProspectNotesClean] = useState('');
   
   // Custom Debounce for weak mobile devices
   const [debouncedFormData, setDebouncedFormData] = useState(formData);
@@ -769,34 +778,7 @@ export default function App() {
     }
   }, [view, isReadOnly, formData.receiptId, formData.createdAt, formData.firstName, formData.lastName, formData.apartmentName]);
 
-  const handlePrint = useCallback(() => {
-    if (!isProformaMode && !isReadOnly) {
-      setAlertType('error');
-      setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
-      return;
-    }
-    if (isProformaMode) {
-      if (!formData.lastName?.trim() || !formData.apartmentName || !formData.startDate || !formData.endDate) {
-        setAlertType('error');
-        setAlertMessage('Pour un proforma, renseignez au minimum le client, le logement et les dates.');
-        return;
-      }
-    }
-    // Chargé à la demande : le moteur de génération PDF (react-pdf) est volumineux, on évite
-    // de l'inclure dans le bundle principal chargé au démarrage de l'app.
-    import('./utils/generateReceiptPdf')
-      .then(({ exportReceiptPdf }) =>
-        exportReceiptPdf(formData, {
-          showPaymentMethods: showReceiptPaymentMethods,
-          proforma: isProformaMode,
-        })
-      )
-      .catch((err) => {
-        console.error('Échec de la génération du PDF du reçu :', err);
-        setAlertType('error');
-        setAlertMessage("La génération du PDF a échoué. Veuillez réessayer.");
-      });
-  }, [isReadOnly, isProformaMode, formData, showReceiptPaymentMethods]);
+
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -1009,80 +991,192 @@ export default function App() {
     }
   };
 
+  /** Persiste le proforma sur la fiche prospect (sans créer de reçu ni bloquer le calendrier). */
+  const persistProformaToProspect = async (opts?: { quietSuccess?: boolean }): Promise<boolean> => {
+    if (!sourceProspectId) {
+      setAlertType('error');
+      setAlertMessage("Impossible d'enregistrer : prospect source introuvable. Rouvrez le proforma depuis Prospects.");
+      return false;
+    }
+    if (!formData.lastName?.trim() || !formData.phone?.trim()) {
+      setAlertType('error');
+      setAlertMessage('Nom et téléphone sont requis pour enregistrer le proforma sur le prospect.');
+      return false;
+    }
+    if (!formData.apartmentName || !formData.startDate || !formData.endDate) {
+      setAlertType('error');
+      setAlertMessage('Logement et dates sont requis pour enregistrer le proforma.');
+      return false;
+    }
+    if (formData.startDate >= formData.endDate) {
+      setAlertType('error');
+      setAlertMessage('La date de fin doit être après la date de début.');
+      return false;
+    }
+    const units = TARIFS[formData.apartmentName]?.units || [];
+    if (units.length > 1 && !(formData.calendarSlug || '').trim()) {
+      setAlertType('error');
+      setAlertMessage("Précisez l'unité pour placer correctement le prospect.");
+      return false;
+    }
+
+    const lodgingTotal = Math.max(
+      0,
+      Math.round((Number(totals.grandTotal) || 0) - (Number(totals.cautionAmount) || 0))
+    );
+
+    const draft: ProformaProspectDraft = {
+      isCustomRate: !!formData.isCustomRate,
+      customLodgingTotal: Number(formData.customLodgingTotal) || 0,
+      isNegotiatedRate: !!formData.isNegotiatedRate,
+      negotiatedPricePerNight: Number(formData.negotiatedPricePerNight) || 0,
+      electricityCharge: !!formData.electricityCharge,
+      packEco: !!formData.packEco,
+      packConfort: !!formData.packConfort,
+      hosts: Array.isArray(formData.hosts) ? formData.hosts : [],
+      signature: formData.signature || '',
+      observations: formData.observations || '',
+      agentName: formData.agentName || '',
+      receiptId: formData.receiptId || '',
+    };
+    const draftJson = JSON.stringify(draft);
+    const notesToStore = embedProformaDraftInNotes(sourceProspectNotesClean, draft);
+    const calendarSlug = formData.calendarSlug || (units.length === 1 ? units[0] : '');
+
+    setIsSaving(true);
+    setSaveStatus('idle');
+    try {
+      const withTimeoutLocal = <T,>(p: Promise<T>, ms: number = 10000): Promise<T> =>
+        Promise.race([
+          p,
+          new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms)),
+        ]);
+
+      const payload: Record<string, unknown> = {
+        firstName: formData.firstName || '',
+        lastName: formData.lastName.trim(),
+        phone: formData.phone.trim(),
+        email: formData.email || '',
+        apartmentName: formData.apartmentName,
+        calendarSlug,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        totalStayPrice: lodgingTotal,
+        notes: notesToStore,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const prospectRef = doc(db, 'prospects', sourceProspectId);
+      console.info('[PROFORMA SAVE] écriture en cours…', { prospectId: sourceProspectId, payload, draft });
+
+      try {
+        await withTimeoutLocal(updateDoc(prospectRef, { ...payload, proformaDraft: draftJson }));
+      } catch (firstErr: unknown) {
+        // Si les règles déployées n'autorisent pas encore `proformaDraft`, retomber sur notes seules.
+        const code = (firstErr as { code?: string })?.code || '';
+        console.warn('[PROFORMA SAVE] échec avec proformaDraft, code =', code, firstErr);
+        if (code === 'permission-denied') {
+          await withTimeoutLocal(updateDoc(prospectRef, payload));
+        } else {
+          throw firstErr;
+        }
+      }
+
+      // Vérification post-écriture : on relit le document DIRECTEMENT sur le serveur
+      // (en contournant le cache local) pour confirmer que les valeurs sont bien celles attendues.
+      let verified = false;
+      try {
+        const verifySnap = await withTimeoutLocal(getDocFromServer(prospectRef), 10000);
+        const verifiedData = verifySnap.data() as Record<string, unknown> | undefined;
+        verified =
+          !!verifiedData &&
+          verifiedData.apartmentName === payload.apartmentName &&
+          verifiedData.startDate === payload.startDate &&
+          verifiedData.endDate === payload.endDate &&
+          (verifiedData.proformaDraft === draftJson || verifiedData.notes === notesToStore);
+        console.info('[PROFORMA SAVE] relecture serveur après écriture :', { verified, verifiedData });
+      } catch (verifyErr) {
+        console.warn('[PROFORMA SAVE] impossible de vérifier la relecture serveur', verifyErr);
+      }
+
+      setSaveStatus('success');
+      if (!opts?.quietSuccess) {
+        setAlertType('success');
+        setAlertMessage(
+          verified
+            ? 'Proforma enregistré et vérifié sur le prospect (calendrier non bloqué). Vous pouvez exporter le PDF ou revenir plus tard.'
+            : 'Proforma envoyé au serveur, mais la vérification de relecture a échoué. Rouvrez le proforma pour confirmer que tout est bien enregistré.'
+        );
+      }
+      setTimeout(() => setSaveStatus('idle'), 3000);
+      return true;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errCode = (error as { code?: string })?.code || '';
+      handleFirestoreError(error, OperationType.UPDATE, 'prospects');
+      setSaveStatus('error');
+      setAlertType('error');
+      if (errMsg === 'TIMEOUT') {
+        setAlertMessage('DÉLAI DÉPASSÉ : la connexion est trop lente. Réessayez.');
+      } else if (errCode === 'permission-denied') {
+        setAlertMessage(
+          "Enregistrement refusé par Firestore (droits). Vérifiez que vous êtes connecté en agent/admin, puis réessayez."
+        );
+      } else {
+        setAlertMessage(`Échec de l'enregistrement du proforma : ${errMsg || errCode || 'erreur inconnue'}`);
+      }
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handlePrint = useCallback(() => {
+    if (!isProformaMode && !isReadOnly) {
+      setAlertType('error');
+      setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
+      return;
+    }
+
+    const runExport = () => {
+      import('./utils/generateReceiptPdf')
+        .then(({ exportReceiptPdf }) =>
+          exportReceiptPdf(formData, {
+            showPaymentMethods: showReceiptPaymentMethods,
+            proforma: isProformaMode,
+          })
+        )
+        .catch((err) => {
+          console.error('Échec de la génération du PDF du reçu :', err);
+          setAlertType('error');
+          setAlertMessage("La génération du PDF a échoué. Veuillez réessayer.");
+        });
+    };
+
+    if (isProformaMode) {
+      if (!formData.lastName?.trim() || !formData.apartmentName || !formData.startDate || !formData.endDate) {
+        setAlertType('error');
+        setAlertMessage('Pour un proforma, renseignez au minimum le client, le logement et les dates.');
+        return;
+      }
+      void (async () => {
+        const ok = await persistProformaToProspect({ quietSuccess: true });
+        if (!ok) return;
+        setAlertType('success');
+        setAlertMessage('Proforma enregistré sur le prospect. Export PDF en cours…');
+        runExport();
+      })();
+      return;
+    }
+
+    runExport();
+  }, [isReadOnly, isProformaMode, formData, showReceiptPaymentMethods, persistProformaToProspect]);
+
   const saveToFirestore = async () => {
     if (isReadOnly) return;
 
     if (isProformaMode) {
-      if (!sourceProspectId) {
-        setAlertType('error');
-        setAlertMessage("Impossible d'enregistrer : prospect source introuvable. Rouvrez le proforma depuis Prospects.");
-        return;
-      }
-      if (!formData.lastName?.trim() || !formData.phone?.trim()) {
-        setAlertType('error');
-        setAlertMessage('Nom et téléphone sont requis pour enregistrer le proforma sur le prospect.');
-        return;
-      }
-      if (!formData.apartmentName || !formData.startDate || !formData.endDate) {
-        setAlertType('error');
-        setAlertMessage('Logement et dates sont requis pour enregistrer le proforma.');
-        return;
-      }
-      if (formData.startDate >= formData.endDate) {
-        setAlertType('error');
-        setAlertMessage('La date de fin doit être après la date de début.');
-        return;
-      }
-      const units = TARIFS[formData.apartmentName]?.units || [];
-      if (units.length > 1 && !(formData.calendarSlug || '').trim()) {
-        setAlertType('error');
-        setAlertMessage("Précisez l'unité pour placer correctement le prospect.");
-        return;
-      }
-
-      // Montant séjour (hors caution) à mémoriser sur le prospect pour le prochain proforma / Convertir.
-      const lodgingTotal = Math.max(0, (totals.grandTotal || 0) - (totals.cautionAmount || 0));
-
-      setIsSaving(true);
-      setSaveStatus('idle');
-      try {
-        const withTimeoutLocal = <T,>(p: Promise<T>, ms: number = 10000): Promise<T> =>
-          Promise.race([
-            p,
-            new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms)),
-          ]);
-        await withTimeoutLocal(
-          updateDoc(doc(db, 'prospects', sourceProspectId), {
-            firstName: formData.firstName || '',
-            lastName: formData.lastName.trim(),
-            phone: formData.phone.trim(),
-            email: formData.email || '',
-            apartmentName: formData.apartmentName,
-            calendarSlug: formData.calendarSlug || (units.length === 1 ? units[0] : ''),
-            startDate: formData.startDate,
-            endDate: formData.endDate,
-            totalStayPrice: lodgingTotal,
-            notes: formData.observations || '',
-            updatedAt: new Date().toISOString(),
-          })
-        );
-        setSaveStatus('success');
-        setAlertType('success');
-        setAlertMessage(
-          'Proforma enregistré sur le prospect (calendrier non bloqué). Vous pouvez exporter le PDF ou revenir plus tard.'
-        );
-        setTimeout(() => setSaveStatus('idle'), 3000);
-      } catch (error: any) {
-        if (error.message === 'TIMEOUT') {
-          setAlertType('error');
-          setAlertMessage('DÉLAI DÉPASSÉ : la connexion est trop lente. Réessayez.');
-        } else {
-          handleFirestoreError(error, OperationType.UPDATE, 'prospects');
-          setSaveStatus('error');
-        }
-      } finally {
-        setIsSaving(false);
-      }
+      await persistProformaToProspect({ quietSuccess: false });
       return;
     }
 
@@ -1343,6 +1437,7 @@ export default function App() {
   const handleNewReceipt = () => {
     setFormData(getInitialState());
     setSourceProspectId(null);
+    setSourceProspectNotesClean('');
     setIsProformaMode(false);
     setIsReadOnly(false);
     setReceiptReturnTarget(null);
@@ -1352,32 +1447,84 @@ export default function App() {
 
   const handleCloseReceiptPreview = useCallback(() => {
     setIsProformaMode(false);
+    setSourceProspectId(null);
+    setSourceProspectNotesClean('');
     setView(receiptReturnTarget ?? 'calendar');
     setReceiptReturnTarget(null);
   }, [receiptReturnTarget]);
 
-  const openProspectAsForm = (prospect: Prospect, mode: 'convert' | 'proforma') => {
-    const apartmentData = prospect.apartmentName ? TARIFS[prospect.apartmentName] : undefined;
-    const finalSlug = prospect.calendarSlug || (apartmentData?.units?.length === 1 ? apartmentData.units[0] : '');
-    const hasTotalStayPrice = !!prospect.totalStayPrice && prospect.totalStayPrice > 0;
+  const openProspectAsForm = async (prospect: Prospect, mode: 'convert' | 'proforma') => {
+    let live = prospect;
+    if (prospect.id) {
+      try {
+        // On force la lecture depuis le serveur (et non le cache local) pour être certain
+        // de récupérer la toute dernière version enregistrée du prospect.
+        const snap = await getDocFromServer(doc(db, 'prospects', prospect.id));
+        if (snap.exists()) {
+          live = { id: snap.id, ...(snap.data() as Omit<Prospect, 'id'>) };
+        }
+      } catch (e) {
+        console.warn('[PROFORMA LOAD] lecture serveur impossible, tentative via cache local.', e);
+        try {
+          const snap = await getDoc(doc(db, 'prospects', prospect.id));
+          if (snap.exists()) {
+            live = { id: snap.id, ...(snap.data() as Omit<Prospect, 'id'>) };
+          }
+        } catch (e2) {
+          console.warn('[PROFORMA LOAD] impossible de recharger le prospect, utilisation du snapshot local.', e2);
+        }
+      }
+    }
+
+    const { cleanNotes, draft: draftFromNotes } = stripProformaDraftFromNotes(live.notes || '');
+    const draftFromField = parseProformaDraftJson(live.proformaDraft);
+    const draft = draftFromField || draftFromNotes;
+    console.info('[PROFORMA LOAD] prospect chargé', { id: live.id, live, draft });
+
+    const apartmentData = live.apartmentName ? TARIFS[live.apartmentName] : undefined;
+    const finalSlug = live.calendarSlug || (apartmentData?.units?.length === 1 ? apartmentData.units[0] : '');
+    const hasTotalStayPrice = !!live.totalStayPrice && live.totalStayPrice > 0;
     const isProforma = mode === 'proforma';
 
+    const customFromDraft = draft?.isCustomRate
+      ? (Number(draft.customLodgingTotal) || 0)
+      : 0;
+    const useCustom =
+      !!(draft?.isCustomRate) ||
+      (hasTotalStayPrice && !(draft?.isNegotiatedRate));
+
+    setSourceProspectNotesClean(cleanNotes);
     setFormData({
       ...getInitialState(),
-      receiptId: isProforma ? generateProformaId() : generateNewId(),
-      firstName: prospect.firstName || '',
-      lastName: prospect.lastName || '',
-      phone: prospect.phone || '',
-      email: prospect.email || '',
-      apartmentName: prospect.apartmentName || '',
+      receiptId:
+        isProforma
+          ? (draft?.receiptId && String(draft.receiptId).startsWith('PF-')
+              ? String(draft.receiptId)
+              : generateProformaId())
+          : generateNewId(),
+      firstName: live.firstName || '',
+      lastName: live.lastName || '',
+      phone: live.phone || '',
+      email: live.email || '',
+      apartmentName: live.apartmentName || '',
       calendarSlug: finalSlug,
-      startDate: prospect.startDate || '',
-      endDate: prospect.endDate || '',
-      isCustomRate: hasTotalStayPrice,
-      customLodgingTotal: hasTotalStayPrice ? (prospect.totalStayPrice || 0) : 0,
-      observations: prospect.notes || '',
+      startDate: live.startDate || '',
+      endDate: live.endDate || '',
+      isCustomRate: useCustom,
+      customLodgingTotal: useCustom
+        ? (customFromDraft || live.totalStayPrice || 0)
+        : 0,
+      isNegotiatedRate: !!draft?.isNegotiatedRate,
+      negotiatedPricePerNight: Number(draft?.negotiatedPricePerNight) || 0,
+      electricityCharge: !!draft?.electricityCharge,
+      packEco: !!draft?.packEco,
+      packConfort: !!draft?.packConfort,
+      hosts: Array.isArray(draft?.hosts) ? draft!.hosts! : [],
+      signature: draft?.signature || '',
+      observations: draft?.observations ?? '',
+      agentName: draft?.agentName || '',
     });
-    setSourceProspectId(prospect.id || null);
+    setSourceProspectId(live.id || null);
     setIsProformaMode(isProforma);
     setIsReadOnly(false);
     setReceiptReturnTarget('prospects');
@@ -1387,7 +1534,7 @@ export default function App() {
     setAlertType('info');
     setAlertMessage(
       isProforma
-        ? 'Proforma préparé. Ajustez si besoin puis exportez le PDF — le calendrier ne sera pas bloqué.'
+        ? 'Proforma préparé. Ajustez si besoin, cliquez « Sauver prospect », puis exportez — le calendrier ne sera pas bloqué.'
         : 'Prospect chargé. Complétez puis sauvegardez pour créer le reçu.'
     );
   };

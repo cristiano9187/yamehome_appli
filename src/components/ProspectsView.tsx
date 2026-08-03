@@ -21,6 +21,11 @@ import {
   ymdAddDays,
 } from '../utils/prospectPlanning';
 import {
+  embedProformaDraftInNotes,
+  parseProformaDraftJson,
+  stripProformaDraftFromNotes,
+} from '../utils/proformaProspectDraft';
+import {
   ArrowRightLeft,
   Building2,
   CalendarDays,
@@ -449,6 +454,23 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     [filteredProspects, unitSlugList, daysYmd]
   );
 
+  // Garde le panneau cellule aligné sur les données live (évite de rouvrir un proforma périmé).
+  useEffect(() => {
+    if (!cellPanel) return;
+    const list = prospectsByCell.get(`${cellPanel.unitSlug}|${cellPanel.dateStr}`) || [];
+    setCellPanel((prev) => {
+      if (!prev) return prev;
+      if (prev.unitSlug !== cellPanel.unitSlug || prev.dateStr !== cellPanel.dateStr) return prev;
+      const same =
+        prev.prospects.length === list.length &&
+        prev.prospects.every(
+          (p, i) => p.id === list[i]?.id && p.updatedAt === list[i]?.updatedAt
+        );
+      if (same) return prev;
+      return { ...prev, prospects: list };
+    });
+  }, [prospects, cellPanel?.unitSlug, cellPanel?.dateStr, prospectsByCell]);
+
   const offGridProspects = useMemo(() => {
     return filteredProspects.filter((p) => {
       if (!prospectTouchesMonth(p, monthBounds.monthFirst, monthBounds.monthLast)) return true;
@@ -507,8 +529,15 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     setIsSaving(true);
     try {
       const { id: _id, ...baseData } = formData;
+      const live = editingId ? prospects.find((p) => p.id === editingId) : undefined;
+      const { draft: draftFromNotes } = stripProformaDraftFromNotes(live?.notes || '');
+      const draft = parseProformaDraftJson(live?.proformaDraft) || draftFromNotes;
+      const notes = draft
+        ? embedProformaDraftInNotes(formData.notes || '', draft)
+        : formData.notes || '';
       const payload = {
         ...baseData,
+        notes,
         totalStayPrice: formData.totalStayPrice || 0,
         updatedAt: new Date().toISOString(),
         authorUid: formData.authorUid || userProfile?.uid || '',
@@ -532,9 +561,11 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   };
 
   const handleEdit = (prospect: Prospect) => {
+    const { cleanNotes } = stripProformaDraftFromNotes(prospect.notes || '');
     setEditingId(prospect.id || null);
     setFormData({
       ...prospect,
+      notes: cleanNotes,
       calendarSlug: prospect.calendarSlug || '',
       totalStayPrice: prospect.totalStayPrice || 0,
       guestCount: prospect.guestCount || 1,
@@ -1132,7 +1163,12 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                           {prospect.calendarSlug ? ` · ${prospect.calendarSlug}` : ''}
                         </p>
                       )}
-                      {prospect.notes && <p className="text-[11px] text-gray-600 whitespace-pre-wrap">{prospect.notes}</p>}
+                      {(() => {
+                        const clean = stripProformaDraftFromNotes(prospect.notes || '').cleanNotes;
+                        return clean ? (
+                          <p className="text-[11px] text-gray-600 whitespace-pre-wrap">{clean}</p>
+                        ) : null;
+                      })()}
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -1155,8 +1191,9 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                             <button
                               type="button"
                               onClick={() => {
+                                const fresh = prospects.find((p) => p.id && p.id === prospect.id) || prospect;
                                 setCellPanel(null);
-                                onProforma(prospect);
+                                onProforma(fresh);
                               }}
                               className="px-3 py-2 bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-xl text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1"
                             >
@@ -1166,8 +1203,9 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                             <button
                               type="button"
                               onClick={() => {
+                                const fresh = prospects.find((p) => p.id && p.id === prospect.id) || prospect;
                                 setCellPanel(null);
-                                onConvert(prospect);
+                                onConvert(fresh);
                               }}
                               className="px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1"
                             >
