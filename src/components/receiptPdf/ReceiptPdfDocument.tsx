@@ -484,7 +484,7 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
         <View style={styles.footer} wrap={false}>
           <View style={styles.signatureWrap}>
             <View style={styles.signatureBlock}>
-              <Text style={styles.signatureName}>{pdfSafeText(data.signature) || 'PAOLA'}</Text>
+              <Text style={styles.signatureName}>{pdfSafeText(data.signature) || '—'}</Text>
               <Text style={styles.signatureCaption}>SIGNATURE GÉRANT / YAMEHOME</Text>
             </View>
           </View>

@@ -203,6 +203,12 @@ function enrichReceiptSlugsForConflictQueries(r: ReceiptData): ReceiptData {
   return r;
 }
 
+/** Signature gérant par défaut : prénom de l’utilisateur connecté (style reçu). */
+function defaultManagerSignature(displayName?: string | null): string {
+  const first = String(displayName || '').trim().split(/\s+/)[0] || '';
+  return first ? first.toUpperCase() : '';
+}
+
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
   const generateProformaId = () => `PF-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -215,7 +221,7 @@ export default function App() {
     isCustomRate: false, customLodgingTotal: 0,
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
     payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
-    signature: '', hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '', internalNotes: '',
+    signature: defaultManagerSignature(auth.currentUser?.displayName), hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '', internalNotes: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
     cautionAmount: 0, isCautionRefunded: false,
@@ -1520,7 +1526,9 @@ export default function App() {
       packEco: !!draft?.packEco,
       packConfort: !!draft?.packConfort,
       hosts: Array.isArray(draft?.hosts) ? draft!.hosts! : [],
-      signature: draft?.signature || '',
+      signature:
+        (draft?.signature && String(draft.signature).trim()) ||
+        defaultManagerSignature(user?.displayName || userProfile?.displayName),
       observations: draft?.observations ?? '',
       agentName: draft?.agentName || '',
     });
@@ -1689,10 +1697,19 @@ export default function App() {
       setFormData(prev => ({
         ...prev,
         hosts: cleanedHosts,
-        signature: cleanedHosts.length > 0 ? prev.signature : '',
       }));
     }
   }, [formData.apartmentName]);
+
+  // Si la signature est encore vide après auth (nouveau reçu), appliquer le prénom connecté.
+  useEffect(() => {
+    const me = defaultManagerSignature(user?.displayName || userProfile?.displayName);
+    if (!me || isReadOnly) return;
+    setFormData((prev) => {
+      if (prev.id || (prev.signature || '').trim()) return prev;
+      return { ...prev, signature: me };
+    });
+  }, [user?.displayName, userProfile?.displayName, isReadOnly]);
 
   const filteredClients = useMemo(() => {
     const term = normalizeString(clientSearch);
@@ -2933,8 +2950,9 @@ export default function App() {
                                   const current = prev.hosts || [];
                                   const hostAlreadySelected = current.includes(h.label);
                                   const next = hostAlreadySelected ? current.filter(x => x !== h.label) : [...current, h.label];
-                                  const nextSignature = (!prev.signature && next.length > 0) ? next[0].split(' ')[0].toUpperCase() : prev.signature;
-                                  return { ...prev, hosts: next, signature: nextSignature };
+                                  // Ne plus forcer la signature sur le 1er hôte (ex. PAOLA) :
+                                  // le défaut reste le prénom de l’utilisateur connecté, éditable à part.
+                                  return { ...prev, hosts: next };
                                 });
                               }}
                               className={`flex items-center justify-between p-2.5 rounded-xl border text-[10px] font-bold transition-all ${isSelected ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-white border-orange-100 text-gray-500 hover:border-orange-200'}`}>
@@ -2995,16 +3013,18 @@ export default function App() {
                     <div className="space-y-2">
                       <p className="text-[10px] font-black uppercase tracking-widest text-orange-700">Signature (Gérant)</p>
                       <div className="flex flex-wrap gap-2">
-                        {(formData.hosts || []).map(h => {
-                          const name = h.split(' ')[0].toUpperCase();
-                          return (
-                            <button key={h} type="button" disabled={isReadOnly}
+                        {(() => {
+                          const me = defaultManagerSignature(user?.displayName || userProfile?.displayName);
+                          const hostNames = (formData.hosts || []).map(h => h.split(' ')[0].toUpperCase());
+                          const options = me && !hostNames.includes(me) ? [me, ...hostNames] : hostNames.length ? hostNames : (me ? [me] : []);
+                          return options.map(name => (
+                            <button key={name} type="button" disabled={isReadOnly}
                               onClick={() => setFormData(prev => ({ ...prev, signature: name }))}
                               className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${formData.signature === name ? 'bg-orange-500 border-orange-500 text-white shadow-sm' : 'bg-white border-orange-200 text-orange-400 hover:border-orange-300'}`}>
                               {name}
                             </button>
-                          );
-                        })}
+                          ));
+                        })()}
                       </div>
                       <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-white border border-orange-200 rounded-xl p-3 text-xs outline-none focus:border-orange-400 transition-all disabled:opacity-60" onChange={handleChange} />
                     </div>

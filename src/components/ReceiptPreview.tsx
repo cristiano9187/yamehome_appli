@@ -352,7 +352,7 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
       <div className="receipt-print-footer mt-6 pt-2">
         <div className="flex justify-end pr-4">
           <div className="text-center">
-            <p className="text-[#2B4B8C] font-bold text-lg italic">{data.signature || 'PAOLA'}</p>
+            <p className="text-[#2B4B8C] font-bold text-lg italic">{data.signature || ''}</p>
             <div className="border-t border-gray-400 mt-1 pt-1">
               <p className="text-[10px] font-bold uppercase text-gray-500">SIGNATURE GÉRANT / YAMEHOME</p>
             </div>
