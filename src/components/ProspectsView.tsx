@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  FileText,
   Globe,
   HelpCircle,
   Home,
@@ -48,6 +49,8 @@ interface ProspectsViewProps {
   userProfile: UserProfile | null;
   onAlert: (message: string, type?: 'info' | 'error' | 'success') => void;
   onConvert: (prospect: Prospect) => void;
+  /** Ouvre le formulaire en mode proforma (PDF sans bloquer le calendrier). */
+  onProforma: (prospect: Prospect) => void;
 }
 
 const ALL_STATUSES: ProspectStatus[] = [
@@ -179,7 +182,7 @@ function getBookingForUnitAndDay(receipts: ReceiptData[], unitSlug: string, date
   });
 }
 
-export default function ProspectsView({ onMenuClick, userProfile, onAlert, onConvert }: ProspectsViewProps) {
+export default function ProspectsView({ onMenuClick, userProfile, onAlert, onConvert, onProforma }: ProspectsViewProps) {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
@@ -1149,6 +1152,17 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                                 En négo
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCellPanel(null);
+                                onProforma(prospect);
+                              }}
+                              className="px-3 py-2 bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-xl text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1"
+                            >
+                              <FileText size={12} />
+                              Proforma
+                            </button>
                             <button
                               type="button"
                               onClick={() => {

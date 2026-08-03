@@ -20,11 +20,12 @@ import { buildReceiptFileName } from './receiptCalculations';
  */
 export async function buildReceiptPdfBlob(
   data: ReceiptData,
-  options?: { showPaymentMethods?: boolean }
+  options?: { showPaymentMethods?: boolean; proforma?: boolean }
 ): Promise<Blob> {
   const doc = React.createElement(ReceiptPdfDocument, {
     data,
     showPaymentMethods: options?.showPaymentMethods ?? false,
+    proforma: options?.proforma ?? false,
   });
   const instance = pdf(doc as any);
   return instance.toBlob();
@@ -50,10 +51,10 @@ function isIOSDevice(): boolean {
  */
 export async function exportReceiptPdf(
   data: ReceiptData,
-  options?: { showPaymentMethods?: boolean }
+  options?: { showPaymentMethods?: boolean; proforma?: boolean }
 ): Promise<void> {
   const blob = await buildReceiptPdfBlob(data, options);
-  const fileName = `${buildReceiptFileName(data)}.pdf`;
+  const fileName = `${buildReceiptFileName(data, { proforma: options?.proforma })}.pdf`;
 
   if (isIOSDevice()) {
     const file = new File([blob], fileName, { type: 'application/pdf' });

@@ -2,7 +2,7 @@ import React from 'react';
 import { Document, Page, View, Text, Image, Link, StyleSheet } from '@react-pdf/renderer';
 import { ReceiptData } from '../../types';
 import { LOGO_BASE64, RECEIPT_OFFICIAL_PAYMENT_METHODS } from '../../constants';
-import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildReceiptFileName } from '../../utils/receiptCalculations';
+import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildReceiptFileName, buildProformaValidityNotice } from '../../utils/receiptCalculations';
 
 const BLUE = '#2B4B8C';
 
@@ -67,6 +67,29 @@ const styles = StyleSheet.create({
   contactText: { fontSize: 7.5, color: '#57534e' },
   contactSep: { fontSize: 7.5, color: '#d6d3d1' },
   metaLine: { fontSize: 8, fontWeight: 700, color: '#3f3f46', marginTop: 6, textAlign: 'center' },
+  proformaBanner: {
+    marginTop: 8,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    borderRadius: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+  },
+  proformaBannerTitle: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: '#c2410c',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  proformaBannerText: {
+    fontSize: 6.5,
+    color: '#9a3412',
+    textAlign: 'center',
+    marginTop: 2,
+    lineHeight: 1.35,
+  },
 
   boxesRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   box: { flex: 1, borderWidth: 1, borderColor: '#e7e5e4', borderRadius: 4, backgroundColor: '#fafaf9', padding: 7 },
@@ -156,6 +179,8 @@ const styles = StyleSheet.create({
 interface ReceiptPdfDocumentProps {
   data: ReceiptData;
   showPaymentMethods?: boolean;
+  /** Si true : PDF « proforma / devis » (pas un reçu définitif, calendrier non bloqué). */
+  proforma?: boolean;
 }
 
 /**
@@ -165,7 +190,7 @@ interface ReceiptPdfDocumentProps {
  * Si le contenu dépasse une page (cas rare : nombreux paiements / segments), react-pdf ajoute
  * automatiquement une page suivante — aucune information n'est jamais tronquée.
  */
-export default function ReceiptPdfDocument({ data, showPaymentMethods = false }: ReceiptPdfDocumentProps) {
+export default function ReceiptPdfDocument({ data, showPaymentMethods = false, proforma = false }: ReceiptPdfDocumentProps) {
   const {
     segments,
     multiStay,
@@ -189,14 +214,19 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
   } = computeReceiptCalculations(data);
 
   const phoneInfo = data.phone ? normalizePhone(data.phone) : null;
+  const proformaValidity = proforma
+    ? buildProformaValidityNotice(data.createdAt || new Date().toISOString(), data.startDate)
+    : null;
 
   return (
-    <Document title={buildReceiptFileName(data)} author="YameHome">
+    <Document title={buildReceiptFileName(data, { proforma })} author="YameHome">
       <Page size="A4" style={styles.page} wrap>
         {/* Header */}
         <View style={styles.header}>
           {LOGO_BASE64 ? <Image src={LOGO_BASE64} style={styles.logo} /> : null}
-          <Text style={styles.title}>YAMEHOME : REÇU DE PAIEMENT</Text>
+          <Text style={styles.title}>
+            {proforma ? 'YAMEHOME : PROFORMA / DEVIS' : 'YAMEHOME : REÇU DE PAIEMENT'}
+          </Text>
           <Text style={styles.subtitle}>Location d'appartements, chambres et studios meublés</Text>
           <View style={styles.contactRow}>
             <Link src="https://wa.me/237657507671" style={styles.contactText}>
@@ -214,6 +244,14 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false }:
           <Text style={styles.metaLine}>
             Date d'émission: {new Date(data.createdAt).toLocaleDateString('fr-FR')} | N: {pdfSafeText(data.receiptId)}
           </Text>
+          {proformaValidity && (
+            <View style={styles.proformaBanner}>
+              <Text style={styles.proformaBannerTitle}>
+                PROFORMA - SANS RÉSERVATION CONFIRMÉE (valable {proformaValidity.hours}h)
+              </Text>
+              <Text style={styles.proformaBannerText}>{pdfSafeText(proformaValidity.notice)}</Text>
+            </View>
+          )}
         </View>
 
         {/* Client & Reservation */}

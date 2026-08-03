@@ -131,8 +131,42 @@ export function normalizePhone(raw: string): { tel: string; wa: string } {
   return { tel: international, wa: waDigits };
 }
 
+/**
+ * Validité d'un proforma (en heures) :
+ * - 48h si l'arrivée (check-in) est à plus de 14 jours de la date d'émission
+ * - 24h sinon
+ */
+export function computeProformaValidityHours(
+  issuedAt: string | Date,
+  checkInDate: string | undefined | null
+): 24 | 48 {
+  if (!checkInDate) return 24;
+  const issued = new Date(issuedAt || Date.now());
+  if (Number.isNaN(issued.getTime())) return 24;
+  const checkIn = new Date(`${String(checkInDate).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(checkIn.getTime())) return 24;
+  const issuedDay = new Date(issued.getFullYear(), issued.getMonth(), issued.getDate());
+  const checkInDay = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate());
+  const daysUntil = Math.round((checkInDay.getTime() - issuedDay.getTime()) / (1000 * 3600 * 24));
+  return daysUntil > 14 ? 48 : 24;
+}
+
+/** Texte court pour le bandeau / mentions légales du proforma. */
+export function buildProformaValidityNotice(
+  issuedAt: string | Date,
+  checkInDate: string | undefined | null
+): { hours: 24 | 48; notice: string } {
+  const hours = computeProformaValidityHours(issuedAt, checkInDate);
+  return {
+    hours,
+    notice:
+      `Proforma valable ${hours}h. Les dates ne sont pas bloquées. ` +
+      `La réservation n'est définitive qu'après réception d'un acompte d'au moins 1/3 du total.`,
+  };
+}
+
 /** Nom de fichier (sans extension) utilisé pour le PDF exporté et le titre d'onglet. */
-export function buildReceiptFileName(data: ReceiptData): string {
+export function buildReceiptFileName(data: ReceiptData, options?: { proforma?: boolean }): string {
   const createdAt = new Date(data.createdAt || Date.now());
   const pad2 = (n: number) => String(n).padStart(2, '0');
   const dateStr = `${createdAt.getFullYear()}-${pad2(createdAt.getMonth() + 1)}-${pad2(createdAt.getDate())}`;
@@ -148,6 +182,7 @@ export function buildReceiptFileName(data: ReceiptData): string {
 
   const clientName = cleanString(`${data.firstName} ${data.lastName}`);
   const apartmentShort = cleanString((data.apartmentName || '').substring(0, 10));
+  const prefix = options?.proforma ? 'proforma' : 'reçu';
 
-  return `reçu_${clientName}_${apartmentShort}_${dateStr}_${timeStr}`;
+  return `${prefix}_${clientName}_${apartmentShort}_${dateStr}_${timeStr}`;
 }

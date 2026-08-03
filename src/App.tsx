@@ -198,6 +198,7 @@ function enrichReceiptSlugsForConflictQueries(r: ReceiptData): ReceiptData {
 
 export default function App() {
   const generateNewId = () => `RC-${Math.floor(100000 + Math.random() * 900000)}`;
+  const generateProformaId = () => `PF-${Math.floor(100000 + Math.random() * 900000)}`;
 
   const getInitialState = (): ReceiptData => ({
     receiptId: generateNewId(),
@@ -228,6 +229,8 @@ export default function App() {
   const [calendarViewMode, setCalendarViewMode] = useState<'reservations' | 'cleaning' | 'presence'>('reservations');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [formData, setFormData] = useState<ReceiptData>(getInitialState());
+  /** Mode proforma : aperçu/export PDF sans sauvegarde ni blocage calendrier. */
+  const [isProformaMode, setIsProformaMode] = useState(false);
   
   // Custom Debounce for weak mobile devices
   const [debouncedFormData, setDebouncedFormData] = useState(formData);
@@ -467,6 +470,7 @@ export default function App() {
         if (!snap.empty) {
           const data = snap.docs[0].data() as ReceiptData;
           setFormData(flattenStaySegmentsIfSingleton({ ...data }));
+          setIsProformaMode(false);
           setIsReadOnly(true);
         }
       } else if (mId) {
@@ -766,21 +770,33 @@ export default function App() {
   }, [view, isReadOnly, formData.receiptId, formData.createdAt, formData.firstName, formData.lastName, formData.apartmentName]);
 
   const handlePrint = useCallback(() => {
-    if (!isReadOnly) {
+    if (!isProformaMode && !isReadOnly) {
       setAlertType('error');
       setAlertMessage("Veuillez d'abord SAUVEGARDER le reçu avant de l'exporter en PDF pour garantir que les données sont bien enregistrées dans la base de données.");
       return;
     }
+    if (isProformaMode) {
+      if (!formData.lastName?.trim() || !formData.apartmentName || !formData.startDate || !formData.endDate) {
+        setAlertType('error');
+        setAlertMessage('Pour un proforma, renseignez au minimum le client, le logement et les dates.');
+        return;
+      }
+    }
     // Chargé à la demande : le moteur de génération PDF (react-pdf) est volumineux, on évite
     // de l'inclure dans le bundle principal chargé au démarrage de l'app.
     import('./utils/generateReceiptPdf')
-      .then(({ exportReceiptPdf }) => exportReceiptPdf(formData, { showPaymentMethods: showReceiptPaymentMethods }))
+      .then(({ exportReceiptPdf }) =>
+        exportReceiptPdf(formData, {
+          showPaymentMethods: showReceiptPaymentMethods,
+          proforma: isProformaMode,
+        })
+      )
       .catch((err) => {
         console.error('Échec de la génération du PDF du reçu :', err);
         setAlertType('error');
         setAlertMessage("La génération du PDF a échoué. Veuillez réessayer.");
       });
-  }, [isReadOnly, formData, showReceiptPaymentMethods]);
+  }, [isReadOnly, isProformaMode, formData, showReceiptPaymentMethods]);
 
   // --- HANDLERS ---
   const handleChange = (e: any) => {
@@ -995,6 +1011,13 @@ export default function App() {
 
   const saveToFirestore = async () => {
     if (isReadOnly) return;
+    if (isProformaMode) {
+      setAlertType('info');
+      setAlertMessage(
+        "Mode proforma : aucune réservation n'est créée. Exportez le PDF ici, puis utilisez « Convertir » sur le prospect pour confirmer après acompte."
+      );
+      return;
+    }
 
     let working = flattenStaySegmentsIfSingleton(formData);
     const isMultiPersist = !!(working.staySegments && working.staySegments.length >= 2);
@@ -1232,6 +1255,7 @@ export default function App() {
       setAlertMessage('Reçu enregistré avec succès !');
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
+      setIsProformaMode(false);
       setSourceProspectId(null);
       setShowMobileNav(false);
     } catch (error: any) {
@@ -1252,6 +1276,7 @@ export default function App() {
   const handleNewReceipt = () => {
     setFormData(getInitialState());
     setSourceProspectId(null);
+    setIsProformaMode(false);
     setIsReadOnly(false);
     setReceiptReturnTarget(null);
     setView('form');
@@ -1259,18 +1284,20 @@ export default function App() {
   };
 
   const handleCloseReceiptPreview = useCallback(() => {
+    setIsProformaMode(false);
     setView(receiptReturnTarget ?? 'calendar');
     setReceiptReturnTarget(null);
   }, [receiptReturnTarget]);
 
-  const handleConvertProspect = (prospect: Prospect) => {
+  const openProspectAsForm = (prospect: Prospect, mode: 'convert' | 'proforma') => {
     const apartmentData = prospect.apartmentName ? TARIFS[prospect.apartmentName] : undefined;
     const finalSlug = prospect.calendarSlug || (apartmentData?.units?.length === 1 ? apartmentData.units[0] : '');
     const hasTotalStayPrice = !!prospect.totalStayPrice && prospect.totalStayPrice > 0;
+    const isProforma = mode === 'proforma';
 
     setFormData({
       ...getInitialState(),
-      receiptId: generateNewId(),
+      receiptId: isProforma ? generateProformaId() : generateNewId(),
       firstName: prospect.firstName || '',
       lastName: prospect.lastName || '',
       phone: prospect.phone || '',
@@ -1281,17 +1308,25 @@ export default function App() {
       endDate: prospect.endDate || '',
       isCustomRate: hasTotalStayPrice,
       customLodgingTotal: hasTotalStayPrice ? (prospect.totalStayPrice || 0) : 0,
-      observations: prospect.notes || ''
+      observations: prospect.notes || '',
     });
     setSourceProspectId(prospect.id || null);
+    setIsProformaMode(isProforma);
     setIsReadOnly(false);
     setReceiptReturnTarget('prospects');
     setView('form');
     setShowMobileNav(false);
     if (window.innerWidth < 768) setIsSidebarOpen(true);
     setAlertType('info');
-    setAlertMessage("Prospect charge. Completez puis sauvegardez pour creer le recu.");
+    setAlertMessage(
+      isProforma
+        ? 'Proforma préparé. Ajustez si besoin puis exportez le PDF — le calendrier ne sera pas bloqué.'
+        : 'Prospect chargé. Complétez puis sauvegardez pour créer le reçu.'
+    );
   };
+
+  const handleConvertProspect = (prospect: Prospect) => openProspectAsForm(prospect, 'convert');
+  const handleProformaProspect = (prospect: Prospect) => openProspectAsForm(prospect, 'proforma');
 
   const applyClientSuggestion = (matchedClient: ClientProfile) => {
     setFormData(prev => ({
@@ -2880,6 +2915,7 @@ export default function App() {
               }}
               onEdit={(receipt) => {
                 setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
+                setIsProformaMode(false);
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
@@ -2887,6 +2923,7 @@ export default function App() {
               onPrint={(receipt) => {
                 const flattened = flattenStaySegmentsIfSingleton({ ...receipt });
                 setFormData(flattened);
+                setIsProformaMode(false);
                 setIsReadOnly(true);
                 setReceiptReturnTarget('history');
                 setView('form');
@@ -2918,6 +2955,7 @@ export default function App() {
               initialSeed={clientProfileSeed}
               onOpenReceipt={(receipt) => {
                 setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
+                setIsProformaMode(false);
                 setIsReadOnly(true);
                 setReceiptReturnTarget('clients');
                 setView('form');
@@ -2939,6 +2977,7 @@ export default function App() {
               onDateChange={setCalendarDate}
               onEdit={(receipt) => {
                 setFormData(flattenStaySegmentsIfSingleton({ ...receipt }));
+                setIsProformaMode(false);
                 setIsReadOnly(true);
                 setReceiptReturnTarget('calendar');
                 setView('form');
@@ -3029,6 +3068,7 @@ export default function App() {
                 setAlertMessage(msg);
               }}
               onConvert={handleConvertProspect}
+              onProforma={handleProformaProspect}
             />
           ) : view === 'prepaidTokens' ? (
             <PrepaidElectricityTokensView
@@ -3181,8 +3221,13 @@ export default function App() {
                   </button>
                 )}
                 <div className="flex flex-col min-w-0">
-                  <h2 className="text-[11px] sm:text-sm font-black uppercase tracking-widest truncate">Aperçu du Reçu</h2>
-                  <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 font-bold truncate">{formData.receiptId}</span>
+                  <h2 className="text-[11px] sm:text-sm font-black uppercase tracking-widest truncate">
+                    {isProformaMode ? 'Aperçu Proforma' : 'Aperçu du Reçu'}
+                  </h2>
+                  <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 font-bold truncate">
+                    {formData.receiptId}
+                    {isProformaMode ? ' · sans blocage calendrier' : ''}
+                  </span>
                 </div>
               </div>
 
@@ -3226,11 +3271,25 @@ export default function App() {
                     </button>
                     <button 
                       onClick={saveToFirestore} 
-                      disabled={isSaving || formData.status === 'ANNULE'} 
+                      disabled={isSaving || formData.status === 'ANNULE' || isProformaMode} 
                       type="button"
-                      aria-label={isSaving ? 'Enregistrement en cours' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
-                      title={isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder le reçu'}
-                      className={`inline-flex items-center justify-center gap-2 h-10 px-3 sm:px-4 md:h-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg touch-manipulation ${formData.status === 'ANNULE' ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : saveStatus === 'success' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'}`}
+                      aria-label={isProformaMode ? 'Sauvegarde désactivée en mode proforma' : isSaving ? 'Enregistrement en cours' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      title={
+                        isProformaMode
+                          ? 'Mode proforma : utilisez Convertir sur le prospect pour créer la réservation'
+                          : isSaving
+                            ? 'Enregistrement...'
+                            : saveStatus === 'success'
+                              ? 'Enregistré'
+                              : 'Sauvegarder le reçu'
+                      }
+                      className={`inline-flex items-center justify-center gap-2 h-10 px-3 sm:px-4 md:h-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg touch-manipulation ${
+                        formData.status === 'ANNULE' || isProformaMode
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : saveStatus === 'success'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'
+                      }`}
                     >
                       {isSaving ? <Clock size={16} className="animate-spin shrink-0"/> : saveStatus === 'success' ? <CheckCircle2 size={16} className="shrink-0"/> : <Save size={16} className="shrink-0"/>}
                       <span className="hidden sm:inline md:inline max-w-[7rem] sm:max-w-none truncate">
@@ -3298,16 +3357,20 @@ export default function App() {
                 {!isReadOnly && (
                 <button 
                   onClick={handlePrint} 
-                  disabled
+                  disabled={!isProformaMode}
                   type="button"
-                  title="Enregistrez le reçu pour exporter en PDF"
+                  title={isProformaMode ? 'Exporter le proforma en PDF (sans bloquer le calendrier)' : 'Enregistrez le reçu pour exporter en PDF'}
                   aria-label="Exporter en PDF"
-                  className={`inline-flex items-center justify-center gap-1.5 h-10 shrink-0 px-2.5 md:gap-2 md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation bg-gray-100 text-gray-400 cursor-not-allowed`}
+                  className={`inline-flex items-center justify-center gap-1.5 h-10 shrink-0 px-2.5 md:gap-2 md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-xl touch-manipulation ${
+                    isProformaMode
+                      ? 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-600/20'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
                 >
                   <Printer size={18} className="md:hidden shrink-0" />
                   <Printer size={14} className="hidden md:block shrink-0" />
                   <span className="inline md:hidden font-black text-[10px] uppercase tracking-widest">PDF</span>
-                  <span className="hidden md:inline">Exporter PDF</span>
+                  <span className="hidden md:inline">{isProformaMode ? 'Exporter proforma' : 'Exporter PDF'}</span>
                 </button>
                 )}
               </div>
@@ -3335,6 +3398,7 @@ export default function App() {
                       <ReceiptPreview
                         data={debouncedFormData}
                         showPaymentMethods={showReceiptPaymentMethods}
+                        proforma={isProformaMode}
                       />
                     </div>
                   </div>

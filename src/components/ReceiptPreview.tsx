@@ -2,15 +2,17 @@ import React from 'react';
 import { Mail, Globe, Phone, MessageCircle, Landmark, Banknote } from 'lucide-react';
 import { ReceiptData } from '../types';
 import { LOGO_BASE64, formatCurrency, RECEIPT_OFFICIAL_PAYMENT_METHODS, RECEIPT_PAYMENT_BADGE_SRC } from '../constants';
-import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone } from '../utils/receiptCalculations';
+import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildProformaValidityNotice } from '../utils/receiptCalculations';
 
 interface ReceiptPreviewProps {
   data: ReceiptData;
   /** Si false : pas de bloc « moyens de paiement » (reçu compact). Défaut côté parent : affiché (voir App). */
   showPaymentMethods?: boolean;
+  /** Si true : aperçu proforma / devis (pas un reçu définitif). */
+  proforma?: boolean;
 }
 
-const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: ReceiptPreviewProps) => {
+const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma = false }: ReceiptPreviewProps) => {
   if (!data.lastName && !data.apartmentName) {
     return (
       <div className="w-full max-w-[210mm] h-[297mm] bg-white shadow-lg flex items-center justify-center text-gray-400 italic text-sm">
@@ -41,6 +43,10 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
     remaining,
   } = computeReceiptCalculations(data);
 
+  const proformaValidity = proforma
+    ? buildProformaValidityNotice(data.createdAt || new Date().toISOString(), data.startDate)
+    : null;
+
   return (
     <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:min-h-0 relative">
       {/* Header */}
@@ -59,7 +65,9 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
             </div>
           )}
         </div>
-        <p className="text-2xl font-bold text-[#2B4B8C] uppercase">YAMEHOME : REÇU DE PAIEMENT</p>
+        <p className="text-2xl font-bold text-[#2B4B8C] uppercase">
+          {proforma ? 'YAMEHOME : PROFORMA / DEVIS' : 'YAMEHOME : REÇU DE PAIEMENT'}
+        </p>
         <p className="text-sm text-gray-600 mt-1">Location d'appartements, chambres et studios meublés</p>
         <div className="text-[10px] text-gray-500 mt-2 flex items-center justify-center gap-4 flex-wrap">
           <a 
@@ -91,6 +99,14 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false }: Receipt
         <div className="mt-2 text-xs font-semibold text-gray-700">
           Date d'émission: {new Date(data.createdAt).toLocaleDateString('fr-FR')} | N°: {data.receiptId}
         </div>
+        {proformaValidity && (
+          <div className="mt-3 mx-auto max-w-xl rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-center">
+            <p className="text-[11px] font-black uppercase tracking-wide text-orange-700">
+              Proforma — sans réservation confirmée (valable {proformaValidity.hours}h)
+            </p>
+            <p className="mt-1 text-[10px] leading-snug text-orange-800/90">{proformaValidity.notice}</p>
+          </div>
+        )}
       </div>
 
       {/* Client & Reservation Boxes */}
