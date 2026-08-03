@@ -355,6 +355,19 @@ export const FINANCE_QUICK_SALARY_AMOUNT_BY_HINT: Record<string, number> = {
   sioma: 75_000,
 };
 
+/**
+ * Jour d’échéance par défaut des salaires récurrents (Échéances).
+ * Hint = sous-chaîne du nom employé (insensible à la casse).
+ */
+export const FINANCE_SALARY_DUE_DAY_BY_HINT: Record<string, number> = {
+  idriss: 3,
+  madeleine: 15,
+  paola: 19,
+};
+
+/** Jour d’échéance salaires si aucun hint ne correspond. */
+export const FINANCE_SALARY_DUE_DAY_FALLBACK = 28;
+
 /** Autres unités Yaoundé sans montant listé : valeur par défaut avant édition au crayon. */
 export const FINANCE_QUICK_RENT_AMOUNT_FALLBACK = 150_000;
 

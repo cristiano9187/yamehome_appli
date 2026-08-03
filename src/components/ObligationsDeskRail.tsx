@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   collection,
   doc,
@@ -28,6 +28,8 @@ import {
   getFinanceCostsRentQuickFillUnitRows,
   getFinanceQuickRentDefaultAmount,
   FINANCE_QUICK_SALARY_AMOUNT_BY_HINT,
+  FINANCE_SALARY_DUE_DAY_BY_HINT,
+  FINANCE_SALARY_DUE_DAY_FALLBACK,
   canEditObligations,
   canSeeSalaryObligations,
   OBLIGATION_PUBLIC_CATEGORIES,
@@ -173,6 +175,14 @@ function salaryAmountForEmployeeName(name: string): number | null {
   return null;
 }
 
+function salaryDueDayForEmployeeName(name: string): number {
+  const n = name.toLowerCase();
+  for (const [hint, day] of Object.entries(FINANCE_SALARY_DUE_DAY_BY_HINT)) {
+    if (n.includes(hint)) return Math.min(31, Math.max(1, day));
+  }
+  return FINANCE_SALARY_DUE_DAY_FALLBACK;
+}
+
 function calendarMonthFromDate(d: Date = new Date()): { year: number; month: number } {
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
@@ -293,6 +303,75 @@ export default function ObligationsDeskRail({
       setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
     });
   }, [canEdit, canSeeSalary]);
+
+  /** Une fois par session : aligne les modèles salaires connus (Idriss/Madeleine/Paola) sur les jours d’échéance par défaut. */
+  const salaryDueSyncedRef = useRef(false);
+  useEffect(() => {
+    if (!canEdit || !canSeeSalary || loadingTemplates || salaryDueSyncedRef.current) return;
+    const salaryTpls = templates.filter((t) => t.active && t.category === 'SALARY' && t.id);
+    if (!salaryTpls.length) return;
+
+    const needsSync = salaryTpls.some((t) => {
+      const name = String(t.title || '').replace(/^Salaire\s*[—–-]\s*/i, '').trim();
+      const hinted = Object.keys(FINANCE_SALARY_DUE_DAY_BY_HINT).some((h) =>
+        name.toLowerCase().includes(h)
+      );
+      if (!hinted) return false;
+      return t.dueDayOfMonth !== salaryDueDayForEmployeeName(name);
+    });
+    if (!needsSync) {
+      salaryDueSyncedRef.current = true;
+      return;
+    }
+
+    salaryDueSyncedRef.current = true;
+    void (async () => {
+      const now = new Date().toISOString();
+      let synced = 0;
+      for (const t of salaryTpls) {
+        const name = String(t.title || '').replace(/^Salaire\s*[—–-]\s*/i, '').trim();
+        const hinted = Object.keys(FINANCE_SALARY_DUE_DAY_BY_HINT).some((h) =>
+          name.toLowerCase().includes(h)
+        );
+        if (!hinted || !t.id) continue;
+        const dueDayOfMonth = salaryDueDayForEmployeeName(name);
+        if (t.dueDayOfMonth === dueDayOfMonth) continue;
+        try {
+          await updateDoc(doc(db, 'obligation_templates', t.id), {
+            dueDayOfMonth,
+            updatedAt: now,
+          });
+          for (let mo = 1; mo <= 12; mo++) {
+            const periodYm = `${dataYear}-${String(mo).padStart(2, '0')}`;
+            const did = occDocId(t.id, periodYm);
+            try {
+              const snap = await getDoc(doc(db, 'obligation_occurrences', did));
+              if (!snap.exists()) continue;
+              const occ = snap.data() as ObligationOccurrence;
+              if (occ.status && occ.status !== 'PENDING') continue;
+              const nextDue = dueDateForMonth(periodYm, dueDayOfMonth);
+              if (occ.dueDate === nextDue) continue;
+              await updateDoc(doc(db, 'obligation_occurrences', did), {
+                dueDate: nextDue,
+                updatedAt: now,
+              });
+            } catch {
+              /* ignore */
+            }
+          }
+          synced++;
+        } catch (e) {
+          console.warn('[SALARY DUE DAY] sync échoué pour', t.title, e);
+        }
+      }
+      if (synced > 0) {
+        onAlert(
+          `Échéances salaires mises à jour : Idriss (3), Madeleine (15), Paola (19).`,
+          'success'
+        );
+      }
+    })();
+  }, [canEdit, canSeeSalary, loadingTemplates, templates, dataYear, onAlert]);
 
   const ymStart = `${dataYear}-01`;
   const ymEnd = `${dataYear}-12`;
@@ -673,16 +752,61 @@ export default function ObligationsDeskRail({
       }
 
       // —— Salaires (cercle privé uniquement) ——
+      let salarySynced = 0;
       if (canSeeSalary) {
         for (const emp of employees) {
           const title = `Salaire — ${emp.name}`;
-          const dup = templates.some((t) => t.active && t.category === 'SALARY' && t.title === title);
-          if (dup) continue;
           const expectedAmount = salaryAmountForEmployeeName(emp.name);
+          const dueDayOfMonth = salaryDueDayForEmployeeName(emp.name);
+          const existingTpl = templates.find(
+            (t) => t.active && t.category === 'SALARY' && t.title === title
+          );
+          if (existingTpl?.id) {
+            const patch: Record<string, unknown> = { updatedAt: now };
+            let changed = false;
+            if (existingTpl.dueDayOfMonth !== dueDayOfMonth) {
+              patch.dueDayOfMonth = dueDayOfMonth;
+              changed = true;
+            }
+            if (
+              expectedAmount != null &&
+              expectedAmount > 0 &&
+              existingTpl.expectedAmount !== expectedAmount
+            ) {
+              patch.expectedAmount = expectedAmount;
+              changed = true;
+            }
+            if (changed) {
+              await updateDoc(doc(db, 'obligation_templates', existingTpl.id), patch);
+              // Recaler les lignes PENDING de l’année affichée sur le nouveau jour d’échéance.
+              if (patch.dueDayOfMonth != null) {
+                for (let mo = 1; mo <= 12; mo++) {
+                  const periodYm = `${dataYear}-${String(mo).padStart(2, '0')}`;
+                  const did = occDocId(existingTpl.id, periodYm);
+                  try {
+                    const snap = await getDoc(doc(db, 'obligation_occurrences', did));
+                    if (!snap.exists()) continue;
+                    const occ = snap.data() as ObligationOccurrence;
+                    if (occ.status && occ.status !== 'PENDING') continue;
+                    const nextDue = dueDateForMonth(periodYm, dueDayOfMonth);
+                    if (occ.dueDate === nextDue) continue;
+                    await updateDoc(doc(db, 'obligation_occurrences', did), {
+                      dueDate: nextDue,
+                      updatedAt: now,
+                    });
+                  } catch {
+                    /* ignore ligne non lisible */
+                  }
+                }
+              }
+              salarySynced++;
+            }
+            continue;
+          }
           await addDoc(collection(db, 'obligation_templates'), {
             title,
             category: 'SALARY',
-            dueDayOfMonth: 28,
+            dueDayOfMonth,
             expectedAmount,
             unitSlug: null,
             apartmentName: null,
@@ -728,6 +852,7 @@ export default function ObligationsDeskRail({
 
       const parts: string[] = [];
       if (added) parts.push(`${added} charge(s) récurrente(s)`);
+      if (salarySynced) parts.push(`${salarySynced} salaire(s) recalés (échéance)`);
       if (mediaAdded) parts.push(`${mediaAdded} abonnement(s) TV`);
       onAlert(
         parts.length
