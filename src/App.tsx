@@ -1011,11 +1011,78 @@ export default function App() {
 
   const saveToFirestore = async () => {
     if (isReadOnly) return;
+
     if (isProformaMode) {
-      setAlertType('info');
-      setAlertMessage(
-        "Mode proforma : aucune réservation n'est créée. Exportez le PDF ici, puis utilisez « Convertir » sur le prospect pour confirmer après acompte."
-      );
+      if (!sourceProspectId) {
+        setAlertType('error');
+        setAlertMessage("Impossible d'enregistrer : prospect source introuvable. Rouvrez le proforma depuis Prospects.");
+        return;
+      }
+      if (!formData.lastName?.trim() || !formData.phone?.trim()) {
+        setAlertType('error');
+        setAlertMessage('Nom et téléphone sont requis pour enregistrer le proforma sur le prospect.');
+        return;
+      }
+      if (!formData.apartmentName || !formData.startDate || !formData.endDate) {
+        setAlertType('error');
+        setAlertMessage('Logement et dates sont requis pour enregistrer le proforma.');
+        return;
+      }
+      if (formData.startDate >= formData.endDate) {
+        setAlertType('error');
+        setAlertMessage('La date de fin doit être après la date de début.');
+        return;
+      }
+      const units = TARIFS[formData.apartmentName]?.units || [];
+      if (units.length > 1 && !(formData.calendarSlug || '').trim()) {
+        setAlertType('error');
+        setAlertMessage("Précisez l'unité pour placer correctement le prospect.");
+        return;
+      }
+
+      // Montant séjour (hors caution) à mémoriser sur le prospect pour le prochain proforma / Convertir.
+      const lodgingTotal = Math.max(0, (totals.grandTotal || 0) - (totals.cautionAmount || 0));
+
+      setIsSaving(true);
+      setSaveStatus('idle');
+      try {
+        const withTimeoutLocal = <T,>(p: Promise<T>, ms: number = 10000): Promise<T> =>
+          Promise.race([
+            p,
+            new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms)),
+          ]);
+        await withTimeoutLocal(
+          updateDoc(doc(db, 'prospects', sourceProspectId), {
+            firstName: formData.firstName || '',
+            lastName: formData.lastName.trim(),
+            phone: formData.phone.trim(),
+            email: formData.email || '',
+            apartmentName: formData.apartmentName,
+            calendarSlug: formData.calendarSlug || (units.length === 1 ? units[0] : ''),
+            startDate: formData.startDate,
+            endDate: formData.endDate,
+            totalStayPrice: lodgingTotal,
+            notes: formData.observations || '',
+            updatedAt: new Date().toISOString(),
+          })
+        );
+        setSaveStatus('success');
+        setAlertType('success');
+        setAlertMessage(
+          'Proforma enregistré sur le prospect (calendrier non bloqué). Vous pouvez exporter le PDF ou revenir plus tard.'
+        );
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } catch (error: any) {
+        if (error.message === 'TIMEOUT') {
+          setAlertType('error');
+          setAlertMessage('DÉLAI DÉPASSÉ : la connexion est trop lente. Réessayez.');
+        } else {
+          handleFirestoreError(error, OperationType.UPDATE, 'prospects');
+          setSaveStatus('error');
+        }
+      } finally {
+        setIsSaving(false);
+      }
       return;
     }
 
@@ -3284,12 +3351,12 @@ export default function App() {
                     </button>
                     <button 
                       onClick={saveToFirestore} 
-                      disabled={isSaving || formData.status === 'ANNULE' || isProformaMode} 
+                      disabled={isSaving || formData.status === 'ANNULE'} 
                       type="button"
-                      aria-label={isProformaMode ? 'Sauvegarde désactivée en mode proforma' : isSaving ? 'Enregistrement en cours' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      aria-label={isSaving ? 'Enregistrement en cours' : saveStatus === 'success' ? 'Enregistré' : isProformaMode ? 'Sauvegarder le proforma sur le prospect' : 'Sauvegarder'}
                       title={
                         isProformaMode
-                          ? 'Mode proforma : utilisez Convertir sur le prospect pour créer la réservation'
+                          ? 'Enregistrer les modifications sur le prospect (sans créer de réservation)'
                           : isSaving
                             ? 'Enregistrement...'
                             : saveStatus === 'success'
@@ -3297,16 +3364,24 @@ export default function App() {
                               : 'Sauvegarder le reçu'
                       }
                       className={`inline-flex items-center justify-center gap-2 h-10 px-3 sm:px-4 md:h-auto md:px-6 md:py-3 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all shadow-lg touch-manipulation ${
-                        formData.status === 'ANNULE' || isProformaMode
+                        formData.status === 'ANNULE'
                           ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                           : saveStatus === 'success'
                             ? 'bg-green-600 text-white'
-                            : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'
+                            : isProformaMode
+                              ? 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-600/20'
+                              : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20'
                       }`}
                     >
                       {isSaving ? <Clock size={16} className="animate-spin shrink-0"/> : saveStatus === 'success' ? <CheckCircle2 size={16} className="shrink-0"/> : <Save size={16} className="shrink-0"/>}
-                      <span className="hidden sm:inline md:inline max-w-[7rem] sm:max-w-none truncate">
-                        {isSaving ? 'Enregistrement...' : saveStatus === 'success' ? 'Enregistré' : 'Sauvegarder'}
+                      <span className="hidden sm:inline md:inline max-w-[9rem] sm:max-w-none truncate">
+                        {isSaving
+                          ? 'Enregistrement...'
+                          : saveStatus === 'success'
+                            ? 'Enregistré'
+                            : isProformaMode
+                              ? 'Sauver prospect'
+                              : 'Sauvegarder'}
                       </span>
                     </button>
                   </div>
