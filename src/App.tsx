@@ -30,7 +30,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly } from './constants';
+import { TARIFS, PAYMENT_METHODS, PAYMENT_METHODS_BASE, MOBILE_PAYMENT_METHOD_OPTIONS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly } from './constants';
 import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, ClientProfileSeed, AgentProfile } from './types';
 import {
   defaultCleaningChecklist,
@@ -2890,14 +2890,26 @@ export default function App() {
                         <input disabled={isReadOnly} type="date" value={p.date}
                           onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, date: e.target.value} : x)}))}
                           className="bg-transparent text-[10px] font-bold text-emerald-700 mb-2 w-full outline-none" />
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2">
                           <input disabled={isReadOnly} type="number" value={p.amount || ''} placeholder="Montant FCFA"
                             onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, amount: parseFloat(e.target.value) || 0} : x)}))}
-                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex-1 font-mono font-bold text-emerald-700 text-xs outline-none focus:border-emerald-500" />
+                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 w-full font-mono font-bold text-emerald-700 text-xs outline-none focus:border-emerald-500" />
                           <select disabled={isReadOnly} value={p.method}
                             onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, method: e.target.value} : x)}))}
-                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex-1 text-[10px] outline-none appearance-none focus:border-emerald-500">
-                            {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                            className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 w-full text-[10px] outline-none appearance-none focus:border-emerald-500">
+                            <option value={PAYMENT_METHODS_BASE[0]}>{PAYMENT_METHODS_BASE[0]}</option>
+                            <optgroup label="Paiement mobile">
+                              {MOBILE_PAYMENT_METHOD_OPTIONS.map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </optgroup>
+                            {PAYMENT_METHODS_BASE.slice(1).map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            {/* Anciens reçus : valeur hors liste (ex. « Paiement mobile » générique) */}
+                            {p.method && !(PAYMENT_METHODS as readonly string[]).includes(p.method) ? (
+                              <option value={p.method}>{p.method}</option>
+                            ) : null}
                           </select>
                         </div>
                       </div>

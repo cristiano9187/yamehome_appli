@@ -136,7 +136,27 @@ export const COMPANY_LEGAL_ISSUER = {
   phoneDisplay: '+39 327 022 3168',
 } as const;
 
-export const PAYMENT_METHODS = ["Espèces", "Paiement mobile", "Virement bancaire", "PayPal", "Autre"];
+/** Catégories non-mobile (select reçu). */
+export const PAYMENT_METHODS_BASE = ["Espèces", "Virement bancaire", "PayPal", "Autre"] as const;
+
+/**
+ * Sous-options « Paiement mobile » — le libellé complet est enregistré sur le versement
+ * et affiché sur le reçu (ex. « Versement le … (Paiement mobile marchand Orange 1002038) »).
+ */
+export const MOBILE_PAYMENT_METHOD_OPTIONS = [
+  'Paiement mobile marchand Orange 1002038',
+  'Paiement mobile Orange au 682 24 31 02 Solange Bekale',
+  'Paiement mobile MTN MoMo au 679 41 41 02 Solange Bekale',
+  'Paiement mobile Orange au 697 44 73 60 Régine Tchadeu',
+  'Paiement mobile MTN MoMo au 681 98 63 54 Régine Tchadeu',
+] as const;
+
+/** Liste plate pour compatibilité / validation. */
+export const PAYMENT_METHODS = [
+  ...PAYMENT_METHODS_BASE.slice(0, 1),
+  ...MOBILE_PAYMENT_METHOD_OPTIONS,
+  ...PAYMENT_METHODS_BASE.slice(1),
+];
 
 export const HOSTS = [
   { id: "paola",     label: "Paola (+237 691 47 24 82)",    sites: ['Yaoundé'] },
