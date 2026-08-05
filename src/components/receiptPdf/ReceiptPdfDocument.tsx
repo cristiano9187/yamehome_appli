@@ -356,6 +356,9 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
                     <Text style={styles.bold}>Orange Money</Text> - code marchand{' '}
                     <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}</Text> -{' '}
                     {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
+                    {' ou '}
+                    <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalNumber}</Text> -{' '}
+                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalAccountName}
                   </Text>
                 </View>
                 <View style={styles.paymentMethodLine}>

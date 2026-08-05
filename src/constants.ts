@@ -399,6 +399,9 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
     merchantCode: '1002038',
     /** Libellé compte marchand tel qu’affiché sur le reçu. */
     merchantAccountName: 'YAMEHOME',
+    /** Alternative personne physique (clients hors Cameroun / sans code marchand). */
+    personalNumber: '682 24 31 02',
+    personalAccountName: 'SOLANGE BEKALE',
   },
   mtnMoMo: {
     merchantAccountName: 'YAMEHOME',

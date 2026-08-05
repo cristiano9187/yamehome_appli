@@ -248,6 +248,14 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                           <span className="font-semibold">
                             {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
                           </span>
+                          {' ou '}
+                          <span className="font-mono font-bold">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalNumber}
+                          </span>
+                          {' · '}
+                          <span className="font-semibold">
+                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalAccountName}
+                          </span>
                         </span>
                       </div>
                       <div className="flex gap-1.5 items-start min-w-0 max-w-full">
