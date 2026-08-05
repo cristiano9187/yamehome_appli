@@ -368,6 +368,9 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
                   <Text style={styles.paymentMethodText}>
                     <Text style={styles.bold}>MTN MoMo</Text> ({RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}) -{' '}
                     {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantAccountName}
+                    {' ou '}
+                    <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalNumber}</Text> -{' '}
+                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalAccountName}
                   </Text>
                 </View>
                 <View style={styles.paymentMethodLine}>

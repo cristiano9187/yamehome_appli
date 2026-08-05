@@ -406,6 +406,9 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
   mtnMoMo: {
     merchantAccountName: 'YAMEHOME',
     pendingNotice: 'En attente',
+    /** Alternative personne physique (clients hors Cameroun / sans n° marchand). */
+    personalNumber: '679 41 41 02',
+    personalAccountName: 'SOLANGE BEKALE',
   },
   ribLine: 'RIB bancaire ou PayPal — communiqués sur demande.',
   cashLine: 'Espèces sur place.',
