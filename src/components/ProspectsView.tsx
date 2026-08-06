@@ -35,12 +35,15 @@ import {
   Globe,
   HelpCircle,
   Home,
+  LayoutGrid,
+  LayoutList,
   Menu,
   MessageCircle,
   Phone,
   Plus,
   Save,
   Search,
+  SlidersHorizontal,
   Trash2,
   UserRound,
   Users,
@@ -148,6 +151,33 @@ function incompleteHints(p: Prospect): string[] {
   return hints;
 }
 
+function formatStayRange(start?: string, end?: string): string {
+  if (!(start || '').trim()) return 'Dates non définies';
+  const fmt = (ymd: string) => {
+    const [y, m, d] = ymd.split('-').map(Number);
+    if (!y || !m || !d) return ymd;
+    return new Date(y, m - 1, d).toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short',
+    });
+  };
+  if (!(end || '').trim()) return `Dès ${fmt(start!)}`;
+  return `${fmt(start!)} → ${fmt(end!)}`;
+}
+
+function prospectDisplayName(p: Prospect): string {
+  return `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Sans nom';
+}
+
+function compareProspectsForList(a: Prospect, b: Prospect): number {
+  const aStart = (a.startDate || '').trim();
+  const bStart = (b.startDate || '').trim();
+  if (aStart && bStart && aStart !== bStart) return aStart.localeCompare(bStart);
+  if (aStart && !bStart) return -1;
+  if (!aStart && bStart) return 1;
+  return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+}
+
 function normalizePhone(raw: string): { tel: string; wa: string } {
   if (!raw) return { tel: '', wa: '' };
   const digits = raw.replace(/[\s\-\.\(\)]/g, '');
@@ -223,6 +253,9 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     prospects: Prospect[];
   } | null>(null);
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
+  /** Mobile : liste par défaut ; grille planning en option. Desktop ignore ce mode. */
+  const [mobileViewMode, setMobileViewMode] = useState<'list' | 'grid'>('list');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -321,6 +354,17 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     () => prospects.filter((p) => isProspectIncomplete(p)).length,
     [prospects]
   );
+
+  const listProspects = useMemo(
+    () => [...filteredProspects].sort(compareProspectsForList),
+    [filteredProspects]
+  );
+
+  const activeFilterCount =
+    selectedStatuses.length + (apartmentFilter ? 1 : 0) + (showIncompleteOnly ? 1 : 0);
+
+  const showMobileList =
+    isNarrowViewport && (mobileViewMode === 'list' || showIncompleteOnly);
 
   const monthBounds = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -646,130 +690,363 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
 
   return (
     <div className="flex-1 flex flex-col min-h-0 max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:overflow-hidden md:h-full bg-[#F5F5F4] md:overflow-hidden">
-      {/* Mobile : tout le bandeau titre + filtres reste collé en haut du téléphone */}
-      <div className="shrink-0 bg-white border-b border-gray-200 max-md:sticky max-md:top-0 max-md:z-[100] max-md:shadow-[0_8px_20px_-12px_rgba(0,0,0,0.18)]">
-      <div className="h-auto md:h-20 bg-white px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:border-b-0 border-b border-gray-100 max-md:border-b-0">
-        <div className="flex flex-wrap items-center gap-4 md:gap-6">
-          {onMenuClick && (
-            <button type="button" onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all">
-              <Menu size={20} />
-            </button>
-          )}
-          <div className="flex flex-col min-w-0">
-            <h2 className="text-sm font-black uppercase tracking-widest">Prospects</h2>
-            <span className="hidden md:block text-[10px] font-mono text-gray-400 font-bold uppercase truncate">
-              {monthName}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
-            <button type="button" onClick={prevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
-              <ChevronLeft size={18} />
-            </button>
-            <span className="px-3 text-[10px] font-black uppercase text-gray-700 min-w-[120px] text-center">{monthName}</span>
-            <button type="button" onClick={nextMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:flex-1 md:justify-end">
-          <div className="relative flex-1 min-w-[200px] md:max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input
-              type="text"
-              placeholder="Rechercher…"
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-10 pr-3 text-xs outline-none focus:border-blue-500 transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => openNewProspectForm()}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest shrink-0"
-          >
-            <Plus size={14} />
-            Nouveau
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white px-4 md:px-8 py-3 flex flex-col gap-3 md:border-b md:border-gray-200">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 shrink-0 hidden sm:inline">
-            Statuts
-          </span>
-          <div className="flex-1 min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch] pb-1 md:pb-0 flex items-center gap-2 flex-nowrap [scrollbar-width:thin]">
+      <div className="shrink-0 bg-white border-b border-gray-200 max-md:z-[100] max-md:shadow-[0_8px_20px_-12px_rgba(0,0,0,0.18)]">
+        {/* Mobile header compact */}
+        <div className="md:hidden px-3 pt-3 pb-2 space-y-2">
+          <div className="flex items-center gap-2">
+            {onMenuClick && (
+              <button type="button" onClick={onMenuClick} className="p-2 -ml-1 hover:bg-gray-100 rounded-xl shrink-0">
+                <Menu size={20} />
+              </button>
+            )}
+            <h2 className="text-sm font-black uppercase tracking-widest shrink-0">Prospects</h2>
+            <div className="flex-1" />
             <button
               type="button"
-              onClick={() => {
-                setSelectedStatuses([]);
-                setShowIncompleteOnly(false);
-              }}
-              className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                selectedStatuses.length === 0 && !showIncompleteOnly
-                  ? 'bg-gray-800 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              onClick={() => openNewProspectForm()}
+              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest shrink-0"
             >
-              Tous ({prospects.length})
+              <Plus size={14} />
+              Nouveau
             </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
+              <input
+                type="text"
+                placeholder="Rechercher…"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-9 pr-3 text-xs outline-none focus:border-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
             <button
               type="button"
-              onClick={() => setShowIncompleteOnly((v) => !v)}
-              className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                showIncompleteOnly
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+              onClick={() => setFiltersExpanded((v) => !v)}
+              className={`relative p-2.5 rounded-xl border shrink-0 ${
+                filtersExpanded || activeFilterCount > 0
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : 'bg-white text-gray-600 border-gray-200'
               }`}
-              title="Prospects sans dates ou sans unité — absents de la grille"
+              aria-label="Filtres"
+              title="Filtres"
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${showIncompleteOnly ? 'bg-white' : 'bg-amber-500'}`} />
-              À compléter
-              {incompleteCount > 0 && <span className="opacity-90">({incompleteCount})</span>}
+              <SlidersHorizontal size={16} />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
-            {ALL_STATUSES.map((s) => {
-              const cfg = STATUS_CONFIG[s];
-              const active = selectedStatuses.includes(s);
-              return (
+            {!showIncompleteOnly && (
+              <div className="flex items-center bg-gray-100 rounded-xl p-0.5 shrink-0 border border-gray-200">
                 <button
-                  key={s}
                   type="button"
-                  onClick={() => toggleStatusFilter(s)}
-                  className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                    selectedStatuses.length > 0 && active ? cfg.pill : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                  onClick={() => setMobileViewMode('list')}
+                  className={`p-2 rounded-lg transition-all ${
+                    mobileViewMode === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400'
+                  }`}
+                  aria-label="Vue liste"
+                  title="Liste"
+                >
+                  <LayoutList size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileViewMode('grid')}
+                  className={`p-2 rounded-lg transition-all ${
+                    mobileViewMode === 'grid' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400'
+                  }`}
+                  aria-label="Vue grille"
+                  title="Grille planning"
+                >
+                  <LayoutGrid size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {(filtersExpanded || mobileViewMode === 'grid') && (
+            <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200 w-fit max-w-full">
+              <button type="button" onClick={prevMonth} className="p-1.5 hover:bg-white rounded-lg text-gray-600">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="px-2 text-[10px] font-black uppercase text-gray-700 min-w-[7.5rem] text-center truncate">
+                {monthName}
+              </span>
+              <button type="button" onClick={nextMonth} className="p-1.5 hover:bg-white rounded-lg text-gray-600">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+
+          {filtersExpanded && (
+            <div className="space-y-2 pb-1">
+              <div className="overflow-x-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch] flex items-center gap-2 flex-nowrap pb-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStatuses([]);
+                    setShowIncompleteOnly(false);
+                  }}
+                  className={`shrink-0 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                    selectedStatuses.length === 0 && !showIncompleteOnly
+                      ? 'bg-gray-800 text-white'
+                      : 'bg-gray-100 text-gray-600'
                   }`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                  {cfg.label}
-                  {statusCounts[s] > 0 && <span className="opacity-80">({statusCounts[s]})</span>}
+                  Tous ({prospects.length})
                 </button>
-              );
-            })}
+                <button
+                  type="button"
+                  onClick={() => setShowIncompleteOnly((v) => !v)}
+                  className={`shrink-0 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
+                    showIncompleteOnly
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-white text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${showIncompleteOnly ? 'bg-white' : 'bg-amber-500'}`} />
+                  À compléter
+                  {incompleteCount > 0 && <span>({incompleteCount})</span>}
+                </button>
+                {ALL_STATUSES.map((s) => {
+                  const cfg = STATUS_CONFIG[s];
+                  const active = selectedStatuses.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleStatusFilter(s)}
+                      className={`shrink-0 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
+                        selectedStatuses.length > 0 && active
+                          ? cfg.pill
+                          : 'bg-white text-gray-500 border border-gray-200'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                      {cfg.label}
+                      {statusCounts[s] > 0 && <span className="opacity-80">({statusCounts[s]})</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[10px] font-bold text-gray-600 outline-none"
+                  value={apartmentFilter}
+                  onChange={(e) => setApartmentFilter(e.target.value)}
+                >
+                  <option value="">Tous logements</option>
+                  {allowedApartmentsList.map((apt) => (
+                    <option key={apt} value={apt}>
+                      {apt}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] font-mono text-gray-400 whitespace-nowrap">
+                  {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop header (inchangé) */}
+        <div className="hidden md:block">
+          <div className="h-20 bg-white px-8 flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex flex-col min-w-0">
+                <h2 className="text-sm font-black uppercase tracking-widest">Prospects</h2>
+                <span className="text-[10px] font-mono text-gray-400 font-bold uppercase truncate">{monthName}</span>
+              </div>
+              <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
+                <button type="button" onClick={prevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="px-3 text-[10px] font-black uppercase text-gray-700 min-w-[120px] text-center">{monthName}</span>
+                <button type="button" onClick={nextMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 flex-1 justify-end">
+              <div className="relative flex-1 min-w-[200px] max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="Rechercher…"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-10 pr-3 text-xs outline-none focus:border-blue-500 transition-all"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => openNewProspectForm()}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest shrink-0"
+              >
+                <Plus size={14} />
+                Nouveau
+              </button>
+            </div>
+          </div>
+          <div className="bg-white px-8 py-3 flex flex-col gap-3 border-b border-gray-200">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 shrink-0">Statuts</span>
+              <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-2 flex-nowrap [scrollbar-width:thin]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStatuses([]);
+                    setShowIncompleteOnly(false);
+                  }}
+                  className={`shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    selectedStatuses.length === 0 && !showIncompleteOnly
+                      ? 'bg-gray-800 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Tous ({prospects.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowIncompleteOnly((v) => !v)}
+                  className={`shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                    showIncompleteOnly
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                  }`}
+                  title="Prospects sans dates ou sans unité — absents de la grille"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${showIncompleteOnly ? 'bg-white' : 'bg-amber-500'}`} />
+                  À compléter
+                  {incompleteCount > 0 && <span className="opacity-90">({incompleteCount})</span>}
+                </button>
+                {ALL_STATUSES.map((s) => {
+                  const cfg = STATUS_CONFIG[s];
+                  const active = selectedStatuses.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleStatusFilter(s)}
+                      className={`shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                        selectedStatuses.length > 0 && active
+                          ? cfg.pill
+                          : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                      {cfg.label}
+                      {statusCounts[s] > 0 && <span className="opacity-80">({statusCounts[s]})</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 justify-end">
+              <select
+                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-[10px] font-bold text-gray-600 outline-none focus:border-blue-400"
+                value={apartmentFilter}
+                onChange={(e) => setApartmentFilter(e.target.value)}
+              >
+                <option value="">Tous logements</option>
+                {allowedApartmentsList.map((apt) => (
+                  <option key={apt} value={apt}>
+                    {apt}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[10px] font-mono text-gray-400 whitespace-nowrap">
+                {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 md:justify-end">
-          <select
-            className="flex-1 min-w-[140px] md:flex-none md:min-w-0 bg-white border border-gray-200 rounded-xl px-3 py-2 md:py-1.5 text-[10px] font-bold text-gray-600 outline-none focus:border-blue-400"
-            value={apartmentFilter}
-            onChange={(e) => setApartmentFilter(e.target.value)}
-          >
-            <option value="">Tous logements</option>
-            {allowedApartmentsList.map((apt) => (
-              <option key={apt} value={apt}>
-                {apt}
-              </option>
-            ))}
-          </select>
-          <span className="text-[10px] font-mono text-gray-400 whitespace-nowrap">
-            {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-      </div>
       </div>
 
-      {/* Liste « À compléter » ou grille planning */}
-      {showIncompleteOnly ? (
+      {/* Contenu : liste mobile / À compléter / grille */}
+      {showMobileList ? (
+        <div
+          className={`flex-1 min-h-0 overflow-auto overscroll-contain px-3 py-3 md:px-8 md:py-5 ${
+            showIncompleteOnly ? 'bg-amber-50/40' : 'bg-[#F5F5F4]'
+          }`}
+        >
+          {!filtersExpanded && (
+            <p className="text-[10px] font-mono text-gray-400 mb-2 px-0.5">
+              {filteredProspects.length} affiché{filteredProspects.length !== 1 ? 's' : ''}
+              {activeFilterCount > 0 ? ' · filtres actifs' : ''}
+            </p>
+          )}
+          {showIncompleteOnly && (
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-900 mb-3">
+              À compléter — dates ou unité manquantes
+            </p>
+          )}
+          {listProspects.length === 0 ? (
+            <p className="text-sm text-gray-500 py-12 text-center">Aucun prospect avec ces filtres.</p>
+          ) : (
+            <ul className="space-y-2">
+              {listProspects.map((p) => {
+                const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
+                const src = SOURCE_CONFIG[p.source] || SOURCE_CONFIG.AUTRE;
+                const incomplete = isProspectIncomplete(p);
+                const hints = incomplete ? incompleteHints(p) : [];
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(p)}
+                      className={`w-full text-left rounded-2xl bg-white px-4 py-3.5 shadow-sm border transition-all active:scale-[0.99] ${
+                        incomplete ? 'border-amber-200' : 'border-gray-100'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-bold text-gray-900 leading-snug truncate">
+                            {prospectDisplayName(p)}
+                          </p>
+                          <p className="text-[12px] text-gray-500 mt-1 flex items-center gap-1.5">
+                            <CalendarDays size={12} className="shrink-0 text-gray-400" />
+                            <span className="truncate">{formatStayRange(p.startDate, p.endDate)}</span>
+                          </p>
+                          {(p.apartmentName || p.calendarSlug) && (
+                            <p className="text-[11px] text-gray-400 mt-1 truncate font-medium">
+                              {p.apartmentName || p.calendarSlug}
+                              {p.calendarSlug && p.apartmentName ? ` · ${p.calendarSlug}` : ''}
+                            </p>
+                          )}
+                          {p.phone ? (
+                            <p className="text-[11px] text-gray-400 mt-0.5 font-mono truncate">{p.phone}</p>
+                          ) : null}
+                          {incomplete && (
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mt-2">
+                              Manque : {hints.join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg ${cfg.pill}`}>
+                            {cfg.label}
+                          </span>
+                          <span
+                            className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${src.bg} ${src.color}`}
+                          >
+                            {src.label}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : showIncompleteOnly ? (
         <div className="flex-1 min-h-0 overflow-auto overscroll-contain bg-amber-50/40 px-4 py-4 md:px-8 md:py-5">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-900 mb-3">
             À compléter — dates ou unité manquantes ({filteredProspects.length})
@@ -781,7 +1058,6 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
               {filteredProspects.map((p) => {
                 const hints = incompleteHints(p);
                 const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
-                const name = `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Sans nom';
                 return (
                   <li key={p.id}>
                     <button
@@ -790,14 +1066,12 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                       className="w-full text-left rounded-xl bg-white border border-amber-200 hover:border-amber-400 px-4 py-3 shadow-sm transition-all"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-bold text-gray-900 leading-snug">{name}</span>
+                        <span className="text-sm font-bold text-gray-900 leading-snug">{prospectDisplayName(p)}</span>
                         <span className={`shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg ${cfg.pill}`}>
                           {cfg.label}
                         </span>
                       </div>
-                      {p.phone ? (
-                        <p className="text-[11px] text-gray-500 mt-1 font-mono">{p.phone}</p>
-                      ) : null}
+                      {p.phone ? <p className="text-[11px] text-gray-500 mt-1 font-mono">{p.phone}</p> : null}
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mt-2">
                         Manque : {hints.join(' · ')}
                       </p>
@@ -902,40 +1176,74 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                               openCell(unit.slug, dateStr);
                             }
                           }}
-                          className={`border-r border-b border-gray-50 min-h-[5.5rem] md:min-h-[4rem] h-auto py-1 md:py-1 relative transition-colors cursor-pointer group align-top active:bg-blue-50/40 ${
+                          className={`border-r border-b border-gray-50 ${
+                            isNarrowViewport ? 'min-h-[2.75rem] h-[2.75rem]' : 'min-h-[5.5rem] md:min-h-[4rem] h-auto py-1 md:py-1'
+                          } relative transition-colors cursor-pointer group align-top active:bg-blue-50/40 ${
                             isToday ? 'bg-slate-500/[0.05]' : isWeekend ? 'bg-gray-50/30' : ''
                           }`}
                         >
-                          {booking && (
-                            <div
-                              className="absolute inset-x-0 bottom-0 z-0 px-1 pb-0.5 pt-7 md:pt-6 bg-gradient-to-t from-slate-700/12 to-transparent pointer-events-none"
-                              title={`Réservation officielle : ${booking.lastName}`}
-                            >
-                              <div className="text-[9px] md:text-[8px] font-bold text-slate-600 truncate leading-tight bg-white/90 rounded px-1 py-px border border-slate-200/80">
-                                Résa · {booking.lastName}
-                              </div>
-                            </div>
-                          )}
-                          <div className="relative z-[1] flex flex-col gap-1 px-0.5 pt-1">
-                            {cellProspects.slice(0, maxChips).map((p) => {
-                              const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
-                              const label = `${(p.firstName || '').trim()} ${(p.lastName || '').trim()}`.trim() || 'Prospect';
-                              return (
-                                <div
-                                  key={p.id}
-                                  className={`rounded-md px-1 py-1 md:py-0.5 text-[10px] md:text-[8px] font-black uppercase tracking-tight leading-snug line-clamp-2 md:line-clamp-none md:truncate shadow-sm border border-white/40 ${cfg.pill}`}
-                                  title={`${label} — ${cfg.label}`}
-                                >
-                                  {label}
+                          {isNarrowViewport ? (
+                            <div className="relative z-[1] h-full flex flex-col items-center justify-center gap-0.5 px-0.5">
+                              {booking && (
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full bg-slate-500"
+                                  title={`Résa · ${booking.lastName}`}
+                                />
+                              )}
+                              {cellProspects.length === 0 && !booking ? (
+                                <span className="text-[8px] text-gray-200">·</span>
+                              ) : (
+                                <div className="flex items-center justify-center gap-0.5 flex-wrap max-w-full">
+                                  {cellProspects.slice(0, 3).map((p) => {
+                                    const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
+                                    return (
+                                      <span
+                                        key={p.id}
+                                        className={`w-2 h-2 rounded-full ${cfg.dot}`}
+                                        title={prospectDisplayName(p)}
+                                      />
+                                    );
+                                  })}
+                                  {cellProspects.length > 3 && (
+                                    <span className="text-[8px] font-black text-gray-500">+{cellProspects.length - 3}</span>
+                                  )}
                                 </div>
-                              );
-                            })}
-                            {cellProspects.length > maxChips && (
-                              <div className="text-[10px] md:text-[8px] font-black text-gray-500 text-center leading-none py-0.5">
-                                +{cellProspects.length - maxChips}
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              {booking && (
+                                <div
+                                  className="absolute inset-x-0 bottom-0 z-0 px-1 pb-0.5 pt-7 md:pt-6 bg-gradient-to-t from-slate-700/12 to-transparent pointer-events-none"
+                                  title={`Réservation officielle : ${booking.lastName}`}
+                                >
+                                  <div className="text-[9px] md:text-[8px] font-bold text-slate-600 truncate leading-tight bg-white/90 rounded px-1 py-px border border-slate-200/80">
+                                    Résa · {booking.lastName}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="relative z-[1] flex flex-col gap-1 px-0.5 pt-1">
+                                {cellProspects.slice(0, maxChips).map((p) => {
+                                  const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
+                                  const label = prospectDisplayName(p);
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      className={`rounded-md px-1 py-1 md:py-0.5 text-[10px] md:text-[8px] font-black uppercase tracking-tight leading-snug line-clamp-2 md:line-clamp-none md:truncate shadow-sm border border-white/40 ${cfg.pill}`}
+                                      title={`${label} — ${cfg.label}`}
+                                    >
+                                      {label}
+                                    </div>
+                                  );
+                                })}
+                                {cellProspects.length > maxChips && (
+                                  <div className="text-[10px] md:text-[8px] font-black text-gray-500 text-center leading-none py-0.5">
+                                    +{cellProspects.length - maxChips}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
+                            </>
+                          )}
                         </td>
                       );
                     })}
