@@ -7,6 +7,7 @@ import {
   orderBy,
   query,
   updateDoc,
+  deleteDoc,
   where,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -16,7 +17,6 @@ import { getReceiptSegments } from '../utils/receiptSegments';
 import {
   apartmentNameForUnitSlug,
   buildProspectsByCell,
-  prospectTouchesMonth,
   resolveProspectUnitSlug,
   ymdAddDays,
 } from '../utils/prospectPlanning';
@@ -29,7 +29,6 @@ import {
   ArrowRightLeft,
   Building2,
   CalendarDays,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -42,6 +41,7 @@ import {
   Plus,
   Save,
   Search,
+  Trash2,
   UserRound,
   Users,
   X,
@@ -60,7 +60,6 @@ interface ProspectsViewProps {
 
 const ALL_STATUSES: ProspectStatus[] = [
   'NOUVEAU',
-  'A_RELANCER',
   'EN_NEGOCIATION',
   'CONVERTI',
   'PERDU',
@@ -135,6 +134,20 @@ const SOURCE_OPTIONS: ProspectSource[] = [
   'AUTRE',
 ];
 
+/** Manque dates et/ou unité → pas placé sur la grille planning. */
+function isProspectIncomplete(p: Prospect): boolean {
+  const missingDates = !(p.startDate || '').trim() || !(p.endDate || '').trim();
+  const missingUnit = !resolveProspectUnitSlug(p);
+  return missingDates || missingUnit;
+}
+
+function incompleteHints(p: Prospect): string[] {
+  const hints: string[] = [];
+  if (!(p.startDate || '').trim() || !(p.endDate || '').trim()) hints.push('dates');
+  if (!resolveProspectUnitSlug(p)) hints.push('unité');
+  return hints;
+}
+
 function normalizePhone(raw: string): { tel: string; wa: string } {
   if (!raw) return { tel: '', wa: '' };
   const digits = raw.replace(/[\s\-\.\(\)]/g, '');
@@ -196,6 +209,8 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   const [searchTerm, setSearchTerm] = useState('');
   /** Vide = tous les statuts visibles ; sinon filtre OU sur les statuts choisis */
   const [selectedStatuses, setSelectedStatuses] = useState<ProspectStatus[]>([]);
+  /** Prospects sans dates ou sans unité (absents de la grille) */
+  const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
   const [apartmentFilter, setApartmentFilter] = useState('');
   const [formData, setFormData] = useState<Prospect>(getEmptyProspect(userProfile?.uid || ''));
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -207,8 +222,6 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     dateStr: string;
     prospects: Prospect[];
   } | null>(null);
-  /** Réduit le bruit visuel sur téléphone : liste hors-grille dépliante */
-  const [offGridMobileOpen, setOffGridMobileOpen] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -220,10 +233,6 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, []);
-
-  useEffect(() => {
-    setOffGridMobileOpen(false);
-  }, [currentDate.getMonth(), currentDate.getFullYear()]);
 
   useEffect(() => {
     const handleClickOutside = () => setExpandedUnitSlug(null);
@@ -303,9 +312,15 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
       const statusMatch =
         selectedStatuses.length === 0 || selectedStatuses.includes(p.status);
       const aptFilterMatch = !apartmentFilter || p.apartmentName === apartmentFilter;
-      return textMatch && aptAllowed && statusMatch && aptFilterMatch;
+      const incompleteMatch = !showIncompleteOnly || isProspectIncomplete(p);
+      return textMatch && aptAllowed && statusMatch && aptFilterMatch && incompleteMatch;
     });
-  }, [prospects, searchTerm, selectedStatuses, apartmentFilter, userProfile, isAdminUser]);
+  }, [prospects, searchTerm, selectedStatuses, apartmentFilter, showIncompleteOnly, userProfile, isAdminUser]);
+
+  const incompleteCount = useMemo(
+    () => prospects.filter((p) => isProspectIncomplete(p)).length,
+    [prospects]
+  );
 
   const monthBounds = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -471,17 +486,9 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     });
   }, [prospects, cellPanel?.unitSlug, cellPanel?.dateStr, prospectsByCell]);
 
-  const offGridProspects = useMemo(() => {
-    return filteredProspects.filter((p) => {
-      if (!prospectTouchesMonth(p, monthBounds.monthFirst, monthBounds.monthLast)) return true;
-      const slug = resolveProspectUnitSlug(p);
-      return !slug || !unitSlugList.includes(slug);
-    });
-  }, [filteredProspects, monthBounds.monthFirst, monthBounds.monthLast, unitSlugList]);
-
   const statusCounts = useMemo(() => {
     const acc = {} as Record<ProspectStatus, number>;
-    for (const s of ALL_STATUSES) acc[s] = 0;
+    for (const s of Object.keys(STATUS_CONFIG) as ProspectStatus[]) acc[s] = 0;
     for (const p of prospects) {
       if (acc[p.status] !== undefined) acc[p.status]++;
     }
@@ -588,6 +595,32 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     }
   };
 
+  const handleDeleteProspect = async (prospect: Prospect) => {
+    if (!isAdminUser || !prospect.id) return;
+    const label = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || 'ce prospect';
+    const ok = window.confirm(
+      `Supprimer définitivement « ${label} » ?\n\nUtile pour les doublons. Cette action est irréversible.`
+    );
+    if (!ok) return;
+    try {
+      await deleteDoc(doc(db, 'prospects', prospect.id));
+      if (editingId === prospect.id) {
+        resetForm();
+        setFormOpen(false);
+      }
+      setCellPanel((prev) => {
+        if (!prev) return prev;
+        const next = prev.prospects.filter((p) => p.id !== prospect.id);
+        if (next.length === 0) return null;
+        return { ...prev, prospects: next };
+      });
+      onAlert('Prospect supprimé.', 'success');
+    } catch (error) {
+      console.error('Error deleting prospect:', error);
+      onAlert('Suppression impossible (droits ou connexion).', 'error');
+    }
+  };
+
   const openCell = (unitSlug: string, dateStr: string) => {
     const list = prospectsByCell.get(`${unitSlug}|${dateStr}`) || [];
     if (list.length > 0) {
@@ -669,12 +702,31 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
           <div className="flex-1 min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch] pb-1 md:pb-0 flex items-center gap-2 flex-nowrap [scrollbar-width:thin]">
             <button
               type="button"
-              onClick={() => setSelectedStatuses([])}
+              onClick={() => {
+                setSelectedStatuses([]);
+                setShowIncompleteOnly(false);
+              }}
               className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                selectedStatuses.length === 0 ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                selectedStatuses.length === 0 && !showIncompleteOnly
+                  ? 'bg-gray-800 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               Tous ({prospects.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowIncompleteOnly((v) => !v)}
+              className={`shrink-0 px-3 py-2 md:py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                showIncompleteOnly
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+              }`}
+              title="Prospects sans dates ou sans unité — absents de la grille"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${showIncompleteOnly ? 'bg-white' : 'bg-amber-500'}`} />
+              À compléter
+              {incompleteCount > 0 && <span className="opacity-90">({incompleteCount})</span>}
             </button>
             {ALL_STATUSES.map((s) => {
               const cfg = STATUS_CONFIG[s];
@@ -716,7 +768,47 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
       </div>
       </div>
 
-      {/* Scroll bilatéral : thead (dates) collé au haut de cette zone ; 1re colonne collée à gauche */}
+      {/* Liste « À compléter » ou grille planning */}
+      {showIncompleteOnly ? (
+        <div className="flex-1 min-h-0 overflow-auto overscroll-contain bg-amber-50/40 px-4 py-4 md:px-8 md:py-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-900 mb-3">
+            À compléter — dates ou unité manquantes ({filteredProspects.length})
+          </p>
+          {filteredProspects.length === 0 ? (
+            <p className="text-sm text-amber-800/80 py-8 text-center">Aucun prospect incomplet avec ces filtres.</p>
+          ) : (
+            <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredProspects.map((p) => {
+                const hints = incompleteHints(p);
+                const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.NOUVEAU;
+                const name = `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Sans nom';
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(p)}
+                      className="w-full text-left rounded-xl bg-white border border-amber-200 hover:border-amber-400 px-4 py-3 shadow-sm transition-all"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-bold text-gray-900 leading-snug">{name}</span>
+                        <span className={`shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg ${cfg.pill}`}>
+                          {cfg.label}
+                        </span>
+                      </div>
+                      {p.phone ? (
+                        <p className="text-[11px] text-gray-500 mt-1 font-mono">{p.phone}</p>
+                      ) : null}
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mt-2">
+                        Manque : {hints.join(' · ')}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : (
       <div
         className="flex-1 min-h-0 overflow-auto overscroll-contain relative touch-pan-x touch-pan-y isolate md:overflow-auto"
         ref={scrollContainerRef}
@@ -854,46 +946,6 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
           </tbody>
         </table>
       </div>
-
-      {offGridProspects.length > 0 && (
-        <div className="border-t border-amber-200 bg-amber-50/50 shrink-0 md:max-h-48 md:overflow-y-auto">
-          <button
-            type="button"
-            className="md:hidden w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
-            onClick={() => setOffGridMobileOpen((o) => !o)}
-            aria-expanded={offGridMobileOpen}
-          >
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 leading-snug pr-2">
-              Hors grille ({offGridProspects.length}) — dates ou unité
-            </span>
-            <ChevronDown
-              size={18}
-              className={`shrink-0 text-amber-700 transition-transform ${offGridMobileOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-          <p className="hidden md:block text-[10px] font-black uppercase tracking-widest text-amber-800 px-8 pt-4 pb-2">
-            Hors grille ce mois-ci ({offGridProspects.length}) — dates ou unité à compléter
-          </p>
-          <ul
-            className={`flex flex-wrap gap-2 px-4 pb-4 md:px-8 md:pb-4 ${offGridMobileOpen ? 'flex' : 'hidden'} md:flex max-md:max-h-[min(40vh,320px)] max-md:overflow-y-auto`}
-          >
-            {offGridProspects.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  onClick={() => handleEdit(p)}
-                  className="text-left px-3 py-2.5 rounded-xl bg-white border border-amber-200 text-[11px] md:text-[10px] font-bold text-gray-800 hover:border-amber-400 transition-all max-w-[min(100vw-3rem,280px)] line-clamp-2 md:truncate md:max-w-[280px]"
-                  title={p.notes || ''}
-                >
-                  {(p.firstName || '') + ' ' + (p.lastName || '')} · {p.status}
-                  {!resolveProspectUnitSlug(p) && ' · unité ?'}
-                  {(!(p.startDate && p.endDate) || !prospectTouchesMonth(p, monthBounds.monthFirst, monthBounds.monthLast)) &&
-                    ' · dates ?'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
 
       <AnimatePresence>
@@ -978,6 +1030,9 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                     value={formData.status}
                     onChange={(e) => setFormData((p) => ({ ...p, status: e.target.value as ProspectStatus }))}
                   >
+                    {formData.status === 'A_RELANCER' && (
+                      <option value="A_RELANCER">{STATUS_CONFIG.A_RELANCER.label} (ancien)</option>
+                    )}
                     {ALL_STATUSES.map((s) => (
                       <option key={s} value={s}>
                         {STATUS_CONFIG[s].label}
@@ -1038,26 +1093,43 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                   value={formData.notes || ''}
                   onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))}
                 />
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    <Save size={14} />
-                    {isSaving ? '…' : editingId ? 'Mettre à jour' : 'Enregistrer'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetForm();
-                      setFormOpen(false);
-                    }}
-                    className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                  >
-                    Fermer
-                  </button>
+                <div className="flex flex-col gap-2 pt-2">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <Save size={14} />
+                      {isSaving ? '…' : editingId ? 'Mettre à jour' : 'Enregistrer'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetForm();
+                        setFormOpen(false);
+                      }}
+                      className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                  {editingId && isAdminUser ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDeleteProspect({
+                          ...formData,
+                          id: editingId,
+                        })
+                      }
+                      className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest inline-flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={14} />
+                      Supprimer ce prospect
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </motion.aside>
@@ -1228,6 +1300,17 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                         >
                           Annulé
                         </button>
+                        {isAdminUser ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProspect(prospect)}
+                            className="px-3 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1"
+                            title="Supprimer le doublon / fiche erronée"
+                          >
+                            <Trash2 size={12} />
+                            Supprimer
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );
