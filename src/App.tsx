@@ -2376,7 +2376,7 @@ export default function App() {
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="sidebar fixed md:sticky top-0 left-0 w-full md:w-[23rem] lg:w-[24rem] h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-50 print:hidden shadow-2xl md:shadow-none"
+            className="sidebar fixed md:sticky top-0 left-0 w-full md:w-[23rem] lg:w-[24rem] h-full md:h-screen bg-white border-r border-gray-200 flex flex-col z-[200] print:hidden shadow-2xl md:shadow-none"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <div className="flex flex-col leading-tight">

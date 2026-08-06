@@ -647,7 +647,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   return (
     <div className="flex-1 flex flex-col min-h-0 max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:overflow-hidden md:h-full bg-[#F5F5F4] md:overflow-hidden">
       {/* Mobile : tout le bandeau titre + filtres reste collé en haut du téléphone */}
-      <div className="shrink-0 bg-white border-b border-gray-200 max-md:sticky max-md:top-0 max-md:z-[100] max-md:shadow-[0_8px_20px_-12px_rgba(0,0,0,0.18)]">
+      <div className="shrink-0 bg-white border-b border-gray-200 max-md:sticky max-md:top-0 max-md:z-30 max-md:shadow-[0_8px_20px_-12px_rgba(0,0,0,0.18)]">
       <div className="h-auto md:h-20 bg-white px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:border-b-0 border-b border-gray-100 max-md:border-b-0">
         <div className="flex flex-wrap items-center gap-4 md:gap-6">
           {onMenuClick && (
