@@ -291,7 +291,8 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
         'success'
       );
     } catch (e) {
-      onAlert('Erreur de mise à jour', 'error');
+      console.error('mark prepaid token used failed', e);
+      onAlert('Erreur de mise à jour (droits ou connexion).', 'error');
     }
   };
 
@@ -317,7 +318,8 @@ export default function PrepaidElectricityTokensView({ userProfile, onMenuClick,
       );
       onAlert('Jeton rouvert', 'success');
     } catch (e) {
-      onAlert('Erreur de mise à jour', 'error');
+      console.error('reopen prepaid token failed', e);
+      onAlert('Erreur de mise à jour (droits ou connexion).', 'error');
     }
   };
 

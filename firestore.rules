@@ -495,7 +495,8 @@ service cloud.firestore {
       ]) &&
         hasOnlyAllowedFields([
           'unitSlug', 'apartmentName', 'tokenCode', 'purchasePrice', 'expectedKwh', 'used',
-          'usedAt', 'usedByUid', 'usedByDisplayName', 'createdAt', 'updatedAt', 'createdByUid'
+          'usedAt', 'usedByUid', 'usedByDisplayName', 'usedForReceiptId', 'usedForSegmentId',
+          'createdAt', 'updatedAt', 'createdByUid'
         ]) &&
         data.unitSlug is string && data.unitSlug.size() > 0 &&
         data.apartmentName is string && data.apartmentName.size() > 0 &&
@@ -506,6 +507,8 @@ service cloud.firestore {
         (data.usedAt == null || (data.usedAt is string)) &&
         (data.usedByUid == null || (data.usedByUid is string)) &&
         (data.usedByDisplayName == null || (data.usedByDisplayName is string)) &&
+        (!('usedForReceiptId' in data) || data.usedForReceiptId == null || data.usedForReceiptId is string) &&
+        (!('usedForSegmentId' in data) || data.usedForSegmentId == null || data.usedForSegmentId is string) &&
         data.createdAt is string && data.updatedAt is string &&
         data.createdByUid is string;
     }
