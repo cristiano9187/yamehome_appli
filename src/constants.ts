@@ -145,7 +145,7 @@ export const PAYMENT_METHODS_BASE = ["Espèces", "Virement bancaire", "PayPal", 
  */
 export const MOBILE_PAYMENT_METHOD_OPTIONS = [
   'Paiement mobile marchand Orange 1002038',
-  'Paiement mobile Orange au 682 24 31 02 Solange Bekale',
+  'Paiement mobile Orange au 655 13 54 11 Solange Bekale',
   'Paiement mobile MTN MoMo au 679 41 41 02 Solange Bekale',
   'Paiement mobile Orange au 697 44 73 60 Régine Tchadeu',
   'Paiement mobile MTN MoMo au 681 98 63 54 Régine Tchadeu',
@@ -420,7 +420,7 @@ export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
     /** Libellé compte marchand tel qu’affiché sur le reçu. */
     merchantAccountName: 'YAMEHOME',
     /** Alternative personne physique (clients hors Cameroun / sans code marchand). */
-    personalNumber: '682 24 31 02',
+    personalNumber: '655 13 54 11',
     personalAccountName: 'SOLANGE BEKALE',
   },
   mtnMoMo: {
