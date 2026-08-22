@@ -573,6 +573,30 @@ export interface TechnicianContact {
   authorUid: string;
 }
 
+export type SiteContactRole = 'GUARD' | 'GUARD_NIGHT' | 'RECEPTION';
+
+export type SiteName =
+  | 'MODENA YAMEHOME'
+  | 'MATERA YAMEHOME'
+  | 'RIETI YAMEHOME'
+  | 'GALLAGHERS CITY';
+
+/** Contacts sur site (gardiens, réception) — collection `site_contacts`. */
+export interface SiteContact {
+  id?: string;
+  role: SiteContactRole;
+  site: SiteName;
+  name: string;
+  phone: string;
+  phoneSecondary?: string;
+  availability?: string;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  authorUid: string;
+}
+
 export type MediaSubscriptionKind = 'CANAL_PLUS' | 'IPTV';
 
 /** Abonnements TV par logement (Canal+ / IPTV) — collection `unit_media_subscriptions`. */

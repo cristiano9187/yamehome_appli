@@ -68,7 +68,7 @@ const CalendarView = lazy(() => import('./components/CalendarView'));
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ProspectsView = lazy(() => import('./components/ProspectsView'));
 const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
-const TechnicianContactsView = lazy(() => import('./components/TechnicianContactsView'));
+const DirectoryView = lazy(() => import('./components/DirectoryView'));
 const CostsView = lazy(() => import('./components/CostsView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 const KeyboxCodesView = lazy(() => import('./components/KeyboxCodesView'));
@@ -2485,8 +2485,8 @@ export default function App() {
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'technicians' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                  <Wrench size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
-                  Techniciens
+                  <BookUser size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
+                  Annuaire
                 </button>
                 {canSeeObligationsRail(userProfile) && (
                   <button
@@ -3326,7 +3326,7 @@ export default function App() {
               }}
             />
           ) : view === 'technicians' ? (
-            <TechnicianContactsView
+            <DirectoryView
               userProfile={userProfile}
               onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {

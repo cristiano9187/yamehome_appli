@@ -8,21 +8,16 @@ import {
   doc,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { SITES, SITE_CONTACT_ROLES, digitsOnlyPhone } from '../constants';
 import {
-  TECHNICIAN_DOMAINS,
-  TECHNICIAN_CITIES,
-  digitsOnlyPhone,
-} from '../constants';
-import {
-  TechnicianContact,
-  TechnicianDomain,
-  TechnicianCity,
+  SiteContact,
+  SiteContactRole,
+  SiteName,
   UserProfile,
 } from '../types';
 import {
-  Menu,
   Loader2,
-  Wrench,
+  Shield,
   Phone,
   MessageCircle,
   Plus,
@@ -33,28 +28,29 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-interface TechnicianContactsViewProps {
+interface SiteContactsViewProps {
   userProfile: UserProfile | null;
-  onMenuClick?: () => void;
   onAlert: (message: string, type?: 'success' | 'error' | 'info') => void;
   embedded?: boolean;
 }
 
 const emptyForm = {
   name: '',
-  domain: 'PLOMBERIE' as TechnicianDomain,
-  city: 'YAOUNDE' as TechnicianCity,
+  role: 'GUARD' as SiteContactRole,
+  site: SITES[0] as SiteName,
   phone: '',
+  phoneSecondary: '',
   availability: '',
   notes: '',
 };
 
-function domainLabel(id: TechnicianDomain): string {
-  return TECHNICIAN_DOMAINS.find((d) => d.id === id)?.label || id;
+function roleLabel(id: SiteContactRole): string {
+  return SITE_CONTACT_ROLES.find((r) => r.id === id)?.label || id;
 }
 
-function cityLabel(id: TechnicianCity): string {
-  return TECHNICIAN_CITIES.find((c) => c.id === id)?.label || id;
+function siteShortLabel(site: SiteName): string {
+  if (site === 'GALLAGHERS CITY') return 'Gallaghers';
+  return site.replace(' YAMEHOME', '');
 }
 
 function whatsappUrl(phone: string): string | null {
@@ -65,21 +61,20 @@ function whatsappUrl(phone: string): string | null {
   return `https://wa.me/${digits}`;
 }
 
-export default function TechnicianContactsView({
+export default function SiteContactsView({
   userProfile,
-  onMenuClick,
   onAlert,
   embedded = false,
-}: TechnicianContactsViewProps) {
+}: SiteContactsViewProps) {
   const isMainAdmin =
     userProfile?.email?.toLowerCase() === 'christian.yamepi@gmail.com' ||
     userProfile?.email?.toLowerCase() === 'cyamepi@gmail.com';
   const isAdmin = userProfile?.role === 'admin' || isMainAdmin;
 
-  const [contacts, setContacts] = useState<TechnicianContact[]>([]);
+  const [contacts, setContacts] = useState<SiteContact[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cityFilter, setCityFilter] = useState<'ALL' | TechnicianCity>('ALL');
-  const [domainFilter, setDomainFilter] = useState<'ALL' | TechnicianDomain>('ALL');
+  const [siteFilter, setSiteFilter] = useState<'ALL' | SiteName>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | SiteContactRole>('ALL');
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
 
@@ -92,13 +87,13 @@ export default function TechnicianContactsView({
 
   useEffect(() => {
     const unsub = onSnapshot(
-      collection(db, 'technician_contacts'),
+      collection(db, 'site_contacts'),
       (snap) => {
         const list = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as TechnicianContact))
+          .map((d) => ({ id: d.id, ...d.data() } as SiteContact))
           .sort((a, b) => {
-            if (a.city !== b.city) return a.city.localeCompare(b.city);
-            if (a.domain !== b.domain) return a.domain.localeCompare(b.domain);
+            if (a.site !== b.site) return a.site.localeCompare(b.site);
+            if (a.role !== b.role) return a.role.localeCompare(b.role);
             return a.name.localeCompare(b.name, 'fr');
           });
         setContacts(list);
@@ -107,7 +102,7 @@ export default function TechnicianContactsView({
       (err) => {
         console.error(err);
         setLoading(false);
-        onAlert('Impossible de charger les techniciens.', 'error');
+        onAlert('Impossible de charger les contacts sur site.', 'error');
       }
     );
     return () => unsub();
@@ -117,17 +112,19 @@ export default function TechnicianContactsView({
     const q = search.trim().toLowerCase();
     return contacts.filter((c) => {
       if (!showInactive && !c.active) return false;
-      if (cityFilter !== 'ALL' && c.city !== cityFilter) return false;
-      if (domainFilter !== 'ALL' && c.domain !== domainFilter) return false;
+      if (siteFilter !== 'ALL' && c.site !== siteFilter) return false;
+      if (roleFilter !== 'ALL' && c.role !== roleFilter) return false;
       if (!q) return true;
       return (
         c.name.toLowerCase().includes(q) ||
         c.phone.toLowerCase().includes(q) ||
+        (c.phoneSecondary || '').toLowerCase().includes(q) ||
         (c.notes || '').toLowerCase().includes(q) ||
-        domainLabel(c.domain).toLowerCase().includes(q)
+        roleLabel(c.role).toLowerCase().includes(q) ||
+        siteShortLabel(c.site).toLowerCase().includes(q)
       );
     });
-  }, [contacts, cityFilter, domainFilter, search, showInactive]);
+  }, [contacts, siteFilter, roleFilter, search, showInactive]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -135,13 +132,14 @@ export default function TechnicianContactsView({
     setFormOpen(true);
   };
 
-  const openEdit = (c: TechnicianContact) => {
+  const openEdit = (c: SiteContact) => {
     setEditingId(c.id || null);
     setForm({
       name: c.name,
-      domain: c.domain,
-      city: c.city,
+      role: c.role,
+      site: c.site,
       phone: c.phone,
+      phoneSecondary: c.phoneSecondary || '',
       availability: c.availability || '',
       notes: c.notes || '',
     });
@@ -160,14 +158,16 @@ export default function TechnicianContactsView({
     setSaving(true);
     const now = new Date().toISOString();
     const uid = auth.currentUser?.uid || userProfile?.uid || '';
+    const phoneSecondary = form.phoneSecondary.trim() || null;
     try {
       if (editingId) {
         const prev = contacts.find((c) => c.id === editingId);
-        await updateDoc(doc(db, 'technician_contacts', editingId), {
+        await updateDoc(doc(db, 'site_contacts', editingId), {
           name,
-          domain: form.domain,
-          city: form.city,
+          role: form.role,
+          site: form.site,
           phone,
+          phoneSecondary,
           availability: form.availability.trim() || null,
           notes: form.notes.trim() || null,
           active: prev?.active ?? true,
@@ -177,11 +177,12 @@ export default function TechnicianContactsView({
         });
         onAlert('Contact mis à jour.', 'success');
       } else {
-        await addDoc(collection(db, 'technician_contacts'), {
+        await addDoc(collection(db, 'site_contacts'), {
           name,
-          domain: form.domain,
-          city: form.city,
+          role: form.role,
+          site: form.site,
           phone,
+          phoneSecondary,
           availability: form.availability.trim() || null,
           notes: form.notes.trim() || null,
           active: true,
@@ -189,7 +190,7 @@ export default function TechnicianContactsView({
           updatedAt: now,
           authorUid: uid,
         });
-        onAlert('Technicien ajouté.', 'success');
+        onAlert('Contact ajouté.', 'success');
       }
       setFormOpen(false);
       setEditingId(null);
@@ -202,10 +203,10 @@ export default function TechnicianContactsView({
     }
   };
 
-  const handleToggleActive = async (c: TechnicianContact) => {
+  const handleToggleActive = async (c: SiteContact) => {
     if (!isAdmin || !c.id) return;
     try {
-      await updateDoc(doc(db, 'technician_contacts', c.id), {
+      await updateDoc(doc(db, 'site_contacts', c.id), {
         active: !c.active,
         updatedAt: new Date().toISOString(),
       });
@@ -220,7 +221,7 @@ export default function TechnicianContactsView({
     if (!isAdmin || !deleteId) return;
     setDeleting(true);
     try {
-      await deleteDoc(doc(db, 'technician_contacts', deleteId));
+      await deleteDoc(doc(db, 'site_contacts', deleteId));
       onAlert('Contact supprimé.', 'success');
       setDeleteId(null);
     } catch (err) {
@@ -237,25 +238,13 @@ export default function TechnicianContactsView({
     <div className={wrapperClass}>
       {!embedded && (
         <div className="mb-6 flex items-center gap-3">
-          {onMenuClick && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMenuClick();
-              }}
-              className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all"
-            >
-              <Menu size={20} />
-            </button>
-          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-slate-800">
-              <Wrench size={20} className="text-orange-600 shrink-0" />
-              <h1 className="text-lg font-black uppercase tracking-tight truncate">Techniciens</h1>
+              <Shield size={20} className="text-emerald-600 shrink-0" />
+              <h1 className="text-lg font-black uppercase tracking-tight truncate">Sur site</h1>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
-              Annuaire urgences — Yaoundé & Bangangté
+              Gardiens et réception par résidence
             </p>
           </div>
           {isAdmin && (
@@ -284,26 +273,27 @@ export default function TechnicianContactsView({
             </button>
           </div>
         )}
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setCityFilter('ALL')}
+            onClick={() => setSiteFilter('ALL')}
             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-              cityFilter === 'ALL' ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              siteFilter === 'ALL' ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
           >
-            Toutes villes
+            Tous sites
           </button>
-          {TECHNICIAN_CITIES.map((c) => (
+          {SITES.map((site) => (
             <button
-              key={c.id}
+              key={site}
               type="button"
-              onClick={() => setCityFilter(c.id)}
+              onClick={() => setSiteFilter(site as SiteName)}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                cityFilter === c.id ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'
+                siteFilter === site ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
               }`}
             >
-              {c.label}
+              {siteShortLabel(site as SiteName)}
             </button>
           ))}
         </div>
@@ -311,23 +301,23 @@ export default function TechnicianContactsView({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setDomainFilter('ALL')}
+            onClick={() => setRoleFilter('ALL')}
             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-              domainFilter === 'ALL' ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              roleFilter === 'ALL' ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
           >
-            Tous métiers
+            Tous rôles
           </button>
-          {TECHNICIAN_DOMAINS.map((d) => (
+          {SITE_CONTACT_ROLES.map((r) => (
             <button
-              key={d.id}
+              key={r.id}
               type="button"
-              onClick={() => setDomainFilter(d.id)}
+              onClick={() => setRoleFilter(r.id)}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                domainFilter === d.id ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                roleFilter === r.id ? 'bg-teal-600 text-white' : 'bg-teal-50 text-teal-700 hover:bg-teal-100'
               }`}
             >
-              {d.label}
+              {r.label}
             </button>
           ))}
         </div>
@@ -339,7 +329,7 @@ export default function TechnicianContactsView({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Rechercher nom, téléphone…"
-            className="w-full pl-9 pr-3 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500 transition-all"
+            className="w-full pl-9 pr-3 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-emerald-500 transition-all"
           />
         </div>
 
@@ -358,16 +348,16 @@ export default function TechnicianContactsView({
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="animate-spin text-orange-600" size={28} />
+          <Loader2 className="animate-spin text-emerald-600" size={28} />
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
-          <Wrench size={32} className="mx-auto text-gray-300 mb-3" />
+          <Shield size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-sm text-gray-500">
             {contacts.length === 0
               ? isAdmin
-                ? 'Aucun technicien pour le moment. Ajoutez le premier contact.'
-                : 'Aucun technicien enregistré pour le moment.'
+                ? 'Aucun contact sur site. Ajoutez le premier gardien ou réception.'
+                : 'Aucun contact sur site enregistré pour le moment.'
               : 'Aucun résultat pour ces filtres.'}
           </p>
         </div>
@@ -376,6 +366,7 @@ export default function TechnicianContactsView({
           <AnimatePresence>
             {filtered.map((c) => {
               const wa = whatsappUrl(c.phone);
+              const waSecondary = c.phoneSecondary ? whatsappUrl(c.phoneSecondary) : null;
               return (
                 <motion.div
                   key={c.id}
@@ -390,11 +381,11 @@ export default function TechnicianContactsView({
                   <div className="flex flex-col sm:flex-row sm:items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-50 text-blue-700">
-                          {domainLabel(c.domain)}
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-teal-50 text-teal-700">
+                          {roleLabel(c.role)}
                         </span>
-                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-orange-50 text-orange-700">
-                          {cityLabel(c.city)}
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
+                          {siteShortLabel(c.site)}
                         </span>
                         {!c.active && (
                           <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">
@@ -404,6 +395,9 @@ export default function TechnicianContactsView({
                       </div>
                       <h2 className="text-sm font-black text-slate-900 truncate">{c.name}</h2>
                       <p className="text-sm text-slate-700 font-medium mt-0.5">{c.phone}</p>
+                      {c.phoneSecondary && (
+                        <p className="text-sm text-slate-600 mt-0.5">Sec. {c.phoneSecondary}</p>
+                      )}
                       {c.availability && (
                         <p className="text-[11px] text-gray-500 mt-1">{c.availability}</p>
                       )}
@@ -429,6 +423,26 @@ export default function TechnicianContactsView({
                         >
                           <MessageCircle size={13} />
                           WhatsApp
+                        </a>
+                      )}
+                      {c.phoneSecondary && (
+                        <a
+                          href={`tel:${digitsOnlyPhone(c.phoneSecondary)}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                        >
+                          <Phone size={13} />
+                          Sec.
+                        </a>
+                      )}
+                      {waSecondary && (
+                        <a
+                          href={waSecondary}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all"
+                        >
+                          <MessageCircle size={13} />
+                          WA sec.
                         </a>
                       )}
                       {isAdmin && (
@@ -478,7 +492,7 @@ export default function TechnicianContactsView({
             >
               <div className="flex items-center justify-between p-5 border-b border-gray-100">
                 <h3 className="text-sm font-black uppercase tracking-widest">
-                  {editingId ? 'Modifier le contact' : 'Nouveau technicien'}
+                  {editingId ? 'Modifier le contact' : 'Nouveau contact sur site'}
                 </h3>
                 <button
                   type="button"
@@ -497,43 +511,43 @@ export default function TechnicianContactsView({
                     required
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="Nom ou entreprise"
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Nom du gardien ou poste"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
-                      Métier
+                      Rôle
                     </label>
                     <select
-                      value={form.domain}
+                      value={form.role}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, domain: e.target.value as TechnicianDomain }))
+                        setForm((f) => ({ ...f, role: e.target.value as SiteContactRole }))
                       }
-                      className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                     >
-                      {TECHNICIAN_DOMAINS.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.label}
+                      {SITE_CONTACT_ROLES.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
-                      Ville
+                      Site
                     </label>
                     <select
-                      value={form.city}
+                      value={form.site}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, city: e.target.value as TechnicianCity }))
+                        setForm((f) => ({ ...f, site: e.target.value as SiteName }))
                       }
-                      className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                     >
-                      {TECHNICIAN_CITIES.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.label}
+                      {SITES.map((site) => (
+                        <option key={site} value={site}>
+                          {siteShortLabel(site as SiteName)}
                         </option>
                       ))}
                     </select>
@@ -541,14 +555,25 @@ export default function TechnicianContactsView({
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
-                    Téléphone
+                    Téléphone principal
                   </label>
                   <input
                     required
                     value={form.phone}
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                     placeholder="+237 6XX XXX XXX"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                    Téléphone secondaire
+                  </label>
+                  <input
+                    value={form.phoneSecondary}
+                    onChange={(e) => setForm((f) => ({ ...f, phoneSecondary: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Optionnel"
                   />
                 </div>
                 <div>
@@ -558,8 +583,8 @@ export default function TechnicianContactsView({
                   <input
                     value={form.availability}
                     onChange={(e) => setForm((f) => ({ ...f, availability: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="Ex. 7j/7 · jour uniquement"
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Ex. 19h–7h · remplaçant week-end"
                   />
                 </div>
                 <div>
@@ -570,14 +595,14 @@ export default function TechnicianContactsView({
                     value={form.notes}
                     onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                     rows={2}
-                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                    placeholder="Préfère WhatsApp, tarifs…"
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                    placeholder="Consignes, langue parlée…"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="w-full py-3.5 bg-orange-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {saving ? <Loader2 className="animate-spin" size={16} /> : null}
                   {editingId ? 'Enregistrer' : 'Ajouter'}

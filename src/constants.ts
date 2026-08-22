@@ -110,6 +110,12 @@ export const TECHNICIAN_CITIES = [
   { id: 'BANGANGTE' as const, label: 'Bangangté' },
 ];
 
+export const SITE_CONTACT_ROLES = [
+  { id: 'GUARD' as const, label: 'Gardien (jour)' },
+  { id: 'GUARD_NIGHT' as const, label: 'Gardien (nuit)' },
+  { id: 'RECEPTION' as const, label: 'Réception' },
+];
+
 /** Normalise un numéro pour tel: / wa.me (chiffres uniquement). */
 export function digitsOnlyPhone(phone: string): string {
   return (phone || '').replace(/\D/g, '');

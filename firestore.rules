@@ -277,6 +277,21 @@ service cloud.firestore {
         (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 500));
     }
 
+    function isValidSiteContact(data) {
+      return hasRequiredFields(['name', 'role', 'site', 'phone', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+        data.role in ['GUARD', 'GUARD_NIGHT', 'RECEPTION'] &&
+        data.site in ['MODENA YAMEHOME', 'MATERA YAMEHOME', 'RIETI YAMEHOME', 'GALLAGHERS CITY'] &&
+        data.phone is string && data.phone.size() > 0 && data.phone.size() <= 40 &&
+        data.active is bool &&
+        data.createdAt is string &&
+        data.updatedAt is string &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        (!('phoneSecondary' in data) || data.phoneSecondary == null || (data.phoneSecondary is string && data.phoneSecondary.size() <= 40)) &&
+        (!('availability' in data) || data.availability == null || (data.availability is string && data.availability.size() <= 120)) &&
+        (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 500));
+    }
+
     function isValidKeyboxDwelling(data) {
       return hasRequiredFields(['shortLabel', 'officialLabel', 'site', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
         hasOnlyAllowedFields(['shortLabel', 'officialLabel', 'site', 'unitSlug', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
@@ -650,6 +665,12 @@ service cloud.firestore {
     match /technician_contacts/{contactId} {
       allow read: if isAgent();
       allow create, update: if isAdmin() && isValidTechnicianContact(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /site_contacts/{contactId} {
+      allow read: if isAgent();
+      allow create, update: if isAdmin() && isValidSiteContact(request.resource.data);
       allow delete: if isAdmin();
     }
 
