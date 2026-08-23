@@ -111,6 +111,9 @@ import {
   BookUser,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ContactPicker from './components/ContactPicker';
+import { useContactDirectory } from './hooks/useContactDirectory';
+import { MergedClient } from './utils/contactDirectory';
 
 const OperationType = {
   CREATE: 'create',
@@ -234,6 +237,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const { mergedContacts } = useContactDirectory(!!user && isAuthReady);
   const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
   const [clientProfileSeed, setClientProfileSeed] = useState<ClientProfileSeed | null>(null);
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
@@ -1550,7 +1554,7 @@ export default function App() {
   const handleConvertProspect = (prospect: Prospect) => openProspectAsForm(prospect, 'convert');
   const handleProformaProspect = (prospect: Prospect) => openProspectAsForm(prospect, 'proforma');
 
-  const applyClientSuggestion = (matchedClient: ClientProfile) => {
+  const applyClientSuggestion = (matchedClient: MergedClient) => {
     setFormData(prev => ({
       ...prev,
       firstName: matchedClient.firstName || '',
@@ -1710,19 +1714,6 @@ export default function App() {
       return { ...prev, signature: me };
     });
   }, [user?.displayName, userProfile?.displayName, isReadOnly]);
-
-  const filteredClients = useMemo(() => {
-    const term = normalizeString(clientSearch);
-    if (term.length < 2) return [];
-    return clients
-      .filter(c => {
-        const fullName = normalizeString(`${c.firstName} ${c.lastName}`);
-        return fullName.includes(term) ||
-          normalizeString(c.phone || '').includes(term) ||
-          normalizeString(c.email || '').includes(term);
-      })
-      .slice(0, 8);
-  }, [clientSearch, clients]);
 
   const filteredAgents = useMemo(() => {
     const term = normalizeString(agentSearch);
@@ -2557,72 +2548,14 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              {/* Search */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Client intelligent (base clients)</label>
-                <div className="flex gap-2 relative">
-                  <input 
-                    type="text" 
-                    placeholder="Nom, téléphone ou email..." 
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all" 
-                    value={clientSearch}
-                    onChange={(e) => {
-                      setClientSearch(e.target.value);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && filteredClients.length > 0) {
-                        applyClientSuggestion(filteredClients[0]);
-                      }
-                    }}
-                  />
-                  <button 
-                    onClick={() => {
-                      if (filteredClients.length > 0) applyClientSuggestion(filteredClients[0]);
-                    }} 
-                    className="bg-[#141414] text-white p-3 rounded-xl hover:bg-gray-800 transition-all"
-                  >
-                    <Search size={16} />
-                  </button>
-                </div>
-                {filteredClients.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-xl p-2 space-y-1 max-h-44 overflow-y-auto">
-                    {filteredClients.map((client, idx) => (
-                      <button
-                        key={`${client.id || 'legacy'}-${idx}`}
-                        type="button"
-                        onClick={() => applyClientSuggestion(client)}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 transition-all"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-black text-gray-800 uppercase truncate">{client.firstName} {client.lastName}</div>
-                            <div className="text-[10px] text-gray-500 truncate">{client.phone || '-'} | {client.email || '-'}</div>
-                          </div>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openClientProfile(client);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                openClientProfile(client);
-                              }
-                            }}
-                            className="shrink-0 text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 px-1"
-                            title="Voir la fiche client complète"
-                          >
-                            Fiche →
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <ContactPicker
+                label="Contact intelligent"
+                search={clientSearch}
+                onSearchChange={setClientSearch}
+                contacts={mergedContacts}
+                onSelect={applyClientSuggestion}
+                onOpenProfile={openClientProfile}
+              />
 
               {/* Form */}
               <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>

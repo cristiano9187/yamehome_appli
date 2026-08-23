@@ -4,7 +4,15 @@ import { db } from '../firebase';
 import { ClientProfile, ClientProfileSeed, Prospect, ReceiptData, UserProfile } from '../types';
 import { formatCurrency } from '../constants';
 import { getReceiptSegments } from '../utils/receiptSegments';
-import { AptBadge, PhoneLinks, parseApartment } from '../utils/aptDisplay';
+import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
+import {
+  buildMergedDirectory,
+  formatDateFr,
+  identityKeyOf,
+  MergedClient,
+  sameContact,
+} from '../utils/contactDirectory';
+import ContactInterestLine from './ContactInterestLine';
 import {
   Menu,
   Search,
@@ -35,310 +43,7 @@ interface ClientsViewProps {
   initialSeed?: ClientProfileSeed | null;
 }
 
-type ContactLike = { firstName?: string; lastName?: string; phone?: string; email?: string };
-
-/** Fiche client fusionnée : regroupe fiches + reçus + prospects désignant la même personne. */
-interface MergedClient extends ClientProfile {
-  _key: string;
-  /** Toutes les combinaisons nom/tél/email vues (fiches + reçus + prospects) pour retrouver tout l'historique. */
-  _variants: ClientProfileSeed[];
-  /** Documents Firestore `clients/{id}` fusionnés dans cette fiche (0, 1 ou plusieurs si doublons détectés). */
-  _clientDocIds: string[];
-  /**
-   * True si la personne est connue via un prospect et n'a jamais eu de vrai séjour (aucun reçu).
-   * Badge « P » — indépendant du statut prospect (ouvert, perdu, annulé, converti sans reçu).
-   */
-  _isProspectOnly: boolean;
-  /** Dernier logement demandé en tant que prospect (nom TARIFS complet), si connu. */
-  _interestedApartment: string | null;
-  /** Dates demandées sur ce dernier prospect (YYYY-MM-DD), si connues. */
-  _interestedStartDate: string | null;
-  _interestedEndDate: string | null;
-}
-
 const normalizeString = (value: string) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-/** Compare sur les 9 derniers chiffres : tolère les variantes +237 / 00237 / espaces / tirets. */
-function normalizePhoneDigits(raw: string): string {
-  const digits = (raw || '').replace(/\D/g, '');
-  if (digits.length < 8) return '';
-  return digits.slice(-9);
-}
-
-function normalizeFullName(firstName?: string, lastName?: string): string {
-  return normalizeString(`${firstName || ''} ${lastName || ''}`);
-}
-
-/** Deux identités désignent la même personne si email, téléphone (chiffres) ou nom complet coïncident. */
-function sameContact(a: ContactLike, b: ContactLike): boolean {
-  const emailA = normalizeString(a.email || '');
-  const emailB = normalizeString(b.email || '');
-  if (emailA && emailA.includes('@') && emailA === emailB) return true;
-  const phoneA = normalizePhoneDigits(a.phone || '');
-  const phoneB = normalizePhoneDigits(b.phone || '');
-  if (phoneA && phoneA === phoneB) return true;
-  const nameA = normalizeFullName(a.firstName, a.lastName);
-  const nameB = normalizeFullName(b.firstName, b.lastName);
-  if (nameA && nameA.includes(' ') && nameA === nameB) return true;
-  return false;
-}
-
-function identityKeyOf(c: ContactLike): string {
-  return normalizeString(`${c.firstName || ''}|${c.lastName || ''}|${c.phone || ''}|${c.email || ''}`);
-}
-
-function formatDateFr(iso: string): string {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (Number.isNaN(+d)) return iso;
-  return d.toLocaleDateString('fr-FR');
-}
-
-/** Libellé court « RIETI — Emeraude studio » à partir du nom TARIFS. */
-function formatInterestedByLabel(apartmentName: string): string {
-  let cleaned = (apartmentName || '')
-    .replace(/\bYAMEHOME\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  // Si des dates ont été collées dans le nom du logement, on les retire du libellé.
-  cleaned = cleaned
-    .replace(/[\s\-–—]*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}([\s\-–—]+\d{1,2}[./-]\d{1,2}[./-]\d{2,4})?\s*$/g, '')
-    .trim();
-  const apt = parseApartment(cleaned || apartmentName);
-  let unit = (apt.unit || '')
-    .replace(/\bAPPARTEMENT\b/gi, '')
-    .replace(/\bMODE\b/gi, '')
-    .replace(/\s*[-–—]\s*/g, ' · ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (unit) {
-    unit = unit
-      .toLowerCase()
-      .replace(/(^|[ ·])(\S)/g, (_, sep, ch) => sep + ch.toUpperCase());
-  }
-  if (unit && unit !== apt.site) return `${apt.site} — ${unit}`;
-  return apt.site || cleaned || apartmentName;
-}
-
-/** Plage compacte : « 11–12/07/2026 » si même mois, sinon « 11/07 → 15/08 ». */
-function formatInterestedDatesCompact(startDate?: string | null, endDate?: string | null): string | null {
-  if (!startDate && !endDate) return null;
-  if (!startDate || !endDate) return formatDateFr(startDate || endDate || '');
-  const [ys, ms, ds] = startDate.split('-').map(Number);
-  const [ye, me, de] = endDate.split('-').map(Number);
-  if (ys && ms && ds && ye && me && de && ys === ye && ms === me) {
-    return `${String(ds).padStart(2, '0')}–${String(de).padStart(2, '0')}/${String(ms).padStart(2, '0')}/${ys}`;
-  }
-  return `${formatDateFr(startDate)} → ${formatDateFr(endDate)}`;
-}
-
-function ProspectInterestLine({
-  apartment,
-  startDate,
-  endDate,
-  compact = false,
-}: {
-  apartment: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  compact?: boolean;
-}) {
-  const aptLabel = apartment ? formatInterestedByLabel(apartment) : null;
-  const datesLabel = formatInterestedDatesCompact(startDate, endDate);
-  if (!aptLabel && !datesLabel) return null;
-  return (
-    <p className={`truncate ${compact ? 'text-[10px] mt-0.5' : 'text-[11px] mt-0.5'}`}>
-      {aptLabel ? (
-        <span className="text-violet-700 font-semibold">Intéressé par : {aptLabel}</span>
-      ) : (
-        <span className="text-violet-700 font-semibold">Dates demandées</span>
-      )}
-      {datesLabel && (
-        <>
-          <span className="text-gray-300 mx-1">·</span>
-          <span className="text-gray-500 font-medium tabular-nums">{datesLabel}</span>
-        </>
-      )}
-    </p>
-  );
-}
-
-/**
- * Regroupe fiches `clients` + reçus + tous les prospects (ouverts, perdus, annulés, convertis)
- * par personne réelle. Badge « P » seulement si aucun reçu n'est rattaché (jamais réservé).
- */
-function buildMergedDirectory(
-  clients: ClientProfile[],
-  receipts: ReceiptData[],
-  prospects: Prospect[]
-): MergedClient[] {
-  type Candidate = ContactLike & {
-    createdAt: string;
-    updatedAt: string;
-    authorUid: string;
-    preferences?: string;
-    notes?: string;
-    docId?: string;
-    /** Provenance : reçu (séjour effectif, même annulé). */
-    fromRealStay?: boolean;
-    /** Provenance : prospect (quel que soit le statut — données précieuses). */
-    fromProspect?: boolean;
-    apartmentName?: string;
-    startDate?: string;
-    endDate?: string;
-  };
-
-  const candidates: Candidate[] = [];
-  clients.forEach((c) => {
-    candidates.push({
-      firstName: c.firstName || '',
-      lastName: c.lastName || '',
-      phone: c.phone || '',
-      email: c.email || '',
-      createdAt: c.createdAt || new Date().toISOString(),
-      updatedAt: c.updatedAt || c.createdAt || new Date().toISOString(),
-      authorUid: c.authorUid || '',
-      preferences: c.preferences,
-      notes: c.notes,
-      docId: c.id,
-    });
-  });
-  receipts.forEach((r) => {
-    if (!r.lastName?.trim()) return;
-    candidates.push({
-      firstName: r.firstName || '',
-      lastName: r.lastName || '',
-      phone: r.phone || '',
-      email: r.email || '',
-      createdAt: r.createdAt || new Date().toISOString(),
-      updatedAt: r.createdAt || new Date().toISOString(),
-      authorUid: r.authorUid || '',
-      fromRealStay: true,
-    });
-  });
-  prospects.forEach((p) => {
-    if (!p.lastName?.trim()) return;
-    candidates.push({
-      firstName: p.firstName || '',
-      lastName: p.lastName || '',
-      phone: p.phone || '',
-      email: p.email || '',
-      createdAt: p.createdAt || new Date().toISOString(),
-      updatedAt: p.updatedAt || p.createdAt || new Date().toISOString(),
-      authorUid: p.authorUid || '',
-      notes: p.notes,
-      fromProspect: true,
-      apartmentName: (p.apartmentName || '').trim() || undefined,
-      startDate: (p.startDate || '').trim() || undefined,
-      endDate: (p.endDate || '').trim() || undefined,
-    });
-  });
-
-  const parent = candidates.map((_, i) => i);
-  const find = (i: number): number => {
-    while (parent[i] !== i) {
-      parent[i] = parent[parent[i]];
-      i = parent[i];
-    }
-    return i;
-  };
-  const union = (i: number, j: number) => {
-    const ri = find(i);
-    const rj = find(j);
-    if (ri !== rj) parent[ri] = rj;
-  };
-
-  const phoneBuckets = new Map<string, number[]>();
-  const emailBuckets = new Map<string, number[]>();
-  const nameBuckets = new Map<string, number[]>();
-  candidates.forEach((c, i) => {
-    const p = normalizePhoneDigits(c.phone || '');
-    if (p) {
-      if (!phoneBuckets.has(p)) phoneBuckets.set(p, []);
-      phoneBuckets.get(p)!.push(i);
-    }
-    const e = normalizeString(c.email || '');
-    if (e && e.includes('@')) {
-      if (!emailBuckets.has(e)) emailBuckets.set(e, []);
-      emailBuckets.get(e)!.push(i);
-    }
-    const n = normalizeFullName(c.firstName, c.lastName);
-    if (n && n.includes(' ')) {
-      if (!nameBuckets.has(n)) nameBuckets.set(n, []);
-      nameBuckets.get(n)!.push(i);
-    }
-  });
-  [phoneBuckets, emailBuckets, nameBuckets].forEach((buckets) => {
-    buckets.forEach((idxs) => {
-      for (let k = 1; k < idxs.length; k++) union(idxs[0], idxs[k]);
-    });
-  });
-
-  const clusters = new Map<number, Candidate[]>();
-  candidates.forEach((c, i) => {
-    const root = find(i);
-    if (!clusters.has(root)) clusters.set(root, []);
-    clusters.get(root)!.push(c);
-  });
-
-  const merged: MergedClient[] = [];
-  clusters.forEach((group) => {
-    const registered = group.filter((g) => g.docId).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    const byRecency = group.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    // Préférer une fiche client / un reçu à un prospect pour le libellé affiché.
-    const base =
-      registered[0] ||
-      byRecency.find((g) => g.fromRealStay) ||
-      byRecency.find((g) => !g.fromProspect) ||
-      byRecency[0];
-    const phone = base.phone || group.find((g) => g.phone)?.phone || '';
-    const email = base.email || group.find((g) => g.email)?.email || '';
-    const preferences = registered.find((g) => g.preferences?.trim())?.preferences;
-    const notes =
-      registered.find((g) => g.notes?.trim())?.notes ||
-      group.find((g) => g.notes?.trim())?.notes;
-    const createdAt = group.reduce((min, g) => (g.createdAt && g.createdAt < min ? g.createdAt : min), base.createdAt);
-    const hasRealStay = group.some((g) => g.fromRealStay);
-    const hasProspect = group.some((g) => g.fromProspect);
-    const isProspectOnly = hasProspect && !hasRealStay;
-    // Dernier prospect avec au moins un logement ou des dates (le plus récemment mis à jour).
-    const latestProspectContext = group
-      .filter((g) => g.fromProspect && (g.apartmentName || g.startDate || g.endDate))
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
-    const interestedApartment = isProspectOnly ? (latestProspectContext?.apartmentName || null) : null;
-    const interestedStartDate = isProspectOnly ? (latestProspectContext?.startDate || null) : null;
-    const interestedEndDate = isProspectOnly ? (latestProspectContext?.endDate || null) : null;
-    const variants: ClientProfileSeed[] = group.map((g) => ({
-      firstName: g.firstName || '',
-      lastName: g.lastName || '',
-      phone: g.phone || '',
-      email: g.email || '',
-    }));
-    const entry: MergedClient = {
-      id: base.docId,
-      firstName: base.firstName || '',
-      lastName: base.lastName || '',
-      phone,
-      email,
-      preferences,
-      notes,
-      createdAt,
-      updatedAt: base.updatedAt,
-      authorUid: base.authorUid || '',
-      _key: identityKeyOf(base),
-      _variants: variants,
-      _clientDocIds: registered.map((g) => g.docId!).filter(Boolean),
-      // P = arrivé via prospect et jamais réservé (aucun reçu).
-      _isProspectOnly: isProspectOnly,
-      _interestedApartment: interestedApartment,
-      _interestedStartDate: interestedStartDate,
-      _interestedEndDate: interestedEndDate,
-    };
-    merged.push(entry);
-  });
-
-  return merged.sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`));
-}
 
 export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenReceipt, initialSeed }: ClientsViewProps) {
   const [clients, setClients] = useState<ClientProfile[]>([]);
@@ -460,6 +165,9 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
       _interestedApartment: null,
       _interestedStartDate: null,
       _interestedEndDate: null,
+      _lastProspectApartment: null,
+      _lastProspectStartDate: null,
+      _lastProspectEndDate: null,
     };
   }, [directory, selectedClusterKey, selectedIdentity, userProfile?.uid]);
 
@@ -637,7 +345,7 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
                           {c.firstName} {c.lastName}
                         </p>
                         {c._isProspectOnly && (
-                          <ProspectInterestLine
+                          <ContactInterestLine
                             apartment={c._interestedApartment}
                             startDate={c._interestedStartDate}
                             endDate={c._interestedEndDate}
@@ -698,7 +406,7 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
                           Prospect — pas encore de réservation effective
                         </p>
                         {(selectedProfile._interestedApartment || selectedProfile._interestedStartDate || selectedProfile._interestedEndDate) && (
-                          <ProspectInterestLine
+                          <ContactInterestLine
                             apartment={selectedProfile._interestedApartment}
                             startDate={selectedProfile._interestedStartDate}
                             endDate={selectedProfile._interestedEndDate}

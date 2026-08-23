@@ -48,6 +48,9 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import DateRangePicker from './DateRangePicker';
+import ContactPicker from './ContactPicker';
+import { useContactDirectory } from '../hooks/useContactDirectory';
+import { MergedClient } from '../utils/contactDirectory';
 
 interface ProspectsViewProps {
   onMenuClick?: () => void;
@@ -201,6 +204,7 @@ function getBookingForUnitAndDay(receipts: ReceiptData[], unitSlug: string, date
 }
 
 export default function ProspectsView({ onMenuClick, userProfile, onAlert, onConvert, onProforma }: ProspectsViewProps) {
+  const { mergedContacts } = useContactDirectory(true);
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
@@ -216,6 +220,7 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [contactSearch, setContactSearch] = useState('');
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   const [cellPanel, setCellPanel] = useState<{
     unitSlug: string;
@@ -504,6 +509,30 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   const resetForm = () => {
     setFormData(getEmptyProspect(userProfile?.uid || ''));
     setEditingId(null);
+    setContactSearch('');
+  };
+
+  const applyContactToProspectForm = (contact: MergedClient) => {
+    setContactSearch(`${contact.firstName} ${contact.lastName}`.trim());
+    setFormData((prev) => {
+      const apt = contact._lastProspectApartment || '';
+      const units = apt ? TARIFS[apt]?.units || [] : [];
+      return {
+        ...prev,
+        firstName: contact.firstName || '',
+        lastName: contact.lastName || '',
+        phone: contact.phone || '',
+        email: contact.email || '',
+        ...(apt
+          ? {
+              apartmentName: apt,
+              calendarSlug: units.length === 1 ? units[0]! : prev.calendarSlug || '',
+              startDate: contact._lastProspectStartDate || prev.startDate || '',
+              endDate: contact._lastProspectEndDate || prev.endDate || '',
+            }
+          : {}),
+      };
+    });
   };
 
   const openNewProspectForm = (partial?: Partial<Prospect>) => {
@@ -985,6 +1014,17 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                 </button>
               </div>
               <div className="p-5 space-y-3">
+                {!editingId && (
+                  <ContactPicker
+                    label="Contact intelligent"
+                    placeholder="Retrouver un client ou prospect connu…"
+                    search={contactSearch}
+                    onSearchChange={setContactSearch}
+                    contacts={mergedContacts}
+                    onSelect={applyContactToProspectForm}
+                    showProfileLink={false}
+                  />
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs"
