@@ -50,7 +50,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import DateRangePicker from './DateRangePicker';
 import ContactPicker from './ContactPicker';
 import { useContactDirectory } from '../hooks/useContactDirectory';
-import { MergedClient } from '../utils/contactDirectory';
+import {
+  contactDisplayName,
+  findOpenProspects,
+  MergedClient,
+  ProspectUiRequest,
+} from '../utils/contactDirectory';
 
 interface ProspectsViewProps {
   onMenuClick?: () => void;
@@ -59,6 +64,8 @@ interface ProspectsViewProps {
   onConvert: (prospect: Prospect) => void;
   /** Ouvre le formulaire en mode proforma (PDF sans bloquer le calendrier). */
   onProforma: (prospect: Prospect) => void;
+  uiRequest?: ProspectUiRequest | null;
+  onUiRequestHandled?: () => void;
 }
 
 const ALL_STATUSES: ProspectStatus[] = [
@@ -203,7 +210,15 @@ function getBookingForUnitAndDay(receipts: ReceiptData[], unitSlug: string, date
   });
 }
 
-export default function ProspectsView({ onMenuClick, userProfile, onAlert, onConvert, onProforma }: ProspectsViewProps) {
+export default function ProspectsView({
+  onMenuClick,
+  userProfile,
+  onAlert,
+  onConvert,
+  onProforma,
+  uiRequest,
+  onUiRequestHandled,
+}: ProspectsViewProps) {
   const { mergedContacts } = useContactDirectory(true);
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
@@ -221,6 +236,8 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   const [isSaving, setIsSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
+  const [contactOpenHint, setContactOpenHint] = useState<Prospect[]>([]);
+  const [duplicateDialog, setDuplicateDialog] = useState<Prospect[] | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   const [cellPanel, setCellPanel] = useState<{
     unitSlug: string;
@@ -510,10 +527,12 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     setFormData(getEmptyProspect(userProfile?.uid || ''));
     setEditingId(null);
     setContactSearch('');
+    setContactOpenHint([]);
   };
 
   const applyContactToProspectForm = (contact: MergedClient) => {
     setContactSearch(`${contact.firstName} ${contact.lastName}`.trim());
+    setContactOpenHint(findOpenProspects(contact, prospects));
     setFormData((prev) => {
       const apt = contact._lastProspectApartment || '';
       const units = apt ? TARIFS[apt]?.units || [] : [];
@@ -550,6 +569,34 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     [formData.apartmentName]
   );
 
+  const performSave = async () => {
+    const { id: _id, ...baseData } = formData;
+    const live = editingId ? prospects.find((p) => p.id === editingId) : undefined;
+    const { draft: draftFromNotes } = stripProformaDraftFromNotes(live?.notes || '');
+    const draft = parseProformaDraftJson(live?.proformaDraft) || draftFromNotes;
+    const notes = draft
+      ? embedProformaDraftInNotes(formData.notes || '', draft)
+      : formData.notes || '';
+    const payload = {
+      ...baseData,
+      notes,
+      totalStayPrice: formData.totalStayPrice || 0,
+      updatedAt: new Date().toISOString(),
+      authorUid: formData.authorUid || userProfile?.uid || '',
+    };
+    if (editingId) {
+      await updateDoc(doc(db, 'prospects', editingId), payload);
+      onAlert('Prospect mis à jour.', 'success');
+    } else {
+      await addDoc(collection(db, 'prospects'), { ...payload, createdAt: new Date().toISOString() });
+      onAlert('Prospect créé.', 'success');
+    }
+    resetForm();
+    setFormOpen(false);
+    setCellPanel(null);
+    setDuplicateDialog(null);
+  };
+
   const handleSave = async () => {
     if (!formData.lastName || !formData.phone) {
       onAlert('Nom et téléphone sont requis pour enregistrer un prospect.', 'error');
@@ -562,32 +609,29 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
       return;
     }
 
+    if (!editingId) {
+      const open = findOpenProspects(formData, prospects);
+      if (open.length > 0) {
+        setDuplicateDialog(open);
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
-      const { id: _id, ...baseData } = formData;
-      const live = editingId ? prospects.find((p) => p.id === editingId) : undefined;
-      const { draft: draftFromNotes } = stripProformaDraftFromNotes(live?.notes || '');
-      const draft = parseProformaDraftJson(live?.proformaDraft) || draftFromNotes;
-      const notes = draft
-        ? embedProformaDraftInNotes(formData.notes || '', draft)
-        : formData.notes || '';
-      const payload = {
-        ...baseData,
-        notes,
-        totalStayPrice: formData.totalStayPrice || 0,
-        updatedAt: new Date().toISOString(),
-        authorUid: formData.authorUid || userProfile?.uid || '',
-      };
-      if (editingId) {
-        await updateDoc(doc(db, 'prospects', editingId), payload);
-        onAlert('Prospect mis à jour.', 'success');
-      } else {
-        await addDoc(collection(db, 'prospects'), { ...payload, createdAt: new Date().toISOString() });
-        onAlert('Prospect créé.', 'success');
-      }
-      resetForm();
-      setFormOpen(false);
-      setCellPanel(null);
+      await performSave();
+    } catch (error) {
+      console.error('Error saving prospect:', error);
+      onAlert("Erreur lors de l'enregistrement du prospect.", 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveDespiteDuplicate = async () => {
+    setIsSaving(true);
+    try {
+      await performSave();
     } catch (error) {
       console.error('Error saving prospect:', error);
       onAlert("Erreur lors de l'enregistrement du prospect.", 'error');
@@ -599,6 +643,8 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
   const handleEdit = (prospect: Prospect) => {
     const { cleanNotes } = stripProformaDraftFromNotes(prospect.notes || '');
     setEditingId(prospect.id || null);
+    setContactOpenHint([]);
+    setContactSearch(`${prospect.firstName || ''} ${prospect.lastName || ''}`.trim());
     setFormData({
       ...prospect,
       notes: cleanNotes,
@@ -610,6 +656,48 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
     setFormOpen(true);
     setCellPanel(null);
   };
+
+  useEffect(() => {
+    if (!uiRequest) return;
+    if (uiRequest.kind === 'create') {
+      setEditingId(null);
+      const empty = getEmptyProspect(userProfile?.uid || '');
+      if (uiRequest.contact) {
+        const c = uiRequest.contact;
+        const apt = c._lastProspectApartment || '';
+        const units = apt ? TARIFS[apt]?.units || [] : [];
+        setFormData({
+          ...empty,
+          firstName: c.firstName || '',
+          lastName: c.lastName || '',
+          phone: c.phone || '',
+          email: c.email || '',
+          ...(apt
+            ? {
+                apartmentName: apt,
+                calendarSlug: units.length === 1 ? units[0]! : '',
+                startDate: c._lastProspectStartDate || '',
+                endDate: c._lastProspectEndDate || '',
+              }
+            : {}),
+        });
+        setContactSearch(`${c.firstName} ${c.lastName}`.trim());
+        setContactOpenHint(findOpenProspects(c, prospects));
+      } else {
+        setFormData(empty);
+        setContactSearch('');
+        setContactOpenHint([]);
+      }
+      setFormOpen(true);
+      onUiRequestHandled?.();
+      return;
+    }
+    const target = prospects.find((p) => p.id === uiRequest.prospectId);
+    if (!target) return;
+    handleEdit(target);
+    onUiRequestHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiRequest, prospects]);
 
   const handleQuickStatus = async (prospect: Prospect, status: ProspectStatus) => {
     if (!prospect.id) return;
@@ -1025,6 +1113,30 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                     showProfileLink={false}
                   />
                 )}
+                {!editingId && contactOpenHint.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
+                    <p className="text-[10px] font-bold text-amber-900 leading-relaxed">
+                      Dossier prospect déjà ouvert pour {contactDisplayName(formData)} (
+                      {contactOpenHint.length}).
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(contactOpenHint[0])}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[9px] font-black uppercase tracking-widest"
+                      >
+                        Rouvrir le dossier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContactOpenHint([])}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-amber-800 text-[9px] font-black uppercase tracking-widest"
+                      >
+                        Créer quand même
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs"
@@ -1173,6 +1285,70 @@ export default function ProspectsView({ onMenuClick, userProfile, onAlert, onCon
                 </div>
               </div>
             </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {duplicateDialog && duplicateDialog.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setDuplicateDialog(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-black uppercase tracking-widest text-gray-800 mb-2">
+                Dossier déjà ouvert
+              </h3>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                Un prospect actif existe déjà pour {contactDisplayName(formData)}. Préférez rouvrir le
+                dossier existant plutôt que d&apos;en créer un doublon.
+              </p>
+              <ul className="text-[11px] text-gray-600 mb-5 space-y-1 max-h-28 overflow-y-auto">
+                {duplicateDialog.map((p) => (
+                  <li key={p.id} className="font-medium">
+                    · {contactDisplayName(p)} — {STATUS_CONFIG[p.status]?.label || p.status}
+                    {p.apartmentName ? ` · ${p.apartmentName}` : ''}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => {
+                    handleEdit(duplicateDialog[0]);
+                    setDuplicateDialog(null);
+                  }}
+                  className="w-full py-3 rounded-xl bg-violet-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  Rouvrir le dossier
+                </button>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={handleSaveDespiteDuplicate}
+                  className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  {isSaving ? 'Enregistrement…' : 'Créer quand même'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateDialog(null)}
+                  className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

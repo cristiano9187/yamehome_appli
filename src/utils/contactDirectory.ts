@@ -1,4 +1,4 @@
-import { ClientProfile, ClientProfileSeed, Prospect, ReceiptData } from '../types';
+import { ClientProfile, ClientProfileSeed, Prospect, ProspectStatus, ReceiptData } from '../types';
 import { parseApartment } from './aptDisplay';
 
 export type ContactLike = { firstName?: string; lastName?: string; phone?: string; email?: string };
@@ -19,6 +19,10 @@ export interface MergedClient extends ClientProfile {
   _lastProspectStartDate: string | null;
   _lastProspectEndDate: string | null;
 }
+
+export type ProspectUiRequest =
+  | { kind: 'create'; contact?: MergedClient; ts: number }
+  | { kind: 'edit'; prospectId: string; ts: number };
 
 export const normalizeContactString = (value: string) =>
   (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -288,4 +292,40 @@ export function filterMergedContacts(contacts: MergedClient[], search: string, m
       );
     })
     .slice(0, max);
+}
+
+/** Statuts prospect considérés comme « dossier ouvert » (pas clos). */
+export const OPEN_PROSPECT_STATUSES: ProspectStatus[] = ['NOUVEAU', 'A_RELANCER', 'EN_NEGOCIATION'];
+
+export function findMatchingProspects(contact: ContactLike, prospects: Prospect[]): Prospect[] {
+  return prospects.filter((p) => sameContact(contact, p));
+}
+
+export function findOpenProspects(contact: ContactLike, prospects: Prospect[]): Prospect[] {
+  return findMatchingProspects(contact, prospects)
+    .filter((p) => OPEN_PROSPECT_STATUSES.includes(p.status))
+    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+}
+
+/** Prospect le plus récent pour proforma / reprise (ouvert en priorité). */
+export function findBestProspectForContact(contact: ContactLike, prospects: Prospect[]): Prospect | null {
+  const open = findOpenProspects(contact, prospects);
+  if (open.length > 0) return open[0];
+  const all = findMatchingProspects(contact, prospects).sort((a, b) =>
+    (b.updatedAt || '').localeCompare(a.updatedAt || '')
+  );
+  return all[0] || null;
+}
+
+export function contactDisplayName(contact: ContactLike): string {
+  return `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Sans nom';
+}
+
+export function mergedClientToSeed(contact: MergedClient): ClientProfileSeed {
+  return {
+    firstName: contact.firstName || '',
+    lastName: contact.lastName || '',
+    phone: contact.phone || '',
+    email: contact.email || '',
+  };
 }

@@ -111,9 +111,15 @@ import {
   BookUser,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import ContactPicker from './components/ContactPicker';
+import ContactPicker, { ContactQuickAction } from './components/ContactPicker';
+import NewCreateMenu from './components/NewCreateMenu';
 import { useContactDirectory } from './hooks/useContactDirectory';
-import { MergedClient } from './utils/contactDirectory';
+import {
+  findBestProspectForContact,
+  findOpenProspects,
+  MergedClient,
+  ProspectUiRequest,
+} from './utils/contactDirectory';
 
 const OperationType = {
   CREATE: 'create',
@@ -237,7 +243,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const { mergedContacts } = useContactDirectory(!!user && isAuthReady);
+  const { mergedContacts, prospects: directoryProspects } = useContactDirectory(!!user && isAuthReady);
+  const [prospectUiRequest, setProspectUiRequest] = useState<ProspectUiRequest | null>(null);
   const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
   const [clientProfileSeed, setClientProfileSeed] = useState<ClientProfileSeed | null>(null);
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
@@ -1444,15 +1451,66 @@ export default function App() {
     }
   };
 
-  const handleNewReceipt = () => {
-    setFormData(getInitialState());
+  const handleNewReceipt = (contact?: MergedClient) => {
+    const initial = getInitialState();
+    if (contact) {
+      initial.firstName = contact.firstName || '';
+      initial.lastName = contact.lastName || '';
+      initial.phone = contact.phone || '';
+      initial.email = contact.email || '';
+    }
+    setFormData(initial);
     setSourceProspectId(null);
     setSourceProspectNotesClean('');
     setIsProformaMode(false);
     setIsReadOnly(false);
     setReceiptReturnTarget(null);
+    setClientSearch(contact ? `${contact.firstName} ${contact.lastName}`.trim() : '');
     setView('form');
     setShowMobileNav(false);
+    if (window.innerWidth < 768) setIsSidebarOpen(true);
+  };
+
+  const handleNewProspect = (contact?: MergedClient) => {
+    setProspectUiRequest({ kind: 'create', contact, ts: Date.now() });
+    setView('prospects');
+    setShowMobileNav(false);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const handleReopenProspect = (prospect: Prospect) => {
+    if (!prospect.id) return;
+    setProspectUiRequest({ kind: 'edit', prospectId: prospect.id, ts: Date.now() });
+    setView('prospects');
+    setShowMobileNav(false);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const handleContactQuickAction = (action: ContactQuickAction, contact: MergedClient) => {
+    if (action === 'receipt' || action === 'select') {
+      handleNewReceipt(contact);
+      return;
+    }
+    if (action === 'prospect') {
+      handleNewProspect(contact);
+      return;
+    }
+    if (action === 'proforma') {
+      const match = findBestProspectForContact(contact, directoryProspects);
+      if (match) {
+        handleProformaProspect(match);
+        setClientSearch(`${contact.firstName} ${contact.lastName}`.trim());
+      } else {
+        handleNewProspect(contact);
+        setAlertType('info');
+        setAlertMessage('Aucun dossier existant — formulaire prospect ouvert avec ce contact.');
+      }
+      return;
+    }
+    if (action === 'reopen') {
+      const open = findOpenProspects(contact, directoryProspects)[0];
+      if (open) handleReopenProspect(open);
+    }
   };
 
   const handleCloseReceiptPreview = useCallback(() => {
@@ -2379,13 +2437,11 @@ export default function App() {
 
             <div className="px-6 py-4 border-b border-gray-100 space-y-2">
               <div className="flex flex-col gap-2">
-                <button 
-                  onClick={handleNewReceipt}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <Plus size={16} className={view === 'form' ? '' : 'text-blue-600'} />
-                  Nouveau Reçu
-                </button>
+                <NewCreateMenu
+                  onNewReceipt={() => handleNewReceipt()}
+                  onNewProspect={() => handleNewProspect()}
+                  activeView={view}
+                />
 
                 {/* Toggle nav when in form view — visible on all screens */}
                 {view === 'form' && (
@@ -2553,7 +2609,16 @@ export default function App() {
                 search={clientSearch}
                 onSearchChange={setClientSearch}
                 contacts={mergedContacts}
-                onSelect={applyClientSuggestion}
+                prospects={directoryProspects}
+                showQuickActions
+                onSelect={(contact) => {
+                  if (view === 'form' && !isReadOnly) {
+                    applyClientSuggestion(contact);
+                  } else {
+                    handleNewReceipt(contact);
+                  }
+                }}
+                onQuickAction={handleContactQuickAction}
                 onOpenProfile={openClientProfile}
               />
 
@@ -3248,6 +3313,8 @@ export default function App() {
               }}
               onConvert={handleConvertProspect}
               onProforma={handleProformaProspect}
+              uiRequest={prospectUiRequest}
+              onUiRequestHandled={() => setProspectUiRequest(null)}
             />
           ) : view === 'prepaidTokens' ? (
             <PrepaidElectricityTokensView
