@@ -230,7 +230,7 @@ export default function App() {
     isCustomRate: false, customLodgingTotal: 0,
     isNegotiatedRate: false, negotiatedPricePerNight: 0,
     payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
-    signature: defaultManagerSignature(auth.currentUser?.displayName), hosts: [], electricityCharge: false, packEco: false, packConfort: false, observations: '', internalNotes: '',
+    signature: defaultManagerSignature(auth.currentUser?.displayName), hosts: [], electricityCharge: false, packEco: false, packConfort: false, includeLateDeparture: false, observations: '', internalNotes: '',
     status: 'VALIDE', grandTotal: 0, totalPaid: 0, remaining: 0,
     agentName: '', commissionAmount: 0, isCommissionPaid: false,
     cautionAmount: 0, isCautionRefunded: false,
@@ -660,18 +660,21 @@ export default function App() {
       const nights = Math.max(0, Math.ceil(diffTime / (1000 * 3600 * 24)));
       const rates = getRateForApartment(formData.apartmentName, nights);
       const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
-      const totalLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+      const nightsLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+      const lateFee = formData.includeLateDeparture ? Math.round(pricePerNight / 2) : 0;
+      const totalLodging = nightsLodging + lateFee;
       const cautionAmount = rates.caution;
       const grandTotal = totalLodging + cautionAmount;
       const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
       let commissionAmount = 0;
       if (formData.agentName && nights > 0) {
+        // Commission sur les nuitées seules (hors suppléments type départ tardif).
         if (nights <= 14) {
-          commissionAmount = totalLodging * 0.10;
+          commissionAmount = nightsLodging * 0.10;
         } else if (nights <= 30) {
-          commissionAmount = totalLodging * 0.08;
+          commissionAmount = nightsLodging * 0.08;
         } else {
-          const avgPrice = totalLodging / nights;
+          const avgPrice = nightsLodging / nights;
           commissionAmount = (avgPrice * 30) * 0.08;
         }
       }
@@ -703,18 +706,21 @@ export default function App() {
     const prim = primarySegmentChronologically(segList);
     const rates = getRateForApartment(prim.apartmentName, nights);
     const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
-    const totalLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+    const nightsLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+    const lateFee = formData.includeLateDeparture ? Math.round(pricePerNight / 2) : 0;
+    const totalLodging = nightsLodging + lateFee;
     const cautionAmount = sumCautionsForSegments(synth);
     const grandTotal = totalLodging + cautionAmount;
     const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
     let commissionAmount = 0;
     if (formData.agentName && nights > 0) {
+      // Commission sur les nuitées seules (hors suppléments type départ tardif).
       if (nights <= 14) {
-        commissionAmount = totalLodging * 0.10;
+        commissionAmount = nightsLodging * 0.10;
       } else if (nights <= 30) {
-        commissionAmount = totalLodging * 0.08;
+        commissionAmount = nightsLodging * 0.08;
       } else {
-        const avgPrice = totalLodging / nights;
+        const avgPrice = nightsLodging / nights;
         commissionAmount = (avgPrice * 30) * 0.08;
       }
     }
@@ -735,6 +741,7 @@ export default function App() {
     formData.negotiatedPricePerNight,
     formData.isCustomRate,
     formData.customLodgingTotal,
+    formData.includeLateDeparture,
     formData.payments,
     formData.agentName
   ]);
@@ -1050,6 +1057,7 @@ export default function App() {
       electricityCharge: !!formData.electricityCharge,
       packEco: !!formData.packEco,
       packConfort: !!formData.packConfort,
+      includeLateDeparture: !!formData.includeLateDeparture,
       hosts: Array.isArray(formData.hosts) ? formData.hosts : [],
       signature: formData.signature || '',
       observations: formData.observations || '',
@@ -1587,6 +1595,7 @@ export default function App() {
       electricityCharge: !!draft?.electricityCharge,
       packEco: !!draft?.packEco,
       packConfort: !!draft?.packConfort,
+      includeLateDeparture: !!draft?.includeLateDeparture,
       hosts: Array.isArray(draft?.hosts) ? draft!.hosts! : [],
       signature:
         (draft?.signature && String(draft.signature).trim()) ||
@@ -2934,6 +2943,10 @@ export default function App() {
                       <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
                         <input disabled={isReadOnly} type="checkbox" name="packConfort" checked={formData.packConfort} onChange={handleChange} className="accent-teal-600" />
                         Pack CONFORT
+                      </label>
+                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
+                        <input disabled={isReadOnly} type="checkbox" name="includeLateDeparture" checked={!!formData.includeLateDeparture} onChange={handleChange} className="accent-teal-600" />
+                        Départ tardif (½ j)
                       </label>
                     </div>
                   </div>

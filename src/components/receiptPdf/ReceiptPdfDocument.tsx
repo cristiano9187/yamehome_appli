@@ -198,6 +198,8 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
     lodgingTotal,
     cautionDisplay,
     latePenalty,
+    lateFeeApplied,
+    includeLateDeparture,
     basePrice,
     discountPercent,
     priceLabel,
@@ -315,6 +317,12 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
               )}
             </View>
           </View>
+          {includeLateDeparture && (
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Départ tardif (½ journée)</Text>
+              <Text style={styles.rowValue}>{formatMoneyForPdf(lateFeeApplied)}</Text>
+            </View>
+          )}
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Sous-total Séjour</Text>
             <Text style={styles.rowValue}>{formatMoneyForPdf(lodgingTotal)}</Text>

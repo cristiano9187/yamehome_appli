@@ -30,6 +30,8 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
     lodgingTotal,
     cautionDisplay,
     latePenalty,
+    lateFeeApplied,
+    includeLateDeparture,
     basePrice,
     discountPercent,
     priceLabel,
@@ -197,6 +199,12 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                 </div>
               </td>
             </tr>
+            {includeLateDeparture && (
+              <tr className="border-t">
+                <td className="py-2">Départ tardif (½ journée)</td>
+                <td className="py-2 text-right font-semibold">{formatCurrency(lateFeeApplied)}</td>
+              </tr>
+            )}
             <tr className="border-t">
               <td className="py-2">Sous-total Séjour</td>
               <td className="py-2 text-right font-semibold">{formatCurrency(lodgingTotal)}</td>

@@ -14,6 +14,7 @@ export interface ProformaProspectDraft {
   electricityCharge?: boolean;
   packEco?: boolean;
   packConfort?: boolean;
+  includeLateDeparture?: boolean;
   hosts?: string[];
   /** Signature du gérant qui émet le reçu (ex. CHRISTIAN, PAOLA). */
   signature?: string;

@@ -18,9 +18,16 @@ export interface ReceiptCalculations {
   nights: number;
   rateInfo: { prix: number; caution: number; address: string };
   pricePerNight: number;
+  /** Nuitées seules (hors départ tardif). */
+  nightsLodgingTotal: number;
+  /** Sous-total séjour = nuitées + départ tardif facturé le cas échéant. */
   lodgingTotal: number;
   cautionDisplay: number;
+  /** Montant demi-journée (toujours calculé, pour les conditions). */
   latePenalty: number;
+  /** Montant départ tardif réellement inclus dans lodgingTotal (0 si option inactive). */
+  lateFeeApplied: number;
+  includeLateDeparture: boolean;
   basePrice: number;
   discountPercent: number;
   priceLabel: string;
@@ -57,12 +64,15 @@ export function computeReceiptCalculations(data: ReceiptData): ReceiptCalculatio
     ? (nights > 0 ? Math.round(data.customLodgingTotal / nights) : 0)
     : (data.isNegotiatedRate ? data.negotiatedPricePerNight : rateInfo.prix);
 
-  const lodgingTotal = data.isCustomRate ? data.customLodgingTotal : (pricePerNight * nights);
+  const nightsLodgingTotal = data.isCustomRate ? data.customLodgingTotal : (pricePerNight * nights);
 
   /** Caution : total enregistré sur le reçu (somme segments en multi-barème dans l'app). */
   const cautionDisplay = multiStay ? (data.cautionAmount ?? 0) : rateInfo.caution;
 
   const latePenalty = Math.round(pricePerNight / 2);
+  const includeLateDeparture = !!data.includeLateDeparture;
+  const lateFeeApplied = includeLateDeparture ? latePenalty : 0;
+  const lodgingTotal = nightsLodgingTotal + lateFeeApplied;
 
   const basePrice = rateInfo.prix;
   const discountPercent = (data.isNegotiatedRate || data.isCustomRate) && basePrice > 0 && pricePerNight < basePrice
@@ -98,9 +108,12 @@ export function computeReceiptCalculations(data: ReceiptData): ReceiptCalculatio
     nights,
     rateInfo,
     pricePerNight,
+    nightsLodgingTotal,
     lodgingTotal,
     cautionDisplay,
     latePenalty,
+    lateFeeApplied,
+    includeLateDeparture,
     basePrice,
     discountPercent,
     priceLabel,

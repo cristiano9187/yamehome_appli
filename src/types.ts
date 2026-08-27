@@ -69,6 +69,8 @@ export interface ReceiptData {
   electricityCharge: boolean;
   packEco: boolean;
   packConfort: boolean;
+  /** Si true : facture une demi-journée (départ tardif) incluse dans le sous-total séjour. */
+  includeLateDeparture?: boolean;
   observations: string;
   internalNotes?: string;
   status: 'VALIDE' | 'ANNULE';
