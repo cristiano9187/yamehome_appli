@@ -304,7 +304,271 @@ async function sendProspectCreatedEmail({ db, adminApp, prospectId, data, smtp, 
   logger.info(`[prospectEmail] envoyé pour ${prospectId} → ${toList.join(', ')}`);
 }
 
+/**
+ * Email de confirmation bilingue (FR/EN) envoyé au prospect après sa pré-réservation.
+ *
+ * @param {object} params
+ * @param {string} params.prospectId  ID Firestore du prospect
+ * @param {Record<string, unknown>} params.data  Données du prospect
+ * @param {{ user: string; pass: string }} params.smtp
+ */
+async function sendProspectConfirmationEmail({ prospectId, data, smtp }) {
+  const authUser = String(smtp.user || '').trim().toLowerCase();
+  const authPass = String(smtp.pass || '').trim().replace(/\s/g, '');
+
+  const prospectEmail = String(data.email || '').trim();
+  if (!prospectEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prospectEmail)) {
+    logger.info(`[prospectConfirmEmail] pas d'email valide pour ${prospectId} — confirmation non envoyée`);
+    return;
+  }
+
+  const firstName = String(data.firstName || '').trim();
+  const lastName = String(data.lastName || '').trim();
+  const client = [firstName, lastName].filter(Boolean).join(' ') || 'Client';
+  const apartment = String(data.apartmentName || data.calendarSlug || '').trim() || '—';
+  const startDate = String(data.startDate || '').trim() || '—';
+  const endDate = String(data.endDate || '').trim() || '—';
+  const guests = data.guestCount != null ? String(data.guestCount) : '1';
+  const price = formatMoneyXaf(data.totalStayPrice);
+  const shortRef = prospectId.slice(0, 8).toUpperCase();
+
+  const subject = `[YameHome] Confirmation de pré-réservation / Booking confirmation — Réf. ${shortRef}`;
+  const preheader = `${apartment} · ${startDate} → ${endDate} · Réf. ${shortRef}`;
+
+  /* -------- HTML bilingue -------- */
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f0ece8;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5;">
+  <!-- preheader -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f0ece8;opacity:0;">${escapeHtml(preheader)}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0ece8;padding:32px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:580px;background:#ffffff;border-radius:16px;border-collapse:separate;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+
+        <!-- ===== HEADER ===== -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#134e4a 0%,#0f766e 100%);padding:0;">
+            <!-- Logo + Titre -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding:28px 28px 12px;">
+                  <!-- Logo text (image fallback) -->
+                  <table role="presentation" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background:#ffffff18;border-radius:8px;padding:7px 14px;">
+                        <span style="font-size:18px;font-weight:800;letter-spacing:0.06em;color:#ffffff;text-transform:uppercase;font-family:Georgia,serif;">Yame<span style="color:#fcd34d;">Home</span></span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 28px 28px;">
+                  <h1 style="margin:0 0 4px;font-size:22px;font-weight:700;color:#ffffff;line-height:1.25;">
+                    Pré-réservation reçue ✓
+                  </h1>
+                  <p style="margin:0;font-size:14px;color:#a7f3d0;font-style:italic;">Booking request received</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Bannière ref -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="background:#0d3d3a;padding:12px 28px;">
+                  <p style="margin:0;font-size:12px;color:#6ee7b7;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;">Référence / Reference</p>
+                  <p style="margin:2px 0 0;font-size:20px;font-weight:800;color:#ffffff;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:0.12em;">${escapeHtml(shortRef)}</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- ===== INTRO ===== -->
+        <tr>
+          <td style="padding:28px 28px 8px;">
+            <p style="margin:0 0 6px;font-size:16px;font-weight:600;color:#134e4a;">Bonjour ${escapeHtml(firstName || client)},</p>
+            <p style="margin:0 0 14px;color:#374151;font-size:14px;">
+              Nous avons bien reçu votre demande de pré-réservation. Notre équipe vous contactera dans les plus brefs délais pour confirmer les disponibilités et les modalités de paiement.
+            </p>
+            <p style="margin:0 0 0;color:#6b7280;font-size:13px;font-style:italic;">
+              We have received your booking request. Our team will contact you shortly to confirm availability and payment details.
+            </p>
+          </td>
+        </tr>
+
+        <!-- ===== RÉCAP SÉJOUR ===== -->
+        <tr>
+          <td style="padding:20px 28px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #134e4a;border-radius:12px;border-collapse:separate;overflow:hidden;">
+              <!-- Header table -->
+              <tr>
+                <td colspan="2" style="background:#134e4a;padding:12px 18px;">
+                  <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#a7f3d0;">Résumé du séjour / Stay summary</p>
+                </td>
+              </tr>
+              <!-- Ligne logement -->
+              <tr style="border-bottom:1px solid #e5e7eb;">
+                <td style="padding:12px 18px 12px 18px;width:40%;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  🏠 Logement<br/><span style="font-style:italic;font-size:11px;color:#9ca3af;">Property</span>
+                </td>
+                <td style="padding:12px 18px;font-size:14px;font-weight:700;color:#134e4a;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  ${escapeHtml(apartment)}
+                </td>
+              </tr>
+              <!-- Arrivée -->
+              <tr>
+                <td style="padding:12px 18px;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  📅 Arrivée<br/><span style="font-style:italic;font-size:11px;color:#9ca3af;">Check-in</span>
+                </td>
+                <td style="padding:12px 18px;font-size:14px;font-weight:600;color:#1f2937;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  ${escapeHtml(startDate)}
+                </td>
+              </tr>
+              <!-- Départ -->
+              <tr>
+                <td style="padding:12px 18px;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  📅 Départ<br/><span style="font-style:italic;font-size:11px;color:#9ca3af;">Check-out</span>
+                </td>
+                <td style="padding:12px 18px;font-size:14px;font-weight:600;color:#1f2937;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  ${escapeHtml(endDate)}
+                </td>
+              </tr>
+              <!-- Voyageurs -->
+              <tr>
+                <td style="padding:12px 18px;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  👥 Voyageurs<br/><span style="font-style:italic;font-size:11px;color:#9ca3af;">Guests</span>
+                </td>
+                <td style="padding:12px 18px;font-size:14px;color:#1f2937;vertical-align:top;border-bottom:1px solid #f3f4f6;">
+                  ${escapeHtml(guests)}
+                </td>
+              </tr>
+              <!-- Total -->
+              ${price && price !== '—' ? `<tr>
+                <td style="padding:12px 18px;color:#6b7280;font-size:13px;vertical-align:top;background:#f9fafb;">
+                  💰 Total estimé<br/><span style="font-style:italic;font-size:11px;color:#9ca3af;">Estimated total</span>
+                </td>
+                <td style="padding:12px 18px;vertical-align:top;background:#f9fafb;">
+                  <span style="font-size:18px;font-weight:800;color:#134e4a;">${escapeHtml(price)}</span>
+                  <br/><span style="font-size:10px;color:#9ca3af;">(caution incluse / deposit included)</span>
+                </td>
+              </tr>` : ''}
+            </table>
+          </td>
+        </tr>
+
+        <!-- ===== ÉTAPES SUIVANTES ===== -->
+        <tr>
+          <td style="padding:20px 28px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;">
+              <tr>
+                <td style="padding:16px 18px;">
+                  <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:0.06em;">Prochaines étapes / Next steps</p>
+                  <p style="margin:0 0 6px;font-size:13px;color:#166534;">
+                    1. Notre équipe examine votre demande (réponse sous 24h).<br/>
+                    <span style="color:#4ade80;font-style:italic;">Our team reviews your request (reply within 24h).</span>
+                  </p>
+                  <p style="margin:0 0 6px;font-size:13px;color:#166534;">
+                    2. Nous vous confirmions la disponibilité et les conditions de paiement.<br/>
+                    <span style="color:#4ade80;font-style:italic;">We confirm availability and payment terms.</span>
+                  </p>
+                  <p style="margin:0;font-size:13px;color:#166534;">
+                    3. La réservation est <strong>définitive après paiement de l'acompte</strong> (1/3 du total hors caution).<br/>
+                    <span style="color:#4ade80;font-style:italic;">Booking is <strong style="color:#86efac;">confirmed upon deposit payment</strong> (1/3 of total, excluding security deposit).</span>
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- ===== CONTACT ===== -->
+        <tr>
+          <td style="padding:20px 28px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;">
+              <tr>
+                <td style="padding:16px 18px;">
+                  <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#c2410c;text-transform:uppercase;letter-spacing:0.06em;">Nous contacter / Contact us</p>
+                  <p style="margin:0 0 4px;font-size:13px;color:#9a3412;">
+                    📧 <a href="mailto:yamehome.yaounde@gmail.com" style="color:#c2410c;font-weight:600;">yamehome.yaounde@gmail.com</a>
+                  </p>
+                  <p style="margin:0;font-size:13px;color:#9a3412;">
+                    💬 WhatsApp : <a href="https://wa.me/237657507671" style="color:#c2410c;font-weight:600;">+237 657 507 671</a>
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- ===== FOOTER ===== -->
+        <tr>
+          <td style="padding:24px 28px;border-top:1px solid #e5e7eb;margin-top:12px;">
+            <p style="margin:0 0 6px;font-size:12px;color:#9ca3af;line-height:1.5;">
+              Cet email confirme la réception de votre demande. Il ne constitue pas une confirmation définitive de réservation.<br/>
+              <em>This email confirms receipt of your request. It does not constitute a definitive booking confirmation.</em>
+            </p>
+            <p style="margin:8px 0 0;font-size:11px;color:#d1d5db;">
+              © YameHome · Yaoundé, Cameroun · <a href="https://yamehome.com" style="color:#9ca3af;text-decoration:none;">yamehome.com</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text = [
+    `Bonjour ${client},`,
+    '',
+    'Votre pré-réservation a bien été reçue. / Your booking request has been received.',
+    '',
+    `Référence / Reference : ${shortRef}`,
+    `Logement / Property   : ${apartment}`,
+    `Arrivée / Check-in    : ${startDate}`,
+    `Départ / Check-out    : ${endDate}`,
+    `Voyageurs / Guests    : ${guests}`,
+    price && price !== '—' ? `Total estimé / Total  : ${price}` : '',
+    '',
+    'Notre équipe vous contactera sous 24h pour confirmer la disponibilité et les modalités de paiement.',
+    'La réservation est définitive après paiement de l\'acompte (1/3 du total hors caution).',
+    'Your booking is confirmed upon deposit payment (1/3 of total, excl. security deposit).',
+    'Our team will contact you within 24h to confirm availability and payment details.',
+    '',
+    'Contact : yamehome.yaounde@gmail.com',
+    'WhatsApp : +237 657 507 671',
+    '',
+    '© YameHome · Yaoundé, Cameroun',
+  ].filter(s => s !== null).join('\n');
+
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: authUser, pass: authPass },
+  });
+
+  await transporter.sendMail({
+    from: `"YameHome" <${authUser}>`,
+    to: prospectEmail,
+    subject,
+    text,
+    html,
+  });
+
+  logger.info(`[prospectConfirmEmail] confirmation envoyée à ${prospectEmail} pour ${prospectId}`);
+}
+
 module.exports = {
   sendProspectCreatedEmail,
+  sendProspectConfirmationEmail,
   WEBSITE_PROSPECT_AUTHOR_UID,
 };

@@ -6,8 +6,12 @@ import {
   addDoc,
   updateDoc,
   writeBatch,
+  getDocs,
+  query,
+  where,
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, auth, storage } from '../firebase';
 import {
   KeyboxDwelling,
   KeyboxUnit,
@@ -17,14 +21,27 @@ import {
   KeyboxRemovalReason,
   KeyboxSite,
   UserProfile,
+  KeyboxCodeRevealReason,
+  KeyboxCodeRevealLog,
+  ClientIdDocument,
+  ClientIdDocKind,
+  ClientProfile,
+  ReceiptData,
 } from '../types';
 import {
   isKeyboxGuardOnly,
   canOperateKeybox,
   canManageKeyboxCatalog,
   KEYBOX_REMOVAL_REASONS,
+  KEYBOX_CODE_REVEAL_REASONS,
 } from '../constants';
 import { KEYBOX_DWELLINGS_SEED, KEYBOX_UNITS_SEED } from '../data/keyboxSeed';
+import {
+  findClientWithIdDoc,
+  listRevealStaysForUnitSlug,
+  type KeyboxRevealStayOption,
+} from '../utils/keyboxCodeReveal';
+import { todayYmdCameroon } from '../utils/cameroonTime';
 import {
   Menu,
   KeyRound,
@@ -38,6 +55,8 @@ import {
   Loader2,
   PackageMinus,
   LogOut,
+  Upload,
+  IdCard,
   Lock,
   MapPin,
   History,
@@ -64,6 +83,44 @@ const SITE_BADGE_CLASS: Record<KeyboxSite, string> = {
   'MODENA YAMEHOME': 'bg-blue-50 text-blue-700',
   'MATERA YAMEHOME': 'bg-violet-50 text-violet-700',
   'RIETI YAMEHOME': 'bg-orange-50 text-orange-700',
+};
+
+const REVEAL_ID_KIND_OPTIONS: { value: ClientIdDocKind; label: string }[] = [
+  { value: 'CNI', label: 'CNI' },
+  { value: 'PASSEPORT', label: 'Passeport' },
+  { value: 'PERMIS', label: 'Permis' },
+  { value: 'AUTRE', label: 'Autre' },
+];
+
+function guessIdDocContentType(file: File): string {
+  if (file.type && file.type !== 'application/octet-stream') return file.type;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+function buildIdDocumentPayload(
+  kind: ClientIdDocKind,
+  path: string,
+  url: string,
+  fileName: string
+): ClientIdDocument {
+  return {
+    kind,
+    storagePath: path,
+    downloadUrl: url,
+    fileName,
+    uploadedAt: new Date().toISOString(),
+  };
+}
+
+type RevealTarget = {
+  key: string;
+  box: KeyboxUnit;
+  preferredDwellingId?: string | null;
 };
 
 const ALL_SITES: KeyboxSite[] = ['RIETI YAMEHOME', 'MODENA YAMEHOME', 'MATERA YAMEHOME'];
@@ -179,6 +236,21 @@ export default function KeyboxCodesView({
   const [siteFilter, setSiteFilter] = useState<'ALL' | KeyboxSite>('ALL');
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
+
+  const [revealTarget, setRevealTarget] = useState<RevealTarget | null>(null);
+  const [revealReason, setRevealReason] = useState<KeyboxCodeRevealReason | ''>('');
+  const [revealNote, setRevealNote] = useState('');
+  const [revealDwellingId, setRevealDwellingId] = useState('');
+  const [revealStayKey, setRevealStayKey] = useState('');
+  const [revealStays, setRevealStays] = useState<KeyboxRevealStayOption[]>([]);
+  const [revealLoadingStays, setRevealLoadingStays] = useState(false);
+  const [revealClientHasId, setRevealClientHasId] = useState(false);
+  const [revealClientId, setRevealClientId] = useState<string | null>(null);
+  const [revealIdDoc, setRevealIdDoc] = useState<ClientIdDocument | null>(null);
+  const [revealIdKind, setRevealIdKind] = useState<ClientIdDocKind>('CNI');
+  const [revealSubmitting, setRevealSubmitting] = useState(false);
+  const [revealIdUploading, setRevealIdUploading] = useState(false);
+  const [revealSelectedReceipt, setRevealSelectedReceipt] = useState<ReceiptData | null>(null);
 
   const [seeding, setSeeding] = useState(false);
 
@@ -304,13 +376,317 @@ export default function KeyboxCodesView({
     return { box: null, lastMovement: last, lastBoxLetter };
   }
 
-  function toggleReveal(key: string) {
-    setRevealed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  function closeRevealModal() {
+    setRevealTarget(null);
+    setRevealReason('');
+    setRevealNote('');
+    setRevealDwellingId('');
+    setRevealStayKey('');
+    setRevealStays([]);
+    setRevealClientHasId(false);
+    setRevealClientId(null);
+    setRevealIdDoc(null);
+    setRevealIdKind('CNI');
+    setRevealSelectedReceipt(null);
+    setRevealLoadingStays(false);
+    setRevealSubmitting(false);
+    setRevealIdUploading(false);
+  }
+
+  function requestReveal(key: string, box: KeyboxUnit, preferredDwellingId?: string | null) {
+    if (revealed.has(key)) {
+      setRevealed((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
+    if (!box.currentCode) {
+      onAlert('Aucun code défini pour ce boîtier.', 'info');
+      return;
+    }
+    setRevealTarget({ key, box, preferredDwellingId: preferredDwellingId || null });
+    setRevealReason('');
+    setRevealNote('');
+    const defaultDwelling =
+      preferredDwellingId ||
+      (box.contents.length === 1 ? box.contents[0].dwellingId : '');
+    setRevealDwellingId(defaultDwelling);
+    setRevealStayKey('');
+    setRevealStays([]);
+    setRevealClientHasId(false);
+    setRevealClientId(null);
+    setRevealIdDoc(null);
+    setRevealSelectedReceipt(null);
+  }
+
+  async function loadRevealStaysForDwelling(dwellingId: string) {
+    const dwelling = dwellings.find((d) => d.id === dwellingId);
+    const unitSlug = (dwelling?.unitSlug || '').trim();
+    if (!unitSlug) {
+      setRevealStays([]);
+      setRevealStayKey('');
+      setRevealClientHasId(false);
+      setRevealClientId(null);
+      setRevealIdDoc(null);
+      setRevealSelectedReceipt(null);
+      return;
+    }
+    setRevealLoadingStays(true);
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'receipts'),
+          where('status', '==', 'VALIDE'),
+          where('endDate', '>=', todayYmdCameroon())
+        )
+      );
+      const receipts = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ReceiptData));
+      const stays = listRevealStaysForUnitSlug(receipts, unitSlug);
+      setRevealStays(stays);
+      if (stays.length === 1) {
+        setRevealStayKey(stays[0].key);
+        await resolveIdForStay(stays[0], receipts);
+      } else {
+        setRevealStayKey('');
+        setRevealClientHasId(false);
+        setRevealClientId(null);
+        setRevealIdDoc(null);
+        setRevealSelectedReceipt(null);
+      }
+    } catch (err) {
+      console.error(err);
+      onAlert('Impossible de charger les reçus pour ce logement.', 'error');
+      setRevealStays([]);
+    } finally {
+      setRevealLoadingStays(false);
+    }
+  }
+
+  async function resolveIdForStay(stay: KeyboxRevealStayOption, receiptsHint?: ReceiptData[]) {
+    const fromHint = receiptsHint?.find((r) => r.id === stay.receiptDocId) || null;
+    const fromSelected =
+      revealSelectedReceipt?.id === stay.receiptDocId ? revealSelectedReceipt : null;
+    let full: ReceiptData | null = fromHint || fromSelected;
+    if (!full) {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, 'receipts'),
+            where('status', '==', 'VALIDE'),
+            where('endDate', '>=', stay.startDate)
+          )
+        );
+        full =
+          snap.docs.map((d) => ({ id: d.id, ...d.data() } as ReceiptData)).find((r) => r.id === stay.receiptDocId) ||
+          null;
+      } catch {
+        full = null;
+      }
+    }
+    setRevealSelectedReceipt(full);
+    try {
+      const clientsSnap = await getDocs(collection(db, 'clients'));
+      const clients = clientsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as ClientProfile));
+      const match = findClientWithIdDoc(
+        clients,
+        stay.clientPhone,
+        full?.firstName,
+        full?.lastName
+      );
+      setRevealClientId(match?.id || null);
+      const docOnFile = match?.idDocument?.downloadUrl ? match.idDocument : null;
+      setRevealIdDoc(docOnFile);
+      setRevealClientHasId(Boolean(docOnFile?.downloadUrl));
+      if (docOnFile?.kind) setRevealIdKind(docOnFile.kind);
+    } catch (err) {
+      console.error(err);
+      setRevealClientHasId(false);
+      setRevealClientId(null);
+      setRevealIdDoc(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!revealTarget || revealReason !== 'CHECK_IN_CLIENT') return;
+    if (!revealDwellingId) {
+      setRevealStays([]);
+      return;
+    }
+    void loadRevealStaysForDwelling(revealDwellingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when dwelling/reason change
+  }, [revealTarget?.key, revealReason, revealDwellingId]);
+
+  useEffect(() => {
+    if (revealReason !== 'CHECK_IN_CLIENT' || !revealStayKey) return;
+    const stay = revealStays.find((s) => s.key === revealStayKey);
+    if (stay) void resolveIdForStay(stay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealStayKey]);
+
+  async function handleRevealIdUpload(file: File | null) {
+    if (!file || !revealStayKey) return;
+    const stay = revealStays.find((s) => s.key === revealStayKey);
+    if (!stay) return;
+    const guest = revealSelectedReceipt;
+    if (!guest) {
+      onAlert('Reçu introuvable pour enregistrer la pièce.', 'error');
+      return;
+    }
+    if (!(guest.lastName || '').trim()) {
+      onAlert('Le reçu doit avoir un nom client pour enregistrer la pièce.', 'error');
+      return;
+    }
+    if (file.size >= 12 * 1024 * 1024) {
+      onAlert('Fichier trop volumineux (max. 12 Mo).', 'error');
+      return;
+    }
+    const uid = auth.currentUser?.uid || userProfile?.uid;
+    if (!uid) {
+      onAlert('Session invalide — reconnectez-vous.', 'error');
+      return;
+    }
+
+    setRevealIdUploading(true);
+    let uploadedPath: string | null = null;
+    try {
+      let clientId = revealClientId;
+      if (!clientId) {
+        const now = new Date().toISOString();
+        const payload: Omit<ClientProfile, 'id'> = {
+          firstName: (guest.firstName || '').trim(),
+          lastName: (guest.lastName || '').trim(),
+          phone: (guest.phone || '').trim(),
+          email: (guest.email || '').trim(),
+          createdAt: now,
+          updatedAt: now,
+          authorUid: uid,
+        };
+        const created = await addDoc(collection(db, 'clients'), payload);
+        clientId = created.id;
+        setRevealClientId(clientId);
+      }
+
+      const previousPath = revealIdDoc?.storagePath;
+      const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
+      const path = `client_id_docs/${clientId}/${Date.now()}_${safe}`;
+      const sref = ref(storage, path);
+      await uploadBytes(sref, file, { contentType: guessIdDocContentType(file) });
+      uploadedPath = path;
+      const url = await getDownloadURL(sref);
+      const idDocument = buildIdDocumentPayload(
+        revealIdKind,
+        path,
+        url,
+        file.name.slice(0, 120) || 'piece-identite'
+      );
+      await updateDoc(doc(db, 'clients', clientId), {
+        idDocument,
+        updatedAt: new Date().toISOString(),
+      });
+      if (previousPath && previousPath !== path) {
+        try {
+          await deleteObject(ref(storage, previousPath));
+        } catch {
+          /* */
+        }
+      }
+      setRevealIdDoc(idDocument);
+      setRevealClientHasId(true);
+      onAlert('Pièce enregistrée sur la fiche client.', 'success');
+    } catch (err) {
+      console.error(err);
+      if (uploadedPath) {
+        try {
+          await deleteObject(ref(storage, uploadedPath));
+        } catch {
+          /* */
+        }
+      }
+      onAlert('Impossible d’enregistrer la pièce depuis le keybox.', 'error');
+    } finally {
+      setRevealIdUploading(false);
+    }
+  }
+
+  async function confirmReveal() {
+    if (!revealTarget || revealSubmitting) return;
+    if (!revealReason) {
+      onAlert('Choisissez un motif pour afficher le code.', 'error');
+      return;
+    }
+
+    if (revealReason === 'AUTRE' && !revealNote.trim()) {
+      onAlert('Précisez le motif d’« Autre accès » (maintenance, urgence…).', 'error');
+      return;
+    }
+
+    const { key, box } = revealTarget;
+    let dwellingId: string | null = revealDwellingId || null;
+    let dwellingShortLabel: string | null = null;
+    let stay: KeyboxRevealStayOption | null = null;
+
+    if (revealReason === 'CHECK_IN_CLIENT') {
+      if (!dwellingId) {
+        onAlert('Sélectionnez le logement concerné par le check-in.', 'error');
+        return;
+      }
+      const dwelling = dwellings.find((d) => d.id === dwellingId);
+      dwellingShortLabel = dwelling?.shortLabel || null;
+      if (!(dwelling?.unitSlug || '').trim()) {
+        onAlert(
+          'Ce logement n’est pas lié au calendrier. Utilisez un autre motif (Maintenance, Remise…).',
+          'error'
+        );
+        return;
+      }
+      stay = revealStays.find((s) => s.key === revealStayKey) || null;
+      if (!stay) {
+        onAlert('Sélectionnez un reçu / séjour (y compris arrivée du jour).', 'error');
+        return;
+      }
+      if (!revealClientHasId) {
+        onAlert('La pièce d’identité du client doit être au dossier (uploadez-la ci-dessous).', 'error');
+        return;
+      }
+    } else if (dwellingId) {
+      dwellingShortLabel = dwellings.find((d) => d.id === dwellingId)?.shortLabel || null;
+    }
+
+    const { actorUid, actorName } = actor();
+    const log: Omit<KeyboxCodeRevealLog, 'id'> = {
+      boxId: box.id || '',
+      boxLetter: box.letter,
+      site: box.site,
+      reason: revealReason,
+      reasonNote: revealNote.trim() || null,
+      dwellingId,
+      dwellingShortLabel,
+      receiptDocId: stay?.receiptDocId || null,
+      receiptId: stay?.receiptId || null,
+      segmentId: stay?.segment.id || null,
+      clientName: stay?.clientName || null,
+      clientPhone: stay?.clientPhone || null,
+      hadIdDocument: revealReason === 'CHECK_IN_CLIENT' ? true : null,
+      actorUid,
+      actorName,
+      actorEmail: userProfile?.email || auth.currentUser?.email || null,
+      at: new Date().toISOString(),
+    };
+
+    setRevealSubmitting(true);
+    try {
+      await addDoc(collection(db, 'keybox_code_reveals'), log);
+      setRevealed((prev) => new Set(prev).add(key));
+      closeRevealModal();
+      onAlert('Code affiché — consultation journalisée.', 'success');
+    } catch (err) {
+      console.error(err);
+      onAlert('Impossible d’enregistrer la consultation du code.', 'error');
+    } finally {
+      setRevealSubmitting(false);
+    }
   }
 
   async function copyCode(code: string) {
@@ -897,9 +1273,9 @@ export default function KeyboxCodesView({
                             <div className="flex flex-col gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => toggleReveal(currentKey)}
+                                onClick={() => requestReveal(currentKey, box)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
-                                title={revealed.has(currentKey) ? 'Masquer' : 'Afficher'}
+                                title={revealed.has(currentKey) ? 'Masquer' : 'Afficher (motif requis)'}
                               >
                                 {revealed.has(currentKey) ? <EyeOff size={15} /> : <Eye size={15} />}
                               </button>
@@ -1063,9 +1439,9 @@ export default function KeyboxCodesView({
                         </span>
                         <button
                           type="button"
-                          onClick={() => toggleReveal(codeKey)}
+                          onClick={() => requestReveal(codeKey, box, d.id)}
                           className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
-                          title={revealed.has(codeKey) ? 'Masquer' : 'Afficher'}
+                          title={revealed.has(codeKey) ? 'Masquer' : 'Afficher (motif requis)'}
                         >
                           {revealed.has(codeKey) ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
@@ -1543,6 +1919,215 @@ export default function KeyboxCodesView({
                   Ajouter
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal : motif obligatoire pour afficher un code */}
+      <AnimatePresence>
+        {revealTarget && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-end sm:items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest">Afficher le code</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Boîtier {revealTarget.box.letter} — motif obligatoire
+                  </p>
+                </div>
+                <button type="button" onClick={closeRevealModal} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                    Motif
+                  </label>
+                  <select
+                    value={revealReason}
+                    onChange={(e) => {
+                      setRevealReason(e.target.value as KeyboxCodeRevealReason | '');
+                      setRevealStayKey('');
+                    }}
+                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-900"
+                  >
+                    <option value="">Choisir…</option>
+                    {KEYBOX_CODE_REVEAL_REASONS.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {revealReason === 'AUTRE' && (
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                      Précision (obligatoire)
+                    </label>
+                    <input
+                      value={revealNote}
+                      onChange={(e) => setRevealNote(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-900"
+                      placeholder="Ex. maintenance, urgence, remise clés…"
+                    />
+                  </div>
+                )}
+
+                {revealReason === 'CHECK_IN_CLIENT' && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                        Logement
+                      </label>
+                      <select
+                        value={revealDwellingId}
+                        onChange={(e) => setRevealDwellingId(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-900"
+                      >
+                        <option value="">Choisir…</option>
+                        {(revealTarget.box.contents.length
+                          ? revealTarget.box.contents
+                          : dwellings
+                              .filter((d) => d.site === revealTarget.box.site && d.active !== false)
+                              .map((d) => ({ dwellingId: d.id!, dwellingShortLabel: d.shortLabel }))
+                        ).map((c) => (
+                          <option key={c.dwellingId} value={c.dwellingId}>
+                            {c.dwellingShortLabel}
+                          </option>
+                        ))}
+                      </select>
+                      {revealDwellingId &&
+                        !(dwellings.find((d) => d.id === revealDwellingId)?.unitSlug || '').trim() && (
+                          <p className="text-[11px] text-amber-700 mt-1.5">
+                            Logement hors calendrier — utilisez un autre motif.
+                          </p>
+                        )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                        Reçu / séjour (jour même inclus)
+                      </label>
+                      {revealLoadingStays ? (
+                        <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
+                          <Loader2 className="animate-spin" size={14} /> Chargement des reçus…
+                        </div>
+                      ) : revealStays.length === 0 ? (
+                        <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2.5">
+                          Aucun séjour valide aujourd’hui pour ce logement. Créez le reçu avant d’afficher le code.
+                        </p>
+                      ) : (
+                        <select
+                          value={revealStayKey}
+                          onChange={(e) => setRevealStayKey(e.target.value)}
+                          className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-900"
+                        >
+                          <option value="">Choisir…</option>
+                          {revealStays.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.clientName} · {s.startDate}→{s.endDate} · {s.receiptId}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {revealStayKey && (
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
+                          <IdCard size={14} />
+                          Pièce d’identité
+                        </div>
+                        {revealClientHasId ? (
+                          <p className="text-xs text-emerald-700">
+                            Pièce au dossier
+                            {revealIdDoc?.kind ? ` (${revealIdDoc.kind})` : ''}.
+                            {revealIdDoc?.downloadUrl ? (
+                              <>
+                                {' '}
+                                <a
+                                  href={revealIdDoc.downloadUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="underline font-bold"
+                                >
+                                  Voir
+                                </a>
+                              </>
+                            ) : null}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-xs text-amber-800">
+                              Aucune pièce au dossier — photographiez / uploadez pour débloquer le code.
+                            </p>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <select
+                                value={revealIdKind}
+                                onChange={(e) => setRevealIdKind(e.target.value as ClientIdDocKind)}
+                                className="px-2 py-1.5 bg-white rounded-lg text-xs border border-gray-200"
+                              >
+                                {REVEAL_ID_KIND_OPTIONS.map((o) => (
+                                  <option key={o.value} value={o.value}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest cursor-pointer">
+                                {revealIdUploading ? (
+                                  <Loader2 className="animate-spin" size={12} />
+                                ) : (
+                                  <Upload size={12} />
+                                )}
+                                Uploader
+                                <input
+                                  type="file"
+                                  accept="image/*,application/pdf"
+                                  className="hidden"
+                                  disabled={revealIdUploading}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0] || null;
+                                    e.target.value = '';
+                                    void handleRevealIdUpload(f);
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-5 border-t border-gray-100 flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={closeRevealModal}
+                  className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-gray-100 text-gray-600"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmReveal()}
+                  disabled={revealSubmitting || revealIdUploading}
+                  className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-slate-900 text-white disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {revealSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Eye size={16} />}
+                  Afficher
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

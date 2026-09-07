@@ -58,6 +58,26 @@ export function isCameroonStrictlyBefore18h(date: Date = new Date()): boolean {
   return getCameroonHourMinute(date).hour < 18;
 }
 
+/** Date civile Cameroun `YYYY-MM-DD` (indépendante du fuseau du navigateur). */
+export function todayYmdCameroon(date: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: CAMEROON_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const m = parts.find((p) => p.type === 'month')?.value;
+    const d = parts.find((p) => p.type === 'day')?.value;
+    if (y && m && d) return `${y}-${m}-${d}`;
+  } catch {
+    /* fall through */
+  }
+  const utc = new Date(date.getTime() + 60 * 60 * 1000);
+  return utc.toISOString().slice(0, 10);
+}
+
 /** Libellé date + heure pour affichage (fuseau Cameroun). */
 export function formatCameroonDateTimeVerbose(date: Date): string {
   try {

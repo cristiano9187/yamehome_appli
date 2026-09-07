@@ -245,6 +245,34 @@ export interface KeyboxMovementLogEntry {
   at: string;
 }
 
+/** Motif obligatoire pour afficher le code d’un boîtier (tous comptes). */
+export type KeyboxCodeRevealReason = 'CHECK_IN_CLIENT' | 'AUTRE';
+
+/**
+ * Trace d’affichage d’un code keybox (collection `keybox_code_reveals`).
+ * Le code en clair n’est jamais stocké — uniquement le motif et le contexte.
+ */
+export interface KeyboxCodeRevealLog {
+  id?: string;
+  boxId: string;
+  boxLetter: string;
+  site: KeyboxSite;
+  reason: KeyboxCodeRevealReason;
+  reasonNote?: string | null;
+  dwellingId?: string | null;
+  dwellingShortLabel?: string | null;
+  receiptDocId?: string | null;
+  receiptId?: string | null;
+  segmentId?: string | null;
+  clientName?: string | null;
+  clientPhone?: string | null;
+  hadIdDocument?: boolean | null;
+  actorUid: string;
+  actorName: string;
+  actorEmail?: string | null;
+  at: string;
+}
+
 /** Ce qui se trouve actuellement dans un boîtier : clés d’un logement Y depuis telle date. */
 export interface KeyboxContentEntry {
   dwellingId: string;

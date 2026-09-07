@@ -10,14 +10,18 @@
 
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { logger } = require('firebase-functions');
-const { sendProspectCreatedEmail } = require('./prospectNotifications');
+const { sendProspectCreatedEmail, sendProspectConfirmationEmail } = require('./prospectNotifications');
+const { detectNewCheckIns, sendCheckInValidatedEmail } = require('./checkInNotifications');
 const { handleWhatsAppProspectLookup } = require('./whatsappProspectLookup');
 const { handleWhatsAppProspectFeed } = require('./whatsappProspectFeed');
+const { handleWhatsAppAdminNote } = require('./whatsappAdminNote');
+const { handleWhatsAppProspectContext } = require('./whatsappProspectContext');
+const { handleWhatsAppMediaProofExtract } = require('./whatsappMediaProofExtract');
 const {
   ALLOWED_CALENDAR_SLUGS,
   resolveApartmentName,
@@ -39,6 +43,10 @@ const PROSPECT_NOTIFY_EMAIL = 'yamehome.yaounde@gmail.com';
 
 const prospectSmtpPass = defineSecret('PROSPECT_SMTP_APP_PASSWORD');
 const whatsappProspectLookupKey = defineSecret('WHATSAPP_PROSPECT_LOOKUP_KEY');
+/** Clé API Google AI Studio / Gemini pour lecture image/PDF (preuves paiement WhatsApp). */
+const whatsappMediaGeminiKey = defineSecret('WHATSAPP_MEDIA_GEMINI_KEY');
+/** Même valeur que le header X-Api-Key WAHA dans n8n (téléchargement /api/files/ côté Cloud). */
+const wahaApiKey = defineSecret('WAHA_API_KEY');
 
 /** Même chaîne pour tous les prospects créés depuis le site (pas un UID Firebase réel). */
 const WEBSITE_PROSPECT_AUTHOR_UID = 'yamehome-site-public';
@@ -204,6 +212,62 @@ exports.whatsappProspectFeed = onRequest(
 );
 
 /**
+ * NOTE admin : enrichit notes prospects + journal whatsapp_team_context (commande WhatsApp NOTE).
+ * POST JSON { phone, note } — auth X-Yamehome-Key.
+ */
+exports.whatsappAdminNote = onRequest(
+  {
+    region: REGION,
+    secrets: [whatsappProspectLookupKey],
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    try {
+      const key = whatsappProspectLookupKey.value();
+      const result = await handleWhatsAppAdminNote(db, req, key);
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      logger.error('[whatsappAdminNote] handler', e.message || e);
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  }
+);
+
+/**
+ * Contexte client pour l’IA (prospects matchés par téléphone + notes équipe).
+ * GET ?phone=698557489 — auth X-Yamehome-Key.
+ */
+exports.whatsappProspectContext = onRequest(
+  {
+    region: REGION,
+    secrets: [whatsappProspectLookupKey],
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    try {
+      const key = whatsappProspectLookupKey.value();
+      const result = await handleWhatsAppProspectContext(db, req, key);
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      logger.error('[whatsappProspectContext] handler', e.message || e);
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  }
+);
+
+/**
  * Recherche prospects (lecture seule) pour l’assistant WhatsApp / n8n.
  * GET/POST — header X-Yamehome-Key ou query ?key= (même valeur que le secret).
  * Query/body: phone (recommandé), optionnel startDate, endDate, lastName.
@@ -227,6 +291,38 @@ exports.whatsappProspectLookup = onRequest(
       res.status(result.status).json(result.body);
     } catch (e) {
       logger.error('[whatsappProspectLookup] handler', e.message || e);
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  }
+);
+
+/**
+ * Extraction structurée (Gemini vision) d’une image/PDF pour preuve de paiement — appelée depuis n8n après Evolution getBase64.
+ * POST JSON : mimeType, base64, caption?, filename? — auth X-Yamehome-Key (même secret que whatsappProspectFeed).
+ */
+exports.whatsappMediaProofExtract = onRequest(
+  {
+    region: REGION,
+    secrets: [whatsappProspectLookupKey, whatsappMediaGeminiKey, wahaApiKey],
+    cors: true,
+    invoker: 'public',
+    memory: '512MiB',
+    timeoutSeconds: 120,
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    try {
+      const lookupKey = whatsappProspectLookupKey.value();
+      const geminiKey = whatsappMediaGeminiKey.value();
+      const wahaKey = wahaApiKey.value();
+      const result = await handleWhatsAppMediaProofExtract(req, lookupKey, geminiKey, wahaKey);
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      logger.error('[whatsappMediaProofExtract] handler', e.message || e);
       res.status(500).json({ ok: false, error: 'internal' });
     }
   }
@@ -265,20 +361,88 @@ exports.onProspectCreatedSendEmail = onDocumentCreated(
     }
     const user = PROSPECT_SMTP_FROM_EMAIL;
     const to = PROSPECT_NOTIFY_EMAIL;
+    const smtpCredentials = {
+      user: String(user).trim().toLowerCase(),
+      pass: String(pass).trim().replace(/\s/g, ''),
+    };
+
     try {
       await sendProspectCreatedEmail({
         db,
         adminApp: app,
         prospectId,
         data,
-        smtp: {
-          user: String(user).trim().toLowerCase(),
-          pass: String(pass).trim().replace(/\s/g, ''),
-        },
+        smtp: smtpCredentials,
         to,
       });
     } catch (e) {
-      logger.error('[prospectEmail] envoi échoué (prospect créé quand même)', e.message || e, e.stack);
+      logger.error('[prospectEmail] envoi notification interne échoué (prospect créé quand même)', e.message || e, e.stack);
+    }
+
+    try {
+      await sendProspectConfirmationEmail({
+        prospectId,
+        data,
+        smtp: smtpCredentials,
+      });
+    } catch (e) {
+      logger.error('[prospectEmail] envoi confirmation prospect échoué', e.message || e, e.stack);
+    }
+  }
+);
+
+/**
+ * E-mail à cyamepi + yamehome.yaounde à chaque nouveau check-in validé sur un reçu.
+ */
+exports.onReceiptCheckInSendEmail = onDocumentUpdated(
+  {
+    document: 'receipts/{receiptId}',
+    database: DB_ID,
+    region: REGION,
+    secrets: [prospectSmtpPass],
+  },
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after) return;
+
+    const added = detectNewCheckIns(before.checkInsBySegmentId, after.checkInsBySegmentId);
+    if (!added.length) return;
+
+    let pass;
+    try {
+      pass = prospectSmtpPass.value();
+    } catch (e) {
+      logger.error('[checkInEmail] lecture secret SMTP impossible', e.message || e);
+      return;
+    }
+    if (!pass || !String(pass).trim()) {
+      logger.warn('[checkInEmail] PROSPECT_SMTP_APP_PASSWORD vide — email non envoyé');
+      return;
+    }
+
+    const smtpCredentials = {
+      user: String(PROSPECT_SMTP_FROM_EMAIL).trim().toLowerCase(),
+      pass: String(pass).trim().replace(/\s/g, ''),
+    };
+    const receiptDocId = event.params.receiptId;
+
+    for (const { segmentId, record } of added) {
+      try {
+        await sendCheckInValidatedEmail({
+          smtp: smtpCredentials,
+          receiptDocId,
+          receipt: after,
+          segmentId,
+          checkIn: record,
+        });
+      } catch (e) {
+        logger.error(
+          `[checkInEmail] envoi échoué receipts/${receiptDocId} segment=${segmentId}`,
+          e.message || e,
+          e.stack
+        );
+      }
     }
   }
 );

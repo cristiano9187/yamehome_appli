@@ -96,6 +96,15 @@ export const KEYBOX_REMOVAL_REASONS: { id: 'REMIS_AU_CLIENT' | 'MAINTENANCE' | '
   { id: 'AUTRE', label: 'Autre' },
 ];
 
+/** Motifs pour révéler un code keybox (gate + journal d’audit) — 2 options seulement. */
+export const KEYBOX_CODE_REVEAL_REASONS: {
+  id: 'CHECK_IN_CLIENT' | 'AUTRE';
+  label: string;
+}[] = [
+  { id: 'CHECK_IN_CLIENT', label: 'Check-in client' },
+  { id: 'AUTRE', label: 'Autre accès' },
+];
+
 export const TECHNICIAN_DOMAINS = [
   { id: 'PLOMBERIE' as const, label: 'Plomberie' },
   { id: 'ELECTRICITE' as const, label: 'Électricité' },

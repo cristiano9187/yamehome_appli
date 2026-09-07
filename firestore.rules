@@ -876,6 +876,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /** Journal d’affichage des codes keybox (audit — le code en clair n’est pas stocké). */
+    match /keybox_code_reveals/{revealId} {
+      allow create: if isAgent() &&
+        request.resource.data.actorUid == request.auth.uid &&
+        request.resource.data.keys().hasAll(['boxId', 'boxLetter', 'site', 'reason', 'actorUid', 'actorName', 'at']) &&
+        request.resource.data.reason in ['CHECK_IN_CLIENT', 'AUTRE'];
+      allow read: if isAdmin() || isKeyboxOperator();
+      allow update, delete: if false;
+    }
+
     match /finance_entries/{entryId} {
       allow read: if canAccessFinance();
       allow create: if canAccessFinance() && isValidFinanceEntry(request.resource.data);
