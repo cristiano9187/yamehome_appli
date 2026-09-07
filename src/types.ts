@@ -378,9 +378,24 @@ export interface ClientProfile {
   preferences?: string;
   /** Notes internes équipe (VIP, vigilance, habitudes de paiement...) — jamais affichées au client. */
   notes?: string;
+  /** Copie pièce d'identité (CNI / passeport…) — staff only, pour check-in rapide au retour. */
+  idDocument?: ClientIdDocument | null;
   createdAt: string;
   updatedAt: string;
   authorUid: string;
+}
+
+/** Type de pièce d'identité archivée sur la fiche client. */
+export type ClientIdDocKind = 'CNI' | 'PASSEPORT' | 'PERMIS' | 'AUTRE';
+
+export interface ClientIdDocument {
+  kind: ClientIdDocKind;
+  storagePath: string;
+  downloadUrl: string;
+  fileName: string;
+  uploadedAt: string;
+  /** ISO date (YYYY-MM-DD) si connue — rappel d'expiration. */
+  expiresAt?: string | null;
 }
 
 /** Identité minimale utilisée pour ouvrir/retrouver une fiche client depuis un reçu, l'historique ou la recherche. */

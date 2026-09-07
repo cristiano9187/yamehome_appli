@@ -9,6 +9,20 @@ service firebase.storage {
         && (
           request.resource.contentType.matches('image/.*')
           || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+      allow delete: if request.auth != null;
+    }
+
+    // Pièces d'identité clients — staff connecté uniquement.
+    match /client_id_docs/{clientDocId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 12 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
         );
       allow delete: if request.auth != null;
     }

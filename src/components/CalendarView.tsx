@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { auth, db } from '../firebase';
+import { auth, db, storage } from '../firebase';
 import {
   ReceiptData,
   CleaningReport,
@@ -9,6 +9,9 @@ import {
   GuestCheckInRecord,
   GuestCheckOutRecord,
   PrepaidElectricityToken,
+  ClientProfile,
+  ClientIdDocument,
+  ClientIdDocKind,
 } from '../types';
 import {
   TARIFS,
@@ -44,8 +47,13 @@ import {
   BadgeCheck,
   ChevronDown,
   Zap,
+  IdCard,
+  ExternalLink,
+  Upload,
+  Loader2,
 } from 'lucide-react';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
+import { sameContact } from '../utils/contactDirectory';
 import {
   effectuéMériteAffichageAlerte,
   normalizeCleaningReport,
@@ -66,9 +74,42 @@ import {
   doc,
   updateDoc,
 } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { upsertPublicCalendar, deletePublicCalendar } from '../utils/publicCalendar';
 import { motion, AnimatePresence } from 'motion/react';
 import { isCameroonStrictlyBefore18h, formatCameroonDateTimeVerbose } from '../utils/cameroonTime';
+
+const CHECKIN_ID_KIND_OPTIONS: { value: ClientIdDocKind; label: string }[] = [
+  { value: 'CNI', label: 'CNI' },
+  { value: 'PASSEPORT', label: 'Passeport' },
+  { value: 'PERMIS', label: 'Permis' },
+  { value: 'AUTRE', label: 'Autre' },
+];
+
+function guessIdDocContentType(file: File): string {
+  if (file.type && file.type !== 'application/octet-stream') return file.type;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+function buildIdDocumentPayload(
+  kind: ClientIdDocKind,
+  path: string,
+  url: string,
+  fileName: string
+): ClientIdDocument {
+  return {
+    kind,
+    storagePath: path,
+    downloadUrl: url,
+    fileName,
+    uploadedAt: new Date().toISOString(),
+  };
+}
 
 /** YYYY-MM-DD (local) */
 function ymdLocal(date: Date): string {
@@ -211,6 +252,10 @@ export default function CalendarView({
   const [checkOutDraft, setCheckOutDraft] = useState({ kwh: '', damageNotes: '' });
   const [checkOutSubmitting, setCheckOutSubmitting] = useState(false);
   const [stayPrepaidTokens, setStayPrepaidTokens] = useState<PrepaidElectricityToken[]>([]);
+  const [guestIdDocument, setGuestIdDocument] = useState<ClientIdDocument | null>(null);
+  const [matchedClientId, setMatchedClientId] = useState<string | null>(null);
+  const [checkInIdKind, setCheckInIdKind] = useState<ClientIdDocKind>('CNI');
+  const [idDocUploading, setIdDocUploading] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
   
@@ -228,7 +273,55 @@ export default function CalendarView({
     setCheckInDraft({ kwh: '', idPiece: '', comment: '' });
     setCheckOutDraft({ kwh: '', damageNotes: '' });
     setStayPrepaidTokens([]);
+    setGuestIdDocument(null);
+    setMatchedClientId(null);
+    setCheckInIdKind('CNI');
+    setIdDocUploading(false);
   }, [selectedBookingContext?.receipt.id, selectedBookingContext?.segment.id]);
+
+  /** Pièce d'identité sur la fiche client (même personne que le reçu). */
+  useEffect(() => {
+    if (!selectedBookingContext) {
+      setGuestIdDocument(null);
+      setMatchedClientId(null);
+      return;
+    }
+    const guest = selectedBookingContext.receipt;
+    const unsub = onSnapshot(
+      collection(db, 'clients'),
+      (snap) => {
+        const clients = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ClientProfile));
+        const matches = clients.filter((c) => sameContact(c, guest));
+        const withDoc = matches.find((c) => Boolean(c.idDocument?.downloadUrl));
+        const pick = withDoc || matches[0] || null;
+        setMatchedClientId(pick?.id || null);
+        setGuestIdDocument(pick?.idDocument?.downloadUrl ? pick.idDocument! : null);
+        if (pick?.idDocument?.kind) setCheckInIdKind(pick.idDocument.kind);
+      },
+      (err) => {
+        console.warn('Client ID lookup failed:', err);
+        setGuestIdDocument(null);
+        setMatchedClientId(null);
+      }
+    );
+    return unsub;
+  }, [
+    selectedBookingContext?.receipt.id,
+    selectedBookingContext?.receipt.firstName,
+    selectedBookingContext?.receipt.lastName,
+    selectedBookingContext?.receipt.phone,
+    selectedBookingContext?.receipt.email,
+  ]);
+
+  /** Si une pièce est déjà au dossier, propose « Oui » (modifiable). */
+  useEffect(() => {
+    if (!selectedBookingContext || !guestIdDocument?.downloadUrl) return;
+    setCheckInDraft((d) => (d.idPiece === '' ? { ...d, idPiece: 'OUI' } : d));
+  }, [
+    guestIdDocument?.downloadUrl,
+    selectedBookingContext?.receipt.id,
+    selectedBookingContext?.segment.id,
+  ]);
 
   /** Jetons marqués utilisés pendant le séjour = recharges automatiques (stock lié au compteur du logement). */
   useEffect(() => {
@@ -778,6 +871,93 @@ export default function CalendarView({
     } catch (error) {
       console.error("Error unblocking date:", error);
       onAlert("Erreur lors du déblocage de la date", "error");
+    }
+  };
+
+  const handleUploadGuestIdAtCheckIn = async (file: File) => {
+    const ctx = selectedBookingContext;
+    if (!ctx || idDocUploading) return;
+    const guest = ctx.receipt;
+    if (!(guest.lastName || '').trim()) {
+      onAlert('Le reçu doit avoir un nom client pour enregistrer la pièce.', 'error');
+      return;
+    }
+    if (file.size >= 12 * 1024 * 1024) {
+      onAlert('Fichier trop volumineux (max. 12 Mo).', 'error');
+      return;
+    }
+    const uid = auth.currentUser?.uid || userProfile?.uid;
+    if (!uid) {
+      onAlert('Session invalide — reconnectez-vous.', 'error');
+      return;
+    }
+
+    setIdDocUploading(true);
+    let uploadedPath: string | null = null;
+    try {
+      let clientId = matchedClientId;
+      if (!clientId) {
+        const now = new Date().toISOString();
+        const payload: Omit<ClientProfile, 'id'> = {
+          firstName: (guest.firstName || '').trim(),
+          lastName: (guest.lastName || '').trim(),
+          phone: (guest.phone || '').trim(),
+          email: (guest.email || '').trim(),
+          createdAt: now,
+          updatedAt: now,
+          authorUid: uid,
+        };
+        const created = await addDoc(collection(db, 'clients'), payload);
+        clientId = created.id;
+        setMatchedClientId(clientId);
+      }
+
+      const previousPath = guestIdDocument?.storagePath;
+      const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
+      const path = `client_id_docs/${clientId}/${Date.now()}_${safe}`;
+      const sref = ref(storage, path);
+      await uploadBytes(sref, file, { contentType: guessIdDocContentType(file) });
+      uploadedPath = path;
+      const url = await getDownloadURL(sref);
+      const idDocument = buildIdDocumentPayload(
+        checkInIdKind,
+        path,
+        url,
+        file.name.slice(0, 120) || 'piece-identite'
+      );
+      await updateDoc(doc(db, 'clients', clientId), {
+        idDocument,
+        updatedAt: new Date().toISOString(),
+      });
+      if (previousPath && previousPath !== path) {
+        try {
+          await deleteObject(ref(storage, previousPath));
+        } catch {
+          /* */
+        }
+      }
+      setGuestIdDocument(idDocument);
+      setCheckInDraft((d) => ({ ...d, idPiece: 'OUI' }));
+      onAlert('Pièce enregistrée sur la fiche client.', 'success');
+    } catch (err) {
+      console.error('Check-in ID upload failed:', err);
+      if (uploadedPath) {
+        try {
+          await deleteObject(ref(storage, uploadedPath));
+        } catch {
+          /* */
+        }
+      }
+      const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: string }).code) : '';
+      if (code.includes('storage/unauthorized') || code.includes('storage/unauthenticated')) {
+        onAlert('Storage a refusé le fichier. Redéployez storage.rules.', 'error');
+      } else if (code.includes('permission-denied')) {
+        onAlert('Firestore a refusé l’enregistrement. Redéployez firestore.rules.', 'error');
+      } else {
+        onAlert('Impossible d’enregistrer la pièce depuis le check-in.', 'error');
+      }
+    } finally {
+      setIdDocUploading(false);
     }
   };
 
@@ -1472,12 +1652,79 @@ export default function CalendarView({
                     <p><span className="text-gray-500">Pièce d’identité contrôlée :</span>{' '}
                       <span className="font-bold">{detailCheckIn.idPieceControlee}</span>
                     </p>
+                    {guestIdDocument?.downloadUrl ? (
+                      <a
+                        href={guestIdDocument.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-sky-800 underline"
+                      >
+                        <ExternalLink size={12} /> Voir la pièce au dossier
+                      </a>
+                    ) : null}
                     {detailCheckIn.commentaire.trim() ? (
                       <p className="text-gray-700 whitespace-pre-wrap border-t border-emerald-200/80 pt-2 mt-2">{detailCheckIn.commentaire}</p>
                     ) : null}
                   </div>
                 ) : detailCanManageCheckIn ? (
                   <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+                    {guestIdDocument?.downloadUrl ? (
+                      <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 flex items-start justify-between gap-2 flex-wrap">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-800 flex items-center gap-1.5">
+                            <IdCard size={13} /> Pièce au dossier
+                          </p>
+                          <p className="text-[10px] text-sky-700/80 mt-0.5">
+                            {guestIdDocument.kind}
+                            {guestIdDocument.fileName ? ` · ${guestIdDocument.fileName}` : ''}
+                            {' — vérifiez puis validez Oui'}
+                          </p>
+                        </div>
+                        <a
+                          href={guestIdDocument.downloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 shrink-0 px-2.5 py-1.5 rounded-lg bg-sky-700 text-white text-[10px] font-black uppercase tracking-widest hover:bg-sky-800"
+                        >
+                          <ExternalLink size={11} /> Voir
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-2.5">
+                        <p className="text-[10px] text-amber-900 leading-snug">
+                          Pas de pièce sur la fiche client — photographiez-la ici : elle sera enregistrée automatiquement sur la fiche.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={checkInIdKind}
+                            onChange={(e) => setCheckInIdKind(e.target.value as ClientIdDocKind)}
+                            className="bg-white border border-amber-200 rounded-lg px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-950 outline-none"
+                          >
+                            {CHECKIN_ID_KIND_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-800 text-white text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-amber-900 disabled:opacity-50">
+                            {idDocUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                            {idDocUploading ? 'Envoi…' : 'Photographier / Ajouter'}
+                            <input
+                              type="file"
+                              accept="image/*,application/pdf"
+                              capture="environment"
+                              className="hidden"
+                              disabled={idDocUploading}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                if (f) void handleUploadGuestIdAtCheckIn(f);
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                     <label className="block">
                       <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
                         kWh affichés sur le compteur prépayé {kwhRequiredNow ? '(obligatoire)' : '(facultatif, entrée ≥ 18h CM)'}

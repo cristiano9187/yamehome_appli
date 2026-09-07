@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { ClientProfile, ClientProfileSeed, Prospect, ReceiptData, UserProfile } from '../types';
+import { addDoc, collection, deleteDoc, deleteField, doc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, storage } from '../firebase';
+import { ClientIdDocKind, ClientIdDocument, ClientProfile, ClientProfileSeed, Prospect, ReceiptData, UserProfile } from '../types';
 import { formatCurrency } from '../constants';
 import { getReceiptSegments } from '../utils/receiptSegments';
 import { AptBadge, PhoneLinks } from '../utils/aptDisplay';
@@ -32,6 +33,8 @@ import {
   StickyNote,
   Sparkles,
   Merge,
+  IdCard,
+  Upload,
 } from 'lucide-react';
 
 interface ClientsViewProps {
@@ -43,7 +46,43 @@ interface ClientsViewProps {
   initialSeed?: ClientProfileSeed | null;
 }
 
+const ID_DOC_KIND_OPTIONS: { value: ClientIdDocKind; label: string }[] = [
+  { value: 'CNI', label: 'CNI' },
+  { value: 'PASSEPORT', label: 'Passeport' },
+  { value: 'PERMIS', label: 'Permis' },
+  { value: 'AUTRE', label: 'Autre' },
+];
+
 const normalizeString = (value: string) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+function guessIdDocContentType(file: File): string {
+  if (file.type && file.type !== 'application/octet-stream') return file.type;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+function buildIdDocumentPayload(
+  kind: ClientIdDocKind,
+  path: string,
+  url: string,
+  fileName: string,
+  expiresAt: string
+): ClientIdDocument {
+  const docPayload: ClientIdDocument = {
+    kind,
+    storagePath: path,
+    downloadUrl: url,
+    fileName,
+    uploadedAt: new Date().toISOString(),
+  };
+  const exp = expiresAt.trim();
+  if (exp) docPayload.expiresAt = exp;
+  return docPayload;
+}
 
 export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenReceipt, initialSeed }: ClientsViewProps) {
   const [clients, setClients] = useState<ClientProfile[]>([]);
@@ -61,8 +100,11 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
   const [emailInput, setEmailInput] = useState('');
   const [prefsInput, setPrefsInput] = useState('');
   const [notesInput, setNotesInput] = useState('');
+  const [idDocKind, setIdDocKind] = useState<ClientIdDocKind>('CNI');
+  const [idDocExpiresAt, setIdDocExpiresAt] = useState('');
   const [dirty, setDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [idDocUploading, setIdDocUploading] = useState(false);
   const [showMobileDetail, setShowMobileDetail] = useState(false);
 
   useEffect(() => {
@@ -183,6 +225,8 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
     setEmailInput(selectedProfile?.email || '');
     setPrefsInput(selectedProfile?.preferences || '');
     setNotesInput(selectedProfile?.notes || '');
+    setIdDocKind(selectedProfile?.idDocument?.kind || 'CNI');
+    setIdDocExpiresAt(selectedProfile?.idDocument?.expiresAt || '');
   }, [selectedProfile, dirty]);
 
   const filteredDirectory = useMemo(() => {
@@ -267,8 +311,145 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
     }
   };
 
+  /** Crée la fiche Firestore si le contact n'existe que via reçus/prospects. */
+  const ensureClientDocId = async (): Promise<string | null> => {
+    if (!selectedProfile || !userProfile?.uid || !lastNameInput.trim()) return null;
+    const existing = selectedProfile._clientDocIds[0];
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const payload: Omit<ClientProfile, 'id'> = {
+      firstName: firstNameInput.trim(),
+      lastName: lastNameInput.trim(),
+      phone: phoneInput.trim(),
+      email: emailInput.trim(),
+      preferences: prefsInput.trim(),
+      notes: notesInput.trim(),
+      createdAt: selectedProfile.createdAt || now,
+      updatedAt: now,
+      authorUid: userProfile.uid,
+    };
+    const refDoc = await addDoc(collection(db, 'clients'), payload);
+    setSelectedIdentity({
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      phone: payload.phone,
+      email: payload.email,
+    });
+    setSelectedClusterKey(identityKeyOf(payload));
+    setDirty(false);
+    return refDoc.id;
+  };
+
+  const handleUploadIdDocument = async (file: File) => {
+    if (!selectedProfile || !userProfile?.uid) return;
+    if (!lastNameInput.trim()) {
+      onAlert('Indiquez au moins le nom avant d’ajouter une pièce.', 'error');
+      return;
+    }
+    if (file.size >= 12 * 1024 * 1024) {
+      onAlert('Fichier trop volumineux (max. 12 Mo).', 'error');
+      return;
+    }
+    setIdDocUploading(true);
+    let uploadedPath: string | null = null;
+    try {
+      const clientId = await ensureClientDocId();
+      if (!clientId) {
+        onAlert('Impossible de créer la fiche client.', 'error');
+        return;
+      }
+      const previousPath = selectedProfile.idDocument?.storagePath;
+      const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
+      const path = `client_id_docs/${clientId}/${Date.now()}_${safe}`;
+      const sref = ref(storage, path);
+      await uploadBytes(sref, file, { contentType: guessIdDocContentType(file) });
+      uploadedPath = path;
+      const url = await getDownloadURL(sref);
+      const idDocument = buildIdDocumentPayload(
+        idDocKind,
+        path,
+        url,
+        file.name.slice(0, 120) || 'piece-identite',
+        idDocExpiresAt
+      );
+      await updateDoc(doc(db, 'clients', clientId), {
+        idDocument,
+        updatedAt: new Date().toISOString(),
+      });
+      if (previousPath && previousPath !== path) {
+        try {
+          await deleteObject(ref(storage, previousPath));
+        } catch {
+          /* ancien fichier déjà absent */
+        }
+      }
+      onAlert('Pièce d’identité enregistrée.', 'success');
+    } catch (err) {
+      console.error('ID document upload failed:', err);
+      if (uploadedPath) {
+        try {
+          await deleteObject(ref(storage, uploadedPath));
+        } catch {
+          /* */
+        }
+      }
+      const code = err && typeof err === 'object' && 'code' in err ? String((err as { code?: string }).code) : '';
+      const message = err && typeof err === 'object' && 'message' in err ? String((err as { message?: string }).message) : '';
+      if (code.includes('storage/unauthorized') || code.includes('storage/unauthenticated')) {
+        onAlert('Storage a refusé le fichier. Redéployez storage.rules puis reconnectez-vous.', 'error');
+      } else if (code.includes('permission-denied')) {
+        onAlert('Firestore a refusé l’enregistrement. Redéployez firestore.rules.', 'error');
+      } else {
+        onAlert(`Upload impossible${message ? ` : ${message.slice(0, 120)}` : '.'}`, 'error');
+      }
+    } finally {
+      setIdDocUploading(false);
+    }
+  };
+
+  const handleSaveIdMeta = async () => {
+    const clientId = selectedProfile?._clientDocIds[0];
+    if (!clientId || !selectedProfile?.idDocument?.downloadUrl) return;
+    try {
+      await updateDoc(doc(db, 'clients', clientId), {
+        'idDocument.kind': idDocKind,
+        'idDocument.expiresAt': idDocExpiresAt.trim() || null,
+        updatedAt: new Date().toISOString(),
+      });
+      onAlert('Infos pièce mises à jour.', 'success');
+    } catch (err) {
+      console.error(err);
+      onAlert('Impossible de mettre à jour le type / l’expiration.', 'error');
+    }
+  };
+
+  const handleRemoveIdDocument = async () => {
+    const clientId = selectedProfile?._clientDocIds[0];
+    const path = selectedProfile?.idDocument?.storagePath;
+    if (!clientId || !path) return;
+    if (!window.confirm('Retirer la pièce d’identité de cette fiche ?')) return;
+    try {
+      try {
+        await deleteObject(ref(storage, path));
+      } catch {
+        /* */
+      }
+      await updateDoc(doc(db, 'clients', clientId), {
+        idDocument: deleteField(),
+        updatedAt: new Date().toISOString(),
+      });
+      setIdDocKind('CNI');
+      setIdDocExpiresAt('');
+      onAlert('Pièce d’identité retirée.', 'success');
+    } catch (err) {
+      console.error(err);
+      onAlert('Erreur lors de la suppression.', 'error');
+    }
+  };
+
   const isLoading = loadingClients || loadingReceipts || loadingProspects;
   const hasDuplicates = (selectedProfile?._clientDocIds.length || 0) > 1;
+  const hasIdDocument = Boolean(selectedProfile?.idDocument?.downloadUrl);
 
   return (
     <div className="flex-1 flex flex-col min-h-screen md:h-full bg-[#F5F5F4] md:overflow-hidden">
@@ -284,7 +465,7 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
             Clients
           </h2>
           <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-            Coordonnées, préférences, historique — P = prospect jamais réservé
+            Coordonnées, pièce d’identité, préférences — P = prospect jamais réservé
           </p>
         </div>
         <button
@@ -338,6 +519,14 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
                           title="Prospect — aucune réservation effective pour l’instant"
                         >
                           P
+                        </span>
+                      )}
+                      {c.idDocument?.downloadUrl && (
+                        <span
+                          className="shrink-0 mt-0.5 w-5 h-5 rounded-md bg-sky-100 text-sky-700 flex items-center justify-center"
+                          title="Pièce d’identité au dossier"
+                        >
+                          <IdCard size={12} />
                         </span>
                       )}
                       <div className="min-w-0">
@@ -532,6 +721,124 @@ export default function ClientsView({ onMenuClick, userProfile, onAlert, onOpenR
                     placeholder="Ex : client VIP, paiement toujours en retard, litige passé..."
                     className="w-full bg-amber-50/60 border border-amber-100 rounded-xl p-3 text-xs outline-none focus:border-amber-400 transition-all resize-none"
                   />
+                </div>
+
+                <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-3.5 space-y-3">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-sky-800 flex items-center gap-1.5">
+                        <IdCard size={13} /> Pièce d’identité
+                      </p>
+                      <p className="text-[10px] text-sky-700/80 mt-0.5">
+                        Photo ou PDF — max. 12 Mo. Utile au prochain check-in.
+                      </p>
+                    </div>
+                    {hasIdDocument ? (
+                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-emerald-100 text-emerald-800">
+                        Au dossier
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-stone-200 text-stone-600">
+                        Manquante
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-sky-700/70">Type</label>
+                      <select
+                        value={idDocKind}
+                        onChange={(e) => setIdDocKind(e.target.value as ClientIdDocKind)}
+                        className="w-full bg-white border border-sky-100 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-sky-400"
+                      >
+                        {ID_DOC_KIND_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-sky-700/70">
+                        Expire le (optionnel)
+                      </label>
+                      <input
+                        type="date"
+                        value={idDocExpiresAt}
+                        onChange={(e) => setIdDocExpiresAt(e.target.value)}
+                        className="w-full bg-white border border-sky-100 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-sky-400"
+                      />
+                    </div>
+                  </div>
+
+                  {hasIdDocument && selectedProfile.idDocument ? (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <a
+                        href={selectedProfile.idDocument.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-700 text-white text-[10px] font-black uppercase tracking-widest hover:bg-sky-800"
+                      >
+                        <ExternalLink size={12} /> Voir
+                      </a>
+                      <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-sky-50">
+                        {idDocUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                        Remplacer
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          className="hidden"
+                          disabled={idDocUploading}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (f) void handleUploadIdDocument(f);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveIdMeta()}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 text-[10px] font-black uppercase tracking-widest hover:bg-sky-50"
+                      >
+                        Sauver type / date
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveIdDocument()}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-700 text-[10px] font-black uppercase tracking-widest hover:underline"
+                      >
+                        Retirer
+                      </button>
+                      <p className="w-full text-[10px] text-sky-800/70">
+                        {selectedProfile.idDocument.kind}
+                        {selectedProfile.idDocument.fileName ? ` · ${selectedProfile.idDocument.fileName}` : ''}
+                        {selectedProfile.idDocument.uploadedAt
+                          ? ` · ajoutée le ${formatDateFr(selectedProfile.idDocument.uploadedAt)}`
+                          : ''}
+                        {selectedProfile.idDocument.expiresAt
+                          ? ` · expire le ${formatDateFr(selectedProfile.idDocument.expiresAt)}`
+                          : ''}
+                      </p>
+                    </div>
+                  ) : (
+                    <label className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-xl bg-sky-700 text-white text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-sky-800 disabled:opacity-50">
+                      {idDocUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                      {idDocUploading ? 'Envoi…' : 'Ajouter une pièce'}
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                        disabled={idDocUploading || !lastNameInput.trim()}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          if (f) void handleUploadIdDocument(f);
+                        }}
+                      />
+                    </label>
+                  )}
                 </div>
 
                 <button

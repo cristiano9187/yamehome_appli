@@ -579,15 +579,40 @@ service cloud.firestore {
     }
 
     function isValidClientProfile(data) {
-      return hasRequiredFields(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
-             hasOnlyAllowedFields(['firstName', 'lastName', 'phone', 'email', 'preferences', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+      return data.keys().hasAll(['firstName', 'lastName', 'phone', 'email', 'createdAt', 'updatedAt', 'authorUid']) &&
              data.firstName is string &&
              data.lastName is string && data.lastName.size() > 0 &&
              data.phone is string &&
              data.email is string &&
+             data.createdAt is string &&
+             data.updatedAt is string &&
              (!('preferences' in data) || data.preferences is string) &&
              (!('notes' in data) || data.notes is string) &&
+             (!('idDocument' in data) || data.idDocument == null || isValidClientIdDocument(data.idDocument)) &&
              data.authorUid is string && data.authorUid.size() > 0;
+    }
+
+    function isValidClientIdDocument(doc) {
+      return doc is map &&
+             doc.keys().hasAll(['kind', 'storagePath', 'downloadUrl', 'fileName', 'uploadedAt']) &&
+             doc.keys().hasOnly(['kind', 'storagePath', 'downloadUrl', 'fileName', 'uploadedAt', 'expiresAt']) &&
+             doc.kind in ['CNI', 'PASSEPORT', 'PERMIS', 'AUTRE'] &&
+             doc.storagePath is string && doc.storagePath.size() > 0 && doc.storagePath.size() <= 500 &&
+             doc.downloadUrl is string && doc.downloadUrl.size() > 0 && doc.downloadUrl.size() <= 4096 &&
+             doc.fileName is string && doc.fileName.size() > 0 &&
+             doc.uploadedAt is string &&
+             (!('expiresAt' in doc) || doc.expiresAt == null || (doc.expiresAt is string && doc.expiresAt.size() > 0));
+    }
+
+    /** Mise à jour ciblée pièce d'identité (sans revalider toute la fiche). */
+    function isClientIdDocumentPatch() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['idDocument', 'updatedAt']) &&
+             isValidClientIdDocument(request.resource.data.idDocument);
+    }
+
+    function isClientIdDocumentRemoval() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['idDocument', 'updatedAt']) &&
+             !('idDocument' in request.resource.data);
     }
 
     function isValidAgentProfile(data) {
@@ -708,8 +733,11 @@ service cloud.firestore {
       allow create: if isAgent() &&
         isValidClientProfile(request.resource.data) &&
         request.resource.data.authorUid == request.auth.uid;
-      allow update: if isAgent() &&
-        isValidClientProfile(request.resource.data);
+      allow update: if isAgent() && (
+        isValidClientProfile(request.resource.data) ||
+        isClientIdDocumentPatch() ||
+        isClientIdDocumentRemoval()
+      );
       // Autorisé aux agents : fusion des fiches en double détectées dans la vue Clients (V1).
       allow delete: if isAgent();
     }

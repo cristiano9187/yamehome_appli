@@ -1,4 +1,4 @@
-import { ClientProfile, ClientProfileSeed, Prospect, ProspectStatus, ReceiptData } from '../types';
+import { ClientIdDocument, ClientProfile, ClientProfileSeed, Prospect, ProspectStatus, ReceiptData } from '../types';
 import { parseApartment } from './aptDisplay';
 
 export type ContactLike = { firstName?: string; lastName?: string; phone?: string; email?: string };
@@ -114,6 +114,7 @@ export function buildMergedDirectory(
     authorUid: string;
     preferences?: string;
     notes?: string;
+    idDocument?: ClientIdDocument | null;
     docId?: string;
     fromRealStay?: boolean;
     fromProspect?: boolean;
@@ -134,6 +135,7 @@ export function buildMergedDirectory(
       authorUid: c.authorUid || '',
       preferences: c.preferences,
       notes: c.notes,
+      idDocument: c.idDocument || null,
       docId: c.id,
     });
   });
@@ -231,6 +233,10 @@ export function buildMergedDirectory(
     const preferences = registered.find((g) => g.preferences?.trim())?.preferences;
     const notes =
       registered.find((g) => g.notes?.trim())?.notes || group.find((g) => g.notes?.trim())?.notes;
+    const idDocument =
+      registered.find((g) => g.idDocument?.downloadUrl)?.idDocument ||
+      group.find((g) => g.idDocument?.downloadUrl)?.idDocument ||
+      null;
     const createdAt = group.reduce(
       (min, g) => (g.createdAt && g.createdAt < min ? g.createdAt : min),
       base.createdAt
@@ -258,6 +264,7 @@ export function buildMergedDirectory(
       email,
       preferences,
       notes,
+      idDocument,
       createdAt,
       updatedAt: base.updatedAt,
       authorUid: base.authorUid || '',
