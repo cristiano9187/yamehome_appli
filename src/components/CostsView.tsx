@@ -23,6 +23,10 @@ import {
   getFinanceQuickRentDefaultAmount,
 } from '../constants';
 import {
+  countNightsBetweenExclusiveEnd,
+  getReceiptSegments,
+} from '../utils/receiptSegments';
+import {
   Menu,
   Wallet,
   TrendingDown,
@@ -66,6 +70,33 @@ function currentYm(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Jour civil suivant `YYYY-MM-DD` (pour borne exclusive après le dernier jour du mois). */
+function addOneCalendarDay(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Nuits d’un séjour (endDate exclusive) qui tombent dans [monthStart, monthEnd] inclus.
+ * Ex. 15/08 → 15/09 : 17 nuits en août + 14 en septembre.
+ */
+function nightsOverlappingMonth(
+  stayStart: string,
+  stayEndExclusive: string,
+  monthStart: string,
+  monthEndInclusive: string
+): number {
+  if (!stayStart || !stayEndExclusive) return 0;
+  const overlapStart = stayStart > monthStart ? stayStart : monthStart;
+  const monthEndExclusive = addOneCalendarDay(monthEndInclusive);
+  const overlapEnd = stayEndExclusive < monthEndExclusive ? stayEndExclusive : monthEndExclusive;
+  return countNightsBetweenExclusiveEnd(overlapStart, overlapEnd);
+}
+
 /** Date ISO affichée sur 2 lignes (compact mobile, comme un mini-tableau). */
 function splitIsoDateLines(iso: string): { year: string; monthDay: string } {
   const m = /^(\d{4})-(\d{2}-\d{2})$/.exec(iso.trim());
@@ -99,6 +130,39 @@ function encaissedLodgingRevenue(r: ReceiptData): number {
   return Math.min(totalPaidEffective(r), lodgingRevenueCeiling(r));
 }
 
+/**
+ * Part du CA séjour attribuée au mois affiché, au prorata des nuits qui tombent dans ce mois.
+ * Séjours multi-segments : nuits cumulées sur tous les segments.
+ */
+function lodgingShareForMonth(
+  r: ReceiptData,
+  monthStart: string,
+  monthEndInclusive: string
+): { encaissed: number; potential: number; monthNights: number; totalNights: number } {
+  const segments = getReceiptSegments(r);
+  let totalNights = 0;
+  let monthNights = 0;
+  for (const seg of segments) {
+    totalNights += countNightsBetweenExclusiveEnd(seg.startDate, seg.endDate);
+    monthNights += nightsOverlappingMonth(
+      seg.startDate,
+      seg.endDate,
+      monthStart,
+      monthEndInclusive
+    );
+  }
+  if (totalNights <= 0 || monthNights <= 0) {
+    return { encaissed: 0, potential: 0, monthNights: 0, totalNights };
+  }
+  const ratio = monthNights / totalNights;
+  return {
+    encaissed: encaissedLodgingRevenue(r) * ratio,
+    potential: lodgingRevenueCeiling(r) * ratio,
+    monthNights,
+    totalNights,
+  };
+}
+
 const EXPENSE_LABELS: Record<string, string> = {
   SALARY: 'Salaire',
   RENT: 'Loyer',
@@ -124,9 +188,9 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
   const [monthYm, setMonthYm] = useState(currentYm);
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
   const [bookingTotals, setBookingTotals] = useState({
-    /** Σ min(versements, plafond séjour) — entrées résa = séjour uniquement, caution exclue */
+    /** Σ (séjour encaissé × nuits_mois / nuits_totales) — caution exclue */
     sumEncaissedLodging: 0,
-    /** Σ plafond séjour si tout était soldé — hors caution */
+    /** Σ (plafond séjour × nuits_mois / nuits_totales) — hors caution */
     sumPotentialLodging: 0,
   });
   const [loadingBookings, setLoadingBookings] = useState(true);
@@ -174,36 +238,83 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
     });
   }, []);
 
-  /** Reçus du mois : même écoute temps réel que finance_entries pour que les cartes se recalculent tout seuls. */
+  /** Reçus chevauchant le mois : prorata des nuits (reçus actifs + archives). */
   useEffect(() => {
     setLoadingBookings(true);
-    const rq = query(
-      collection(db, 'receipts'),
-      where('status', '==', 'VALIDE'),
-      where('endDate', '>=', start),
-      where('endDate', '<=', end)
-    );
-    const unsub = onSnapshot(
-      rq,
+    let fromReceipts: ReceiptData[] = [];
+    let fromArchives: ReceiptData[] = [];
+    let receiptsReady = false;
+    let archivesReady = false;
+
+    const recompute = () => {
+      if (!receiptsReady || !archivesReady) return;
+      const byId = new Map<string, ReceiptData>();
+      for (const r of fromArchives) {
+        if (r.id) byId.set(r.id, r);
+      }
+      for (const r of fromReceipts) {
+        if (r.id) byId.set(r.id, r);
+      }
+
+      let sumEncaissedLodging = 0;
+      let sumPotentialLodging = 0;
+      for (const r of byId.values()) {
+        if (r.status === 'ANNULE') continue;
+        const spanStart = (r.startDate || '').trim();
+        const spanEnd = (r.endDate || '').trim();
+        if (!spanStart || !spanEnd) continue;
+        if (spanStart > end || spanEnd <= start) continue;
+        const share = lodgingShareForMonth(r, start, end);
+        sumEncaissedLodging += share.encaissed;
+        sumPotentialLodging += share.potential;
+      }
+      setBookingTotals({
+        sumEncaissedLodging: Math.round(sumEncaissedLodging),
+        sumPotentialLodging: Math.round(sumPotentialLodging),
+      });
+      setLoadingBookings(false);
+    };
+
+    /** endDate >= 1er du mois → le séjour a encore (ou a eu) des nuits à partir de ce mois. */
+    const overlapQ = (col: string) =>
+      query(collection(db, col), where('status', '==', 'VALIDE'), where('endDate', '>=', start));
+
+    const unsubReceipts = onSnapshot(
+      overlapQ('receipts'),
       (snap) => {
-        let sumEncaissedLodging = 0;
-        let sumPotentialLodging = 0;
-        snap.docs.forEach((d) => {
-          const r = d.data() as ReceiptData;
-          sumEncaissedLodging += encaissedLodgingRevenue(r);
-          sumPotentialLodging += lodgingRevenueCeiling(r);
-        });
-        setBookingTotals({ sumEncaissedLodging, sumPotentialLodging });
-        setLoadingBookings(false);
+        fromReceipts = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ReceiptData));
+        receiptsReady = true;
+        recompute();
       },
       () => {
         console.error('CostsView: receipts query failed — créez l’index composites ou vérifiez les règles.');
-        setLoadingBookings(false);
+        receiptsReady = true;
+        fromReceipts = [];
+        recompute();
         onAlert('Impossible de charger les revenus réservations (index Firestore ou réseau).', 'error');
       }
     );
-    return () => unsub();
-  }, [start, end]);
+
+    const unsubArchives = onSnapshot(
+      overlapQ('archives'),
+      (snap) => {
+        fromArchives = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ReceiptData));
+        archivesReady = true;
+        recompute();
+      },
+      () => {
+        console.error('CostsView: archives query failed');
+        archivesReady = true;
+        fromArchives = [];
+        recompute();
+      }
+    );
+
+    return () => {
+      unsubReceipts();
+      unsubArchives();
+    };
+  }, [start, end, onAlert]);
 
   useEffect(() => {
     setLoadingEntries(true);
@@ -634,11 +745,12 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
 
       <div className="p-4 md:p-8 max-w-6xl mx-auto w-full min-w-0 space-y-8 pb-16 overflow-x-hidden">
         <p className="text-xs text-gray-500 leading-relaxed bg-white/80 rounded-2xl border border-gray-100 px-4 py-3">
-          Reçus <strong>VALIDE</strong>, rattachés au mois selon la <strong>date de fin de séjour</strong> (<code className="text-[10px] bg-gray-100 px-1 rounded">endDate</code>) — pas selon la date du versement&nbsp;: un encaissement en mai pour un checkout en juin compte dans{' '}
-          <strong>juin</strong>. Les <strong>entrées réservations</strong> utilisent la part <strong>séjour</strong> seule&nbsp;:{' '}
-          <code className="text-[10px] bg-gray-100 px-1 rounded">min(max(totalPaid, Σ versements), grandTotal − caution)</code>{' '}
-          (les versements sont lus sur le reçu&nbsp;; caution exclue du plafond CA séjour). « Potentiel séjour » = somme des plafonds séjour si tout était réglé.{' '}
-          <strong>Marge</strong>&nbsp;: entrées séjour + autres revenus saisis − dépenses. Les montants se mettent à jour dès que Firestore change (écoute temps réel).
+          Reçus <strong>VALIDE</strong> (actifs + archives) qui <strong>chevauchent</strong> le mois&nbsp;: le CA séjour est
+          réparti <strong>au prorata des nuits</strong> tombant dans ce mois (ex. 15/08→15/09 → part août + part septembre).
+          Les <strong>entrées réservations</strong> utilisent la part <strong>séjour</strong> déjà encaissée&nbsp;:{' '}
+          <code className="text-[10px] bg-gray-100 px-1 rounded">min(max(totalPaid, Σ versements), grandTotal − caution)</code>
+          , puis × (nuits du mois / nuits totales) — caution exclue. « Potentiel séjour » = même prorata sur le plafond séjour.
+          <strong> Marge</strong>&nbsp;: entrées séjour + autres revenus saisis − dépenses. Mise à jour temps réel.
         </p>
 
         <div className="bg-gradient-to-br from-amber-50 to-orange-50/80 rounded-3xl border border-amber-100/80 shadow-sm p-5 md:p-6 space-y-4">
@@ -696,8 +808,7 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
               {loadingBookings ? '…' : formatCurrency(bookingTotals.sumEncaissedLodging)}
             </p>
             <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
-              Uniquement le séjour déjà couvert par les versements, plafonné à grandTotal − caution — la partie caution n’entre pas ici même si elle est dans le TOTAL REÇU
-              du PDF.
+              Séjour encaissé (hors caution), réparti au prorata des nuits de ce mois — pas tout le reçu sur le mois de départ.
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-cyan-100 p-5 shadow-sm">
@@ -708,7 +819,7 @@ export default function CostsView({ userProfile, onMenuClick, onAlert, isMainAdm
               {loadingBookings ? '…' : formatCurrency(bookingTotals.sumPotentialLodging)}
             </p>
             <p className="text-[9px] text-gray-400 mt-2 leading-snug font-medium">
-              Si tous les montants séjour étaient encaissés (excluant la caution remboursable).
+              Plafond séjour (grandTotal − caution) × nuits du mois / nuits totales du séjour.
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
