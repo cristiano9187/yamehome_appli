@@ -430,6 +430,38 @@ service cloud.firestore {
         data.updatedAt is string;
     }
 
+    /** Vue Caisse — tous les admins (y compris yamehome.yaounde@gmail.com). */
+    function canAccessCaisse() {
+      return isAdmin();
+    }
+
+    function isValidCashMovement(data) {
+      return data.keys().hasAll(['caisseId', 'kind', 'amount', 'motif', 'date', 'source', 'authorUid', 'createdAt', 'updatedAt']) &&
+        data.caisseId in ['cash', 'marchant_mtn', 'marchant_om', 'mtn_solange', 'om_solange', 'bank_paypal'] &&
+        data.kind in ['deposit', 'withdrawal'] &&
+        data.amount is number && data.amount > 0 && data.amount < 1000000000000 &&
+        data.motif is string && data.motif.size() > 0 && data.motif.size() <= 400 &&
+        data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.source in ['manual', 'receipt'] &&
+        data.authorUid is string && data.authorUid.size() > 0 &&
+        data.createdAt is string &&
+        data.updatedAt is string &&
+        (!('authorName' in data) || data.authorName == null || (data.authorName is string && data.authorName.size() <= 120)) &&
+        (!('receiptId' in data) || data.receiptId == null || (data.receiptId is string && data.receiptId.size() > 0 && data.receiptId.size() <= 80)) &&
+        (!('paymentId' in data) || data.paymentId == null || (data.paymentId is string && data.paymentId.size() > 0 && data.paymentId.size() <= 120)) &&
+        (!('paymentMethod' in data) || data.paymentMethod == null || (data.paymentMethod is string && data.paymentMethod.size() <= 200)) &&
+        (!('voided' in data) || data.voided is bool) &&
+        (!('voidedAt' in data) || data.voidedAt == null || data.voidedAt is string);
+    }
+
+    function isReceiptCashMovementWrite(data) {
+      return isAgent() &&
+        data.source == 'receipt' &&
+        data.kind == 'deposit' &&
+        data.receiptId is string &&
+        data.paymentId is string;
+    }
+
     function isValidObligationTemplate(data) {
       return data.keys().hasAll(['title', 'category', 'dueDayOfMonth', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.keys().hasOnly(['title', 'category', 'dueDayOfMonth', 'expectedAmount', 'unitSlug', 'apartmentName', 'active', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
@@ -932,6 +964,15 @@ service cloud.firestore {
         request.resource.data.reason in ['CHECK_IN_CLIENT', 'AUTRE'];
       allow read: if isAdmin() || isKeyboxOperator();
       allow update, delete: if false;
+    }
+
+    match /cash_movements/{movementId} {
+      allow read: if canAccessCaisse();
+      allow create: if isValidCashMovement(request.resource.data) &&
+        (canAccessCaisse() || isReceiptCashMovementWrite(request.resource.data));
+      allow update: if isValidCashMovement(request.resource.data) &&
+        (canAccessCaisse() || isReceiptCashMovementWrite(request.resource.data));
+      allow delete: if canAccessCaisse() && resource.data.source == 'manual';
     }
 
     match /finance_entries/{entryId} {

@@ -1,4 +1,4 @@
-import { TarifMap, UserProfile } from './types';
+import { CaisseId, TarifMap, UserProfile } from './types';
 
 /** Ne pas ouvrir la vue Coûts via le seul rôle admin ; droits via bouton « Vue Coûts » (sauf super-admins). */
 export const FINANCE_COSTS_OPT_OUT_EMAILS = new Set(['yamehome.yaounde@gmail.com']);
@@ -43,6 +43,53 @@ export function canEditObligations(
   if (!profile?.email) return false;
   if (isMainAdminEmail(profile.email)) return true;
   return profile.role === 'admin';
+}
+
+/** Vue Caisse — tous les admins (y compris yamehome.yaounde@gmail.com). */
+export function canAccessCaisse(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  return canEditObligations(profile, isMainAdminEmail);
+}
+
+/** Catalogue des caisses Yaoundé (point de départ : 0 FCFA partout). */
+export const CAISSES: ReadonlyArray<{
+  id: CaisseId;
+  label: string;
+  color: string;
+  barClass: string;
+  pillClass: string;
+}> = [
+  { id: 'cash', label: 'Espèces', color: '#16a34a', barClass: 'bg-emerald-500', pillClass: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  { id: 'marchant_mtn', label: 'Marchand MTN', color: '#ca8a04', barClass: 'bg-yellow-500', pillClass: 'bg-yellow-50 text-yellow-900 border-yellow-200' },
+  { id: 'marchant_om', label: 'Marchand OM', color: '#ea580c', barClass: 'bg-orange-500', pillClass: 'bg-orange-50 text-orange-900 border-orange-200' },
+  { id: 'mtn_solange', label: 'MTN Solange', color: '#a16207', barClass: 'bg-amber-600', pillClass: 'bg-amber-50 text-amber-900 border-amber-200' },
+  { id: 'om_solange', label: 'OM Solange', color: '#f97316', barClass: 'bg-orange-400', pillClass: 'bg-orange-50 text-orange-800 border-orange-200' },
+  { id: 'bank_paypal', label: 'Virement & PayPal', color: '#2563eb', barClass: 'bg-blue-600', pillClass: 'bg-blue-50 text-blue-900 border-blue-200' },
+] as const;
+
+/**
+ * Mapping strict moyen de paiement reçu → caisse (Yaoundé uniquement).
+ * Les numéros Régine / Bangangté ne sont pas mappés.
+ */
+export const PAYMENT_METHOD_TO_CAISSE: Record<string, CaisseId> = {
+  Espèces: 'cash',
+  'Virement bancaire': 'bank_paypal',
+  PayPal: 'bank_paypal',
+  'Paiement mobile marchand Orange 1002038': 'marchant_om',
+  'Paiement mobile marchand MTN MoMo YAMEHOME': 'marchant_mtn',
+  'Paiement mobile Orange au 655 13 54 11 Solange Bekale': 'om_solange',
+  'Paiement mobile MTN MoMo au 679 41 41 02 Solange Bekale': 'mtn_solange',
+};
+
+export function paymentMethodToCaisseId(method: string | undefined | null): CaisseId | null {
+  if (!method) return null;
+  return PAYMENT_METHOD_TO_CAISSE[method] ?? null;
+}
+
+export function getCaisseById(id: CaisseId) {
+  return CAISSES.find((c) => c.id === id);
 }
 
 /**
@@ -174,6 +221,7 @@ export const PAYMENT_METHODS_BASE = ["Espèces", "Virement bancaire", "PayPal", 
  */
 export const MOBILE_PAYMENT_METHOD_OPTIONS = [
   'Paiement mobile marchand Orange 1002038',
+  'Paiement mobile marchand MTN MoMo YAMEHOME',
   'Paiement mobile Orange au 655 13 54 11 Solange Bekale',
   'Paiement mobile MTN MoMo au 679 41 41 02 Solange Bekale',
   'Paiement mobile Orange au 697 44 73 60 Régine Tchadeu',
@@ -196,12 +244,18 @@ export const HOSTS = [
   { id: "regine",    label: "Regine (+237 692 79 22 26)",   sites: ['Bangangté'] },
 ];
 
+/** Retourne la ville du logement (Yaoundé par défaut). */
+export function getLocationForApartment(apartmentName: string): 'Yaoundé' | 'Bangangté' {
+  if (!apartmentName || !TARIFS[apartmentName]) return 'Yaoundé';
+  const address = (TARIFS[apartmentName].address as string) || '';
+  return address.includes('Bangangté') ? 'Bangangté' : 'Yaoundé';
+}
+
 /** Retourne les hôtes disponibles pour un logement donné.
  *  Si aucun logement n'est sélectionné, retourne tous les hôtes. */
 export function getHostsForApartment(apartmentName: string) {
   if (!apartmentName || !TARIFS[apartmentName]) return HOSTS;
-  const address = TARIFS[apartmentName].address as string || '';
-  const location = address.includes('Bangangté') ? 'Bangangté' : 'Yaoundé';
+  const location = getLocationForApartment(apartmentName);
   return HOSTS.filter(h => h.sites.includes(location));
 }
 

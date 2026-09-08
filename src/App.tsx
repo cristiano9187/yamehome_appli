@@ -30,7 +30,7 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, PAYMENT_METHODS_BASE, MOBILE_PAYMENT_METHOD_OPTIONS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly } from './constants';
+import { TARIFS, PAYMENT_METHODS, PAYMENT_METHODS_BASE, MOBILE_PAYMENT_METHOD_OPTIONS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly, canAccessCaisse } from './constants';
 import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, ClientProfileSeed, AgentProfile } from './types';
 import {
   defaultCleaningChecklist,
@@ -59,6 +59,7 @@ import {
   stripProformaDraftFromNotes,
   type ProformaProspectDraft,
 } from './utils/proformaProspectDraft';
+import { syncReceiptCashMovements } from './utils/syncReceiptCashMovements';
 import { archivePastReservations, populatePublicCalendar } from './utils/archiveManager';
 import ReceiptPreview from './components/ReceiptPreview';
 import ObligationsDeskRail from './components/ObligationsDeskRail';
@@ -70,6 +71,7 @@ const ProspectsView = lazy(() => import('./components/ProspectsView'));
 const PrepaidElectricityTokensView = lazy(() => import('./components/PrepaidElectricityTokensView'));
 const DirectoryView = lazy(() => import('./components/DirectoryView'));
 const CostsView = lazy(() => import('./components/CostsView'));
+const CaisseView = lazy(() => import('./components/CaisseView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 const KeyboxCodesView = lazy(() => import('./components/KeyboxCodesView'));
 const ClientsView = lazy(() => import('./components/ClientsView'));
@@ -103,6 +105,7 @@ import {
   Zap,
   Wrench,
   Wallet,
+  Landmark,
   CalendarClock,
   ScrollText,
   ArrowLeft,
@@ -245,7 +248,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const { mergedContacts, prospects: directoryProspects } = useContactDirectory(!!user && isAuthReady);
   const [prospectUiRequest, setProspectUiRequest] = useState<ProspectUiRequest | null>(null);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'caisse' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
   const [clientProfileSeed, setClientProfileSeed] = useState<ClientProfileSeed | null>(null);
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
   const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | 'clients' | null>(null);
@@ -1391,6 +1394,16 @@ export default function App() {
       );
 
       await Promise.all([upsertClientFromReceipt(receiptPayload), upsertAgentFromReceipt(receiptPayload)]);
+
+      try {
+        const authorName =
+          user?.displayName?.trim() ||
+          userProfile?.displayName?.trim() ||
+          userProfile?.email?.split('@')[0];
+        await syncReceiptCashMovements(receiptPayload, user!.uid, authorName);
+      } catch (e) {
+        console.warn('Sync caisse reçu:', e);
+      }
 
       // --- AUTOMATIC CLEANING GENERATION (un rapport par segment de séjour)
       if (receiptPayload.status !== 'ANNULE') {
@@ -2570,6 +2583,19 @@ export default function App() {
                     Codes keybox
                   </button>
                 )}
+                {canAccessCaisse(userProfile, isMainAdminEmail) && (
+                  <button
+                    onClick={() => {
+                      setView('caisse');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'caisse' ? 'bg-violet-700 text-white shadow-lg shadow-violet-900/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    <Landmark size={16} className={view === 'caisse' ? '' : 'text-violet-600'} />
+                    Caisse
+                  </button>
+                )}
                 {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
                   <button
                     onClick={() => {
@@ -2887,16 +2913,31 @@ export default function App() {
                   </div>
                   <div className="p-4 space-y-3">
                     {formData.payments.map((p) => (
-                      <div key={p.id} className="bg-white p-3 rounded-xl border border-emerald-200 relative group shadow-sm">
-                        {!isReadOnly && formData.payments.length > 1 && (
-                          <button onClick={() => setFormData(prev => ({...prev, payments: prev.payments.filter(x => x.id !== p.id)}))}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg">
-                            <X size={10} />
-                          </button>
-                        )}
-                        <input disabled={isReadOnly} type="date" value={p.date}
-                          onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, date: e.target.value} : x)}))}
-                          className="bg-transparent text-[10px] font-bold text-emerald-700 mb-2 w-full outline-none" />
+                      <div key={p.id} className="bg-white p-3 rounded-xl border border-emerald-200 shadow-sm space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <input disabled={isReadOnly} type="date" value={p.date}
+                            onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, date: e.target.value} : x)}))}
+                            className="bg-transparent text-[10px] font-bold text-emerald-700 flex-1 outline-none" />
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              title="Supprimer ce versement"
+                              aria-label="Supprimer ce versement"
+                              onClick={() => setFormData(prev => {
+                                const remaining = prev.payments.filter(x => x.id !== p.id);
+                                if (remaining.length > 0) return { ...prev, payments: remaining };
+                                return {
+                                  ...prev,
+                                  payments: [{ id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }],
+                                };
+                              })}
+                              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[10px] font-black uppercase tracking-wide hover:bg-red-100 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                              Effacer
+                            </button>
+                          )}
+                        </div>
                         <div className="flex flex-col gap-2">
                           <input disabled={isReadOnly} type="number" value={p.amount || ''} placeholder="Montant FCFA"
                             onChange={(e) => setFormData(prev => ({...prev, payments: prev.payments.map(x => x.id === p.id ? {...x, amount: parseFloat(e.target.value) || 0} : x)}))}
@@ -3361,6 +3402,15 @@ export default function App() {
             <ObligationsDeskRail
               userProfile={userProfile!}
               userUid={user!.uid}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+            />
+          ) : view === 'caisse' ? (
+            <CaisseView
+              userProfile={userProfile}
               onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {
                 setAlertType(type || 'info');

@@ -492,6 +492,34 @@ export interface ProInvoice {
   authorUid: string;
 }
 
+/** Identifiants des caisses physiques / virtuelles (catalogue dans constants.ts). */
+export type CaisseId = 'cash' | 'marchant_mtn' | 'marchant_om' | 'mtn_solange' | 'om_solange' | 'bank_paypal';
+
+export type CashMovementKind = 'deposit' | 'withdrawal';
+export type CashMovementSource = 'manual' | 'receipt';
+
+/** Mouvement de caisse — solde = Σ dépôts − Σ retraits (hors lignes voided). Firestore `cash_movements`. */
+export interface CashMovement {
+  id?: string;
+  caisseId: CaisseId;
+  kind: CashMovementKind;
+  /** Toujours > 0 ; le sens est donné par `kind`. */
+  amount: number;
+  motif: string;
+  /** Date comptable YYYY-MM-DD */
+  date: string;
+  source: CashMovementSource;
+  receiptId?: string;
+  paymentId?: string;
+  paymentMethod?: string;
+  authorUid: string;
+  authorName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  voided?: boolean;
+  voidedAt?: string;
+}
+
 /** Ligne saisie manuelle dans la vue Coûts (Firestore `finance_entries`) */
 export type FinanceEntryKind = 'REVENUE' | 'EXPENSE';
 
