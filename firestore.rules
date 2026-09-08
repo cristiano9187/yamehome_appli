@@ -465,6 +465,11 @@ service cloud.firestore {
         data.paymentId is string;
     }
 
+    /** Sync reçu → caisse : les agents peuvent lire/écrire uniquement les mouvements auto (source receipt). */
+    function canReadReceiptCashMovement() {
+      return isAgent() && resource.data.source == 'receipt';
+    }
+
     function isValidObligationTemplate(data) {
       return data.keys().hasAll(['title', 'category', 'dueDayOfMonth', 'active', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.keys().hasOnly(['title', 'category', 'dueDayOfMonth', 'expectedAmount', 'unitSlug', 'apartmentName', 'active', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
@@ -970,7 +975,7 @@ service cloud.firestore {
     }
 
     match /cash_movements/{movementId} {
-      allow read: if canAccessCaisse();
+      allow read: if canAccessCaisse() || canReadReceiptCashMovement();
       allow create: if isValidCashMovement(request.resource.data) &&
         (canAccessCaisse() || isReceiptCashMovementWrite(request.resource.data));
       allow update: if isValidCashMovement(request.resource.data) &&

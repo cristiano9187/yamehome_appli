@@ -15,6 +15,14 @@
         { "fieldPath": "category", "order": "ASCENDING" },
         { "fieldPath": "periodYm", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "cash_movements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "receiptId", "order": "ASCENDING" },
+        { "fieldPath": "source", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -1395,14 +1395,27 @@ export default function App() {
 
       await Promise.all([upsertClientFromReceipt(receiptPayload), upsertAgentFromReceipt(receiptPayload)]);
 
+      let cashSyncWarning: string | null = null;
       try {
         const authorName =
           user?.displayName?.trim() ||
           userProfile?.displayName?.trim() ||
           userProfile?.email?.split('@')[0];
-        await syncReceiptCashMovements(receiptPayload, user!.uid, authorName);
+        const cashSync = await syncReceiptCashMovements(receiptPayload, user!.uid, authorName);
+        if (!cashSync.ok) {
+          cashSyncWarning =
+            'Reçu enregistré, mais la caisse n\'a pas pu être mise à jour (droits ou connexion). Rouvrez et sauvegardez à nouveau, ou prévenez un admin.';
+          console.error('Sync caisse reçu:', cashSync.error);
+        } else if (cashSync.skippedPayments.length > 0) {
+          const detail = cashSync.skippedPayments
+            .map((s) => `${s.amount.toLocaleString('fr-FR')} F (${s.method || '?'}) : ${s.reason}`)
+            .join(' ; ');
+          cashSyncWarning = `Reçu enregistré, mais ${cashSync.skippedPayments.length} versement(s) n'ont pas alimenté la caisse : ${detail}.`;
+        }
       } catch (e) {
-        console.warn('Sync caisse reçu:', e);
+        cashSyncWarning =
+          'Reçu enregistré, mais la caisse n\'a pas pu être mise à jour. Rouvrez et sauvegardez à nouveau, ou prévenez un admin.';
+        console.error('Sync caisse reçu:', e);
       }
 
       // --- AUTOMATIC CLEANING GENERATION (un rapport par segment de séjour)
@@ -1450,8 +1463,13 @@ export default function App() {
       }
 
       setSaveStatus('success');
-      setAlertType('success');
-      setAlertMessage('Reçu enregistré avec succès !');
+      if (cashSyncWarning) {
+        setAlertType('error');
+        setAlertMessage(cashSyncWarning);
+      } else {
+        setAlertType('success');
+        setAlertMessage('Reçu enregistré avec succès !');
+      }
       setTimeout(() => setSaveStatus('idle'), 3000);
       setIsReadOnly(true);
       setIsProformaMode(false);

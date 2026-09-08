@@ -16,6 +16,11 @@ function receiptPaymentMovementId(receiptId: string, paymentId: string): string 
   return `rcp_${safe}`;
 }
 
+function normalizeMovementDate(raw: string | undefined, fallbackIso: string): string {
+  if (raw && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(raw)) return raw;
+  return fallbackIso.slice(0, 10);
+}
+
 /** Caisse auto : reçus dont tous les segments sont à Yaoundé (pas Bangangté / Régine). */
 function isYaoundeReceipt(receipt: ReceiptData): boolean {
   const segments = getReceiptSegments(receipt);
@@ -25,6 +30,15 @@ function isYaoundeReceipt(receipt: ReceiptData): boolean {
   return segments.every((s) => getLocationForApartment(s.apartmentName) === 'Yaoundé');
 }
 
+export type SyncReceiptCashResult = {
+  ok: boolean;
+  /** Versements ignorés (moyen de paiement non mappé ou montant nul). */
+  skippedPayments: { paymentId: string; method: string; amount: number; reason: string }[];
+  /** Mouvements créés ou mis à jour. */
+  syncedCount: number;
+  error?: string;
+};
+
 /**
  * Alimente / met à jour / annule les mouvements auto liés aux versements d'un reçu Yaoundé.
  * Idempotent : doc id stable par (receiptId, paymentId).
@@ -33,21 +47,45 @@ export async function syncReceiptCashMovements(
   receipt: ReceiptData,
   authorUid: string,
   authorName?: string | null
-): Promise<void> {
+): Promise<SyncReceiptCashResult> {
+  const skippedPayments: SyncReceiptCashResult['skippedPayments'] = [];
   const receiptId = receipt.receiptId;
-  if (!receiptId || !authorUid) return;
+  if (!receiptId || !authorUid) {
+    return { ok: true, skippedPayments, syncedCount: 0 };
+  }
 
   const yaoundeOnly = isYaoundeReceipt(receipt);
-  const isCancelled = receipt.status === 'ANNULE' || !yaoundeOnly;
+  if (!yaoundeOnly) {
+    return { ok: true, skippedPayments, syncedCount: 0 };
+  }
+
+  const isCancelled = receipt.status === 'ANNULE';
   const now = new Date().toISOString();
   const payments = receipt.payments || [];
   const activePaymentIds = new Set(payments.map((p) => p.id));
 
-  const existingSnap = await getDocs(
-    query(collection(db, 'cash_movements'), where('receiptId', '==', receiptId))
-  );
+  let existingSnap;
+  try {
+    existingSnap = await getDocs(
+      query(
+        collection(db, 'cash_movements'),
+        where('receiptId', '==', receiptId),
+        where('source', '==', 'receipt')
+      )
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error('Sync caisse reçu — lecture mouvements:', e);
+    return {
+      ok: false,
+      skippedPayments,
+      syncedCount: 0,
+      error: message,
+    };
+  }
 
   const batch = writeBatch(db);
+  let syncedCount = 0;
 
   for (const d of existingSnap.docs) {
     const m = d.data() as CashMovement;
@@ -58,13 +96,33 @@ export async function syncReceiptCashMovements(
     }
   }
 
-  if (!isCancelled && yaoundeOnly) {
+  if (!isCancelled) {
     for (const p of payments) {
       const amount = Number(p.amount) || 0;
       const caisseId = paymentMethodToCaisseId(p.method);
       const id = receiptPaymentMovementId(receiptId, p.id);
 
-      if (amount <= 0 || !caisseId) {
+      if (amount <= 0) {
+        skippedPayments.push({
+          paymentId: p.id,
+          method: p.method || '',
+          amount,
+          reason: 'montant nul',
+        });
+        const existing = existingSnap.docs.find((x) => x.id === id);
+        if (existing && !existing.data().voided) {
+          batch.update(existing.ref, { voided: true, voidedAt: now, updatedAt: now });
+        }
+        continue;
+      }
+
+      if (!caisseId) {
+        skippedPayments.push({
+          paymentId: p.id,
+          method: p.method || '',
+          amount,
+          reason: 'moyen de paiement non reconnu pour la caisse',
+        });
         const existing = existingSnap.docs.find((x) => x.id === id);
         if (existing && !existing.data().voided) {
           batch.update(existing.ref, { voided: true, voidedAt: now, updatedAt: now });
@@ -83,7 +141,7 @@ export async function syncReceiptCashMovements(
         kind: 'deposit',
         amount,
         motif,
-        date: p.date || now.slice(0, 10),
+        date: normalizeMovementDate(p.date, now),
         source: 'receipt',
         receiptId,
         paymentId: p.id,
@@ -96,8 +154,22 @@ export async function syncReceiptCashMovements(
       };
 
       batch.set(doc(db, 'cash_movements', id), movement, { merge: true });
+      syncedCount += 1;
     }
   }
 
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error('Sync caisse reçu — écriture mouvements:', e);
+    return {
+      ok: false,
+      skippedPayments,
+      syncedCount: 0,
+      error: message,
+    };
+  }
+
+  return { ok: true, skippedPayments, syncedCount };
 }
