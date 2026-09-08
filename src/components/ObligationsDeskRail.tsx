@@ -47,6 +47,9 @@ import {
   Sparkles,
   PanelRightClose,
   Pencil,
+  CheckCircle2,
+  Eye,
+  RotateCcw,
 } from 'lucide-react';
 import MediaSubscriptionsPanel from './MediaSubscriptionsPanel';
 import {
@@ -166,6 +169,338 @@ function urgencyLabel(status: ObligationOccurrence['status'], dueDate: string): 
   const diffDays = Math.ceil((t1 - t0) / 86400000);
   if (diffDays <= WARN_DAYS_BEFORE) return 'À régler';
   return null;
+}
+
+function ObligationStatusPill({
+  status,
+  alert,
+}: {
+  status: ObligationOccurrence['status'];
+  alert: string | null;
+}) {
+  if (status === 'PAID') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">
+        <CheckCircle2 size={10} className="shrink-0 text-emerald-600" />
+        Réglé
+      </span>
+    );
+  }
+  if (!alert) return null;
+  const overdue = alert === 'Dépassé';
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
+        overdue
+          ? 'bg-red-50 border border-red-200 text-red-900'
+          : 'bg-amber-50 border border-amber-200 text-amber-950'
+      }`}
+    >
+      {alert}
+    </span>
+  );
+}
+
+function ObligationPaidBanner({
+  paidAt,
+  fullWidth = false,
+}: {
+  paidAt?: string | null;
+  fullWidth?: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-emerald-800 ${
+        fullWidth ? 'w-full justify-center px-3 py-2 rounded-lg' : 'px-2.5 py-1 whitespace-nowrap'
+      }`}
+    >
+      <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
+      Réglé{paidAt ? ` · ${paidAt}` : ''}
+    </span>
+  );
+}
+
+function ObligationIconBtn({
+  title,
+  onClick,
+  children,
+  tone = 'neutral',
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: 'neutral' | 'danger' | 'undo';
+}) {
+  const toneClass =
+    tone === 'danger'
+      ? 'text-stone-400 hover:bg-red-50 hover:text-red-700'
+      : tone === 'undo'
+        ? 'text-stone-400 hover:bg-stone-100 hover:text-stone-700'
+        : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800';
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className={`p-1.5 rounded-lg transition-colors ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ObligationProofControl({
+  proofUrl,
+  uploading,
+  canUpload,
+  canRemove,
+  onRemove,
+  onFile,
+  layout = 'desktop',
+}: {
+  proofUrl?: string | null;
+  uploading: boolean;
+  canUpload: boolean;
+  canRemove: boolean;
+  onRemove?: () => void;
+  onFile: (file: File) => void;
+  layout?: 'desktop' | 'mobile';
+}) {
+  if (uploading) {
+    return <Loader2 size={16} className="animate-spin text-orange-600" />;
+  }
+  if (proofUrl) {
+    return (
+      <div className={`flex flex-col ${layout === 'mobile' ? 'gap-2' : 'gap-1.5'}`}>
+        <a
+          href={proofUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-black uppercase shadow-sm ${
+            layout === 'mobile' ? 'w-full py-3 text-xs' : 'px-2.5 py-1.5 text-[10px]'
+          }`}
+        >
+          <Eye size={layout === 'mobile' ? 16 : 14} className="shrink-0" />
+          Voir la preuve
+        </a>
+        {canUpload && (
+          <label
+            className={`inline-flex items-center justify-center gap-1 cursor-pointer font-bold text-orange-700 hover:text-orange-900 ${
+              layout === 'mobile' ? 'py-2 text-xs' : 'text-[10px]'
+            }`}
+          >
+            <Upload size={12} /> Remplacer
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) onFile(f);
+              }}
+            />
+          </label>
+        )}
+        {canRemove && onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-[10px] text-red-600 hover:underline text-left"
+          >
+            Retirer la preuve
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (!canUpload) {
+    return <span className="text-stone-400">—</span>;
+  }
+  return (
+    <label
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold cursor-pointer hover:bg-orange-50/80 touch-manipulation ${
+        layout === 'mobile' ? 'w-full py-3 text-sm' : 'px-2.5 py-1.5 text-[10px]'
+      }`}
+    >
+      <Upload size={layout === 'mobile' ? 16 : 13} />
+      {layout === 'mobile' ? 'Joindre une preuve' : 'Joindre'}
+      <input
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) onFile(f);
+        }}
+      />
+    </label>
+  );
+}
+
+function ObligationDesktopActions({
+  isPaid,
+  canSettle,
+  canEdit,
+  paidAt,
+  onPay,
+  onClear,
+  onEdit,
+  onRemove,
+  removeTitle = 'Retirer ce mois',
+}: {
+  isPaid: boolean;
+  canSettle: boolean;
+  canEdit: boolean;
+  paidAt?: string | null;
+  onPay: () => void;
+  onClear?: () => void;
+  onEdit?: () => void;
+  onRemove?: () => void;
+  removeTitle?: string;
+}) {
+  const showAdminIcons = canEdit && (onClear || onEdit || onRemove);
+  return (
+    <div className="flex items-center justify-between gap-2 min-w-[9.5rem]">
+      <div className="min-w-0">
+        {isPaid ? (
+          <ObligationPaidBanner paidAt={paidAt} />
+        ) : canSettle ? (
+          <button
+            type="button"
+            onClick={onPay}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border-2 border-emerald-600 bg-white hover:bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase"
+          >
+            <CheckCircle2 size={13} />
+            Marquer réglé
+          </button>
+        ) : null}
+      </div>
+      {showAdminIcons && (
+        <div className="flex items-center gap-0.5 shrink-0">
+          {isPaid && onClear && (
+            <ObligationIconBtn title="Effacer le paiement" onClick={onClear} tone="undo">
+              <RotateCcw size={14} />
+            </ObligationIconBtn>
+          )}
+          {onEdit && (
+            <ObligationIconBtn title="Modifier" onClick={onEdit}>
+              <Pencil size={14} />
+            </ObligationIconBtn>
+          )}
+          {onRemove && (
+            <ObligationIconBtn title={removeTitle} onClick={onRemove} tone="danger">
+              <Trash2 size={14} />
+            </ObligationIconBtn>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ObligationMobileSettlePanel({
+  status,
+  paidAt,
+  paidDateValue,
+  onPaidDateChange,
+  onPaidDateBlur,
+  proofUrl,
+  uploading,
+  canSettle,
+  canEdit,
+  onUpload,
+  onRemoveProof,
+  onPay,
+  onClear,
+  onEdit,
+  onRemove,
+  removeTitle = 'Retirer',
+}: {
+  status: ObligationOccurrence['status'];
+  paidAt?: string | null;
+  paidDateValue: string;
+  onPaidDateChange: (v: string) => void;
+  onPaidDateBlur: () => void;
+  proofUrl?: string | null;
+  uploading: boolean;
+  canSettle: boolean;
+  canEdit: boolean;
+  onUpload: (f: File) => void;
+  onRemoveProof?: () => void;
+  onPay: () => void;
+  onClear?: () => void;
+  onEdit?: () => void;
+  onRemove?: () => void;
+  removeTitle?: string;
+}) {
+  const isPaid = status === 'PAID';
+  return (
+    <div className="space-y-3">
+      {isPaid && canSettle && <ObligationPaidBanner paidAt={paidAt} fullWidth />}
+      {canSettle && (
+        <div>
+          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
+          <input
+            type="date"
+            className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation"
+            value={paidDateValue}
+            onChange={(e) => onPaidDateChange(e.target.value)}
+            onBlur={onPaidDateBlur}
+          />
+        </div>
+      )}
+      {(canSettle || proofUrl) && (
+        <div>
+          {canSettle && (
+            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">
+              Preuve de paiement
+            </label>
+          )}
+          <ObligationProofControl
+            proofUrl={proofUrl}
+            uploading={uploading}
+            canUpload={canSettle}
+            canRemove={!!canEdit && !!onRemoveProof}
+            onRemove={onRemoveProof}
+            onFile={onUpload}
+            layout="mobile"
+          />
+        </div>
+      )}
+      {!isPaid && canSettle && (
+        <button
+          type="button"
+          onClick={onPay}
+          className="w-full py-3.5 rounded-xl text-[11px] font-black uppercase border-2 border-emerald-600 bg-white hover:bg-emerald-50 text-emerald-700 touch-manipulation inline-flex items-center justify-center gap-2"
+        >
+          <CheckCircle2 size={16} />
+          J&apos;ai payé
+        </button>
+      )}
+      {canEdit && (onClear || onEdit || onRemove) && (
+        <div className="flex items-center justify-end gap-1 pt-1 border-t border-stone-100">
+          {isPaid && onClear && (
+            <ObligationIconBtn title="Effacer le paiement" onClick={onClear} tone="undo">
+              <RotateCcw size={16} />
+            </ObligationIconBtn>
+          )}
+          {onEdit && (
+            <ObligationIconBtn title="Modifier" onClick={onEdit}>
+              <Pencil size={16} />
+            </ObligationIconBtn>
+          )}
+          {onRemove && (
+            <ObligationIconBtn title={removeTitle} onClick={onRemove} tone="danger">
+              <Trash2 size={16} />
+            </ObligationIconBtn>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function salaryAmountForEmployeeName(name: string): number | null {
@@ -1287,7 +1622,7 @@ export default function ObligationsDeskRail({
                     {canEdit
                       ? 'Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement, preuve. Les lignes récurrentes viennent des modèles ; les lignes ponctuelles s’ajoutent pour le mois affiché.'
                       : canSettle
-                        ? 'Consultation des charges. Vous pouvez déposer une preuve et marquer « OK payé » depuis le téléphone. Seuls les administrateurs effacent un paiement ou modifient les lignes.'
+                        ? 'Consultation des charges. Vous pouvez déposer une preuve et indiquer « J\'ai payé » depuis le téléphone. Seuls les administrateurs effacent un paiement ou modifient les lignes.'
                         : 'Consultation des charges récurrentes (loyers, eau, internet, TV). Seuls les administrateurs peuvent modifier ou marquer les paiements.'}
                   </p>
                   <p className="text-[10px] text-stone-400 mt-1 truncate">{userProfile.email}</p>
@@ -1673,82 +2008,52 @@ export default function ObligationsDeskRail({
                                       {alert && occ.status !== 'PAID' && (
                                         <span className={`shrink-0 text-[9px] font-black uppercase px-2 py-1 rounded ${alert === 'Dépassé' ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-950'}`}>{alert}</span>
                                       )}
-                                      {occ.status === 'PAID' && (
-                                        <span className="shrink-0 text-[9px] font-black uppercase text-emerald-800 px-2 py-1 rounded bg-emerald-100">Réglé</span>
-                                      )}
                                     </div>
-                                    {canEdit ? (
-                                      <>
-                                        <div className="flex flex-col gap-3">
-                                          <div>
-                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
-                                            <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
-                                          </div>
-                                          <div>
-                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
-                                            {occ.proofDownloadUrl ? (
-                                              <div className="flex flex-col gap-2">
-                                                <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir</a>
-                                                <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
-                                                  <Upload size={14} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer'}
-                                                  <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
-                                                </label>
-                                              </div>
-                                            ) : (
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                                <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Ajouter une preuve'}
-                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
-                                              </label>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex flex-col gap-3">
-                                          {occ.status !== 'PAID' ? (
-                                            <button type="button" onClick={() => void applyPayment(occ, tpl)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
-                                          ) : (
-                                            <button type="button" onClick={() => void clearPayment(occ)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-stone-200 text-stone-800 touch-manipulation">Effacer le paiement</button>
-                                          )}
-                                          <div className="grid grid-cols-2 gap-3">
-                                            <button type="button" onClick={() => openEditRecurring(occ, tpl)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-white border border-stone-300 touch-manipulation inline-flex items-center justify-center gap-1"><Pencil size={12} /> Modifier</button>
-                                            <button type="button" onClick={() => void handleDeleteRecurringOccurrence(occ)} className="py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Retirer</button>
-                                          </div>
-                                        </div>
-                                      </>
-                                    ) : canSettle ? (
-                                      <div className="space-y-3">
-                                        <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
-                                          <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
-                                        </div>
-                                        <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
-                                          {occ.proofDownloadUrl ? (
-                                            <div className="flex flex-col gap-2">
-                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                                <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer la preuve'}
-                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
-                                              </label>
-                                            </div>
-                                          ) : (
-                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
-                                              <Upload size={18} /> {uploadingId === occ.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
-                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
-                                            </label>
-                                          )}
-                                        </div>
-                                        {occ.status !== 'PAID' ? (
-                                          <button type="button" onClick={() => void applyPayment(occ, tpl)} className="w-full py-3.5 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
-                                        ) : (
-                                          <p className="text-[11px] text-emerald-800 font-bold">Déjà marqué réglé{occ.paidAt ? ` le ${occ.paidAt}` : ''}.</p>
-                                        )}
-                                      </div>
+                                    {canSettle || canEdit ? (
+                                      <ObligationMobileSettlePanel
+                                        status={occ.status}
+                                        paidAt={occ.paidAt}
+                                        paidDateValue={paidDateDraft[occ.id!] ?? ''}
+                                        onPaidDateChange={(v) =>
+                                          setPaidDateDraft((d) => ({ ...d, [occ.id!]: v }))
+                                        }
+                                        onPaidDateBlur={() => {
+                                          if (occ.status === 'PAID') void updatePaidDateOnly(occ);
+                                        }}
+                                        proofUrl={occ.proofDownloadUrl}
+                                        uploading={uploadingId === occ.id}
+                                        canSettle={canSettle}
+                                        canEdit={canEdit}
+                                        onUpload={(f) => void handleUploadProof(occ, f)}
+                                        onRemoveProof={
+                                          canEdit ? () => void handleRemoveProof(occ) : undefined
+                                        }
+                                        onPay={() => void applyPayment(occ, tpl)}
+                                        onClear={canEdit ? () => void clearPayment(occ) : undefined}
+                                        onEdit={canEdit ? () => openEditRecurring(occ, tpl) : undefined}
+                                        onRemove={
+                                          canEdit ? () => void handleDeleteRecurringOccurrence(occ) : undefined
+                                        }
+                                      />
                                     ) : (
-                                      <div className="space-y-1">
-                                        <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}</p>
+                                      <div className="space-y-2">
+                                        {occ.status === 'PAID' && (
+                                          <ObligationPaidBanner paidAt={occ.paidAt} fullWidth />
+                                        )}
                                         {occ.proofDownloadUrl ? (
-                                          <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                        ) : null}
+                                          <a
+                                            href={occ.proofDownloadUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg bg-orange-600 text-white text-xs font-black uppercase"
+                                          >
+                                            <Eye size={14} /> Voir la preuve
+                                          </a>
+                                        ) : (
+                                          <p className="text-[11px] text-stone-500">
+                                            Réglé le {occ.paidAt || '—'}
+                                          </p>
+                                        )}
                                       </div>
                                     )}
                                   </article>
@@ -1782,79 +2087,48 @@ export default function ObligationsDeskRail({
                                     {alert && oo.status !== 'PAID' && (
                                       <span className={`shrink-0 text-[9px] font-black uppercase px-2 py-1 rounded ${alert === 'Dépassé' ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-950'}`}>{alert}</span>
                                     )}
-                                    {oo.status === 'PAID' && (
-                                      <span className="shrink-0 text-[9px] font-black uppercase text-emerald-800 px-2 py-1 rounded bg-emerald-100">Réglé</span>
-                                    )}
                                   </div>
-                                  {canEdit ? (
-                                    <>
-                                      <div className="flex flex-col gap-3">
-                                        <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
-                                          <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
-                                        </div>
-                                        <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
-                                          {oo.proofDownloadUrl ? (
-                                            <div className="flex flex-col gap-2">
-                                              <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir</a>
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
-                                                <Upload size={14} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer'}
-                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
-                                              </label>
-                                            </div>
-                                          ) : (
-                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                              <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Ajouter une preuve'}
-                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
-                                            </label>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-col gap-3">
-                                        {oo.status !== 'PAID' ? (
-                                          <button type="button" onClick={() => void applyPaymentOneOff(oo)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
-                                        ) : (
-                                          <button type="button" onClick={() => void clearPaymentOneOff(oo)} className="w-full py-3 rounded-xl text-[11px] font-black uppercase bg-stone-200 text-stone-800 touch-manipulation">Effacer le paiement</button>
-                                        )}
-                                        <button type="button" onClick={() => void handleDeleteOneOff(oo)} className="w-full py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Supprimer</button>
-                                      </div>
-                                    </>
-                                  ) : canSettle ? (
-                                    <div className="space-y-3">
-                                      <div>
-                                        <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
-                                        <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
-                                      </div>
-                                      <div>
-                                        <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
-                                        {oo.proofDownloadUrl ? (
-                                          <div className="flex flex-col gap-2">
-                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                              <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer la preuve'}
-                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
-                                            </label>
-                                          </div>
-                                        ) : (
-                                          <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
-                                            <Upload size={18} /> {uploadingId === oo.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
-                                            <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
-                                          </label>
-                                        )}
-                                      </div>
-                                      {oo.status !== 'PAID' ? (
-                                        <button type="button" onClick={() => void applyPaymentOneOff(oo)} className="w-full py-3.5 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
-                                      ) : (
-                                        <p className="text-[11px] text-emerald-800 font-bold">Déjà marqué réglé{oo.paidAt ? ` le ${oo.paidAt}` : ''}.</p>
-                                      )}
-                                    </div>
+                                  {canSettle || canEdit ? (
+                                    <ObligationMobileSettlePanel
+                                      status={oo.status}
+                                      paidAt={oo.paidAt}
+                                      paidDateValue={paidDateDraft[oo.id!] ?? ''}
+                                      onPaidDateChange={(v) =>
+                                        setPaidDateDraft((d) => ({ ...d, [oo.id!]: v }))
+                                      }
+                                      onPaidDateBlur={() => {
+                                        if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo);
+                                      }}
+                                      proofUrl={oo.proofDownloadUrl}
+                                      uploading={uploadingId === oo.id}
+                                      canSettle={canSettle}
+                                      canEdit={canEdit}
+                                      onUpload={(f) => void handleUploadProofOneOff(oo, f)}
+                                      onRemoveProof={
+                                        canEdit ? () => void handleRemoveProofOneOff(oo) : undefined
+                                      }
+                                      onPay={() => void applyPaymentOneOff(oo)}
+                                      onClear={canEdit ? () => void clearPaymentOneOff(oo) : undefined}
+                                      onRemove={canEdit ? () => void handleDeleteOneOff(oo) : undefined}
+                                      removeTitle="Supprimer"
+                                    />
                                   ) : (
-                                    <div className="space-y-1">
-                                      <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}</p>
+                                    <div className="space-y-2">
+                                      {oo.status === 'PAID' && (
+                                        <ObligationPaidBanner paidAt={oo.paidAt} fullWidth />
+                                      )}
                                       {oo.proofDownloadUrl ? (
-                                        <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                      ) : null}
+                                        <a
+                                          href={oo.proofDownloadUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg bg-orange-600 text-white text-xs font-black uppercase"
+                                        >
+                                          <Eye size={14} /> Voir la preuve
+                                        </a>
+                                      ) : (
+                                        <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}</p>
+                                      )}
                                     </div>
                                   )}
                                 </article>
@@ -1869,9 +2143,9 @@ export default function ObligationsDeskRail({
                                 <th className="px-3 py-2 w-[10%]">Type</th>
                                 <th className="px-3 py-2 w-[10%]">Montant</th>
                                 <th className="px-3 py-2 w-[11%]">Échéance</th>
-                                <th className="px-3 py-2 w-[13%]">Réglé le</th>
-                                <th className="px-3 py-2 w-[14%]">Preuve</th>
-                                <th className="px-3 py-2 w-[20%]">Actions</th>
+                                <th className="px-3 py-2 w-[12%]">Réglé le</th>
+                                <th className="px-3 py-2 w-[15%]">Preuve</th>
+                                <th className="px-3 py-2 w-[18%]">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1915,7 +2189,12 @@ export default function ObligationsDeskRail({
                                           return a != null && a > 0 ? formatCurrency(a) : '—';
                                         })()}
                                       </td>
-                                      <td className="px-3 py-2 align-top tabular-nums font-medium">{occ.dueDate}</td>
+                                      <td className="px-3 py-2 align-top">
+                                        <div className="tabular-nums font-medium">{occ.dueDate}</div>
+                                        <div className="mt-1">
+                                          <ObligationStatusPill status={occ.status} alert={alert} />
+                                        </div>
+                                      </td>
                                       <td className="px-3 py-2 align-top">
                                         {canSettle ? (
                                         <input
@@ -1934,121 +2213,26 @@ export default function ObligationsDeskRail({
                                         )}
                                       </td>
                                       <td className="px-3 py-2 align-top">
-                                        {occ.proofDownloadUrl ? (
-                                          <div className="flex flex-col gap-1">
-                                            <a
-                                              href={occ.proofDownloadUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-orange-700 font-bold underline truncate max-w-[10rem]"
-                                            >
-                                              Voir
-                                            </a>
-                                            {canSettle && (
-                                              <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
-                                                <Upload size={12} />
-                                                Remplacer
-                                                <input
-                                                  type="file"
-                                                  accept="image/*,application/pdf"
-                                                  className="hidden"
-                                                  disabled={uploadingId === occ.id}
-                                                  onChange={(e) => {
-                                                    const f = e.target.files?.[0];
-                                                    e.target.value = '';
-                                                    if (f) void handleUploadProof(occ, f);
-                                                  }}
-                                                />
-                                              </label>
-                                            )}
-                                            {canEdit && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleRemoveProof(occ)}
-                                              className="text-[10px] text-red-600 hover:underline text-left"
-                                            >
-                                              Retirer
-                                            </button>
-                                            )}
-                                          </div>
-                                        ) : canSettle ? (
-                                          <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
-                                            <Upload size={12} />
-                                            Ajouter
-                                            <input
-                                              type="file"
-                                              accept="image/*,application/pdf"
-                                              className="hidden"
-                                              disabled={uploadingId === occ.id}
-                                              onChange={(e) => {
-                                                const f = e.target.files?.[0];
-                                                e.target.value = '';
-                                                if (f) void handleUploadProof(occ, f);
-                                              }}
-                                            />
-                                          </label>
-                                        ) : (
-                                          <span className="text-stone-400">—</span>
-                                        )}
-                                        {uploadingId === occ.id && (
-                                          <Loader2 size={14} className="animate-spin text-orange-600 mt-1" />
-                                        )}
+                                        <ObligationProofControl
+                                          proofUrl={occ.proofDownloadUrl}
+                                          uploading={uploadingId === occ.id}
+                                          canUpload={canSettle}
+                                          canRemove={canEdit}
+                                          onRemove={() => void handleRemoveProof(occ)}
+                                          onFile={(f) => void handleUploadProof(occ, f)}
+                                        />
                                       </td>
                                       <td className="px-3 py-2 align-top">
-                                        <div className="flex flex-wrap gap-1.5 items-center">
-                                          {canSettle && occ.status !== 'PAID' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => void applyPayment(occ, tpl)}
-                                              className="text-[9px] font-black uppercase bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg"
-                                            >
-                                              OK payé
-                                            </button>
-                                          )}
-                                          {canEdit && occ.status === 'PAID' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => void clearPayment(occ)}
-                                              className="text-[9px] font-black uppercase bg-stone-200 hover:bg-stone-300 text-stone-800 px-2 py-1.5 rounded-lg"
-                                            >
-                                              Effacer
-                                            </button>
-                                          )}
-                                          {alert && occ.status !== 'PAID' && (
-                                            <span
-                                              className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
-                                                alert === 'Dépassé'
-                                                  ? 'bg-red-200 text-red-900'
-                                                  : 'bg-amber-200 text-amber-950'
-                                              }`}
-                                            >
-                                              {alert}
-                                            </span>
-                                          )}
-                                          {occ.status === 'PAID' && (
-                                            <span className="text-[9px] font-black uppercase text-emerald-800">
-                                              Réglé
-                                            </span>
-                                          )}
-                                          {canEdit && (
-                                          <>
-                                          <button
-                                            type="button"
-                                            onClick={() => openEditRecurring(occ, tpl)}
-                                            className="text-[9px] font-black uppercase bg-white border border-stone-300 text-stone-800 hover:bg-stone-50 px-2 py-1.5 rounded-lg inline-flex items-center gap-1"
-                                          >
-                                            <Pencil size={12} /> Modifier
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleDeleteRecurringOccurrence(occ)}
-                                            className="text-[9px] font-black uppercase bg-red-50 border border-red-200 text-red-900 hover:bg-red-100 px-2 py-1.5 rounded-lg"
-                                          >
-                                            Retirer ce mois
-                                          </button>
-                                          </>
-                                          )}
-                                        </div>
+                                        <ObligationDesktopActions
+                                          isPaid={occ.status === 'PAID'}
+                                          canSettle={canSettle}
+                                          canEdit={canEdit}
+                                          paidAt={occ.paidAt}
+                                          onPay={() => void applyPayment(occ, tpl)}
+                                          onClear={() => void clearPayment(occ)}
+                                          onEdit={() => openEditRecurring(occ, tpl)}
+                                          onRemove={() => void handleDeleteRecurringOccurrence(occ)}
+                                        />
                                       </td>
                                     </tr>
                                   );
@@ -2083,7 +2267,12 @@ export default function ObligationsDeskRail({
                                         ? formatCurrency(oo.expectedAmount)
                                         : '—'}
                                     </td>
-                                    <td className="px-3 py-2 align-top tabular-nums font-medium">{oo.dueDate}</td>
+                                    <td className="px-3 py-2 align-top">
+                                      <div className="tabular-nums font-medium">{oo.dueDate}</div>
+                                      <div className="mt-1">
+                                        <ObligationStatusPill status={oo.status} alert={alert} />
+                                      </div>
+                                    </td>
                                     <td className="px-3 py-2 align-top">
                                       {canSettle ? (
                                       <input
@@ -2102,112 +2291,26 @@ export default function ObligationsDeskRail({
                                       )}
                                     </td>
                                     <td className="px-3 py-2 align-top">
-                                      {oo.proofDownloadUrl ? (
-                                        <div className="flex flex-col gap-1">
-                                          <a
-                                            href={oo.proofDownloadUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-orange-700 font-bold underline truncate max-w-[10rem]"
-                                          >
-                                            Voir
-                                          </a>
-                                          {canSettle && (
-                                            <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
-                                              <Upload size={12} />
-                                              Remplacer
-                                              <input
-                                                type="file"
-                                                accept="image/*,application/pdf"
-                                                className="hidden"
-                                                disabled={uploadingId === oo.id}
-                                                onChange={(e) => {
-                                                  const f = e.target.files?.[0];
-                                                  e.target.value = '';
-                                                  if (f) void handleUploadProofOneOff(oo, f);
-                                                }}
-                                              />
-                                            </label>
-                                          )}
-                                          {canEdit && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleRemoveProofOneOff(oo)}
-                                            className="text-[10px] text-red-600 hover:underline text-left"
-                                          >
-                                            Retirer
-                                          </button>
-                                          )}
-                                        </div>
-                                      ) : canSettle ? (
-                                        <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
-                                          <Upload size={12} />
-                                          Ajouter
-                                          <input
-                                            type="file"
-                                            accept="image/*,application/pdf"
-                                            className="hidden"
-                                            disabled={uploadingId === oo.id}
-                                            onChange={(e) => {
-                                              const f = e.target.files?.[0];
-                                              e.target.value = '';
-                                              if (f) void handleUploadProofOneOff(oo, f);
-                                            }}
-                                          />
-                                        </label>
-                                      ) : (
-                                        <span className="text-stone-400">—</span>
-                                      )}
-                                      {uploadingId === oo.id && (
-                                        <Loader2 size={14} className="animate-spin text-orange-600 mt-1" />
-                                      )}
+                                      <ObligationProofControl
+                                        proofUrl={oo.proofDownloadUrl}
+                                        uploading={uploadingId === oo.id}
+                                        canUpload={canSettle}
+                                        canRemove={canEdit}
+                                        onRemove={() => void handleRemoveProofOneOff(oo)}
+                                        onFile={(f) => void handleUploadProofOneOff(oo, f)}
+                                      />
                                     </td>
                                     <td className="px-3 py-2 align-top">
-                                      <div className="flex flex-wrap gap-1.5 items-center">
-                                        {canSettle && oo.status !== 'PAID' && (
-                                          <button
-                                            type="button"
-                                            onClick={() => void applyPaymentOneOff(oo)}
-                                            className="text-[9px] font-black uppercase bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg"
-                                          >
-                                            OK payé
-                                          </button>
-                                        )}
-                                        {canEdit && oo.status === 'PAID' && (
-                                          <button
-                                            type="button"
-                                            onClick={() => void clearPaymentOneOff(oo)}
-                                            className="text-[9px] font-black uppercase bg-stone-200 hover:bg-stone-300 text-stone-800 px-2 py-1.5 rounded-lg"
-                                          >
-                                            Effacer
-                                          </button>
-                                        )}
-                                        {canEdit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleDeleteOneOff(oo)}
-                                          className="text-[9px] font-black uppercase bg-red-100 hover:bg-red-200 text-red-900 px-2 py-1.5 rounded-lg border border-red-200"
-                                        >
-                                          Supprimer
-                                        </button>
-                                        )}
-                                        {alert && oo.status !== 'PAID' && (
-                                          <span
-                                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
-                                              alert === 'Dépassé'
-                                                ? 'bg-red-200 text-red-900'
-                                                : 'bg-amber-200 text-amber-950'
-                                            }`}
-                                          >
-                                            {alert}
-                                          </span>
-                                        )}
-                                        {oo.status === 'PAID' && (
-                                          <span className="text-[9px] font-black uppercase text-emerald-800">
-                                            Réglé
-                                          </span>
-                                        )}
-                                      </div>
+                                      <ObligationDesktopActions
+                                        isPaid={oo.status === 'PAID'}
+                                        canSettle={canSettle}
+                                        canEdit={canEdit}
+                                        paidAt={oo.paidAt}
+                                        onPay={() => void applyPaymentOneOff(oo)}
+                                        onClear={() => void clearPaymentOneOff(oo)}
+                                        onRemove={() => void handleDeleteOneOff(oo)}
+                                        removeTitle="Supprimer"
+                                      />
                                     </td>
                                   </tr>
                                 );

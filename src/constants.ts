@@ -46,7 +46,7 @@ export function canEditObligations(
 }
 
 /**
- * Preuve + « OK payé » sur Échéances.
+ * Preuve + marquer comme réglé sur Échéances.
  * Tous les employés connectés (hors gardien keybox).
  * Pas d’effacement de paiement ni d’édition des lignes (admins seulement).
  */
