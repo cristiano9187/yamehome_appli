@@ -173,12 +173,22 @@ function urgencyLabel(status: ObligationOccurrence['status'], dueDate: string): 
 
 /** Prénom en majuscules — même logique que la signature gérant des reçus. */
 function obligationSettledByName(profile: UserProfile): string {
-  const first = String(profile.displayName || auth.currentUser?.displayName || '')
-    .trim()
-    .split(/\s+/)[0];
-  if (first) return first.toUpperCase();
+  const raw = String(auth.currentUser?.displayName || profile.displayName || '').trim();
+  const first = raw.split(/\s+/)[0] || '';
+  if (first && first.toLowerCase() !== 'utilisateur') return first.toUpperCase();
   const local = (profile.email || auth.currentUser?.email || '').split('@')[0] || '';
   return local ? local.toUpperCase() : 'UTILISATEUR';
+}
+
+function obligationSettledSignaturePatch(profile: UserProfile): {
+  settledByName: string;
+  settledByUid: string;
+} {
+  const uid = auth.currentUser?.uid || profile.uid;
+  return {
+    settledByName: obligationSettledByName(profile),
+    settledByUid: uid,
+  };
 }
 
 function ObligationStatusPill({
@@ -215,10 +225,14 @@ function ObligationPaidBanner({
   paidAt,
   settledByName,
   fullWidth = false,
+  canAddSignature = false,
+  onAddSignature,
 }: {
   paidAt?: string | null;
   settledByName?: string | null;
   fullWidth?: boolean;
+  canAddSignature?: boolean;
+  onAddSignature?: () => void;
 }) {
   return (
     <span
@@ -242,6 +256,16 @@ function ObligationPaidBanner({
         >
           {settledByName}
         </span>
+      ) : canAddSignature && onAddSignature ? (
+        <button
+          type="button"
+          onClick={onAddSignature}
+          className={`text-[9px] font-bold italic text-stone-400 hover:text-stone-600 underline ${
+            fullWidth ? 'text-center' : 'pl-0.5 text-left'
+          }`}
+        >
+          Ajouter ma signature
+        </button>
       ) : null}
     </span>
   );
@@ -373,6 +397,8 @@ function ObligationDesktopActions({
   canEdit,
   paidAt,
   settledByName,
+  canAddSignature,
+  onAddSignature,
   onPay,
   onClear,
   onEdit,
@@ -384,6 +410,8 @@ function ObligationDesktopActions({
   canEdit: boolean;
   paidAt?: string | null;
   settledByName?: string | null;
+  canAddSignature?: boolean;
+  onAddSignature?: () => void;
   onPay: () => void;
   onClear?: () => void;
   onEdit?: () => void;
@@ -395,7 +423,12 @@ function ObligationDesktopActions({
     <div className="flex items-center justify-between gap-2 min-w-[9.5rem]">
       <div className="min-w-0">
         {isPaid ? (
-          <ObligationPaidBanner paidAt={paidAt} settledByName={settledByName} />
+          <ObligationPaidBanner
+            paidAt={paidAt}
+            settledByName={settledByName}
+            canAddSignature={canAddSignature}
+            onAddSignature={onAddSignature}
+          />
         ) : canSettle ? (
           <button
             type="button"
@@ -434,6 +467,8 @@ function ObligationMobileSettlePanel({
   status,
   paidAt,
   settledByName,
+  canAddSignature,
+  onAddSignature,
   paidDateValue,
   onPaidDateChange,
   onPaidDateBlur,
@@ -452,6 +487,8 @@ function ObligationMobileSettlePanel({
   status: ObligationOccurrence['status'];
   paidAt?: string | null;
   settledByName?: string | null;
+  canAddSignature?: boolean;
+  onAddSignature?: () => void;
   paidDateValue: string;
   onPaidDateChange: (v: string) => void;
   onPaidDateBlur: () => void;
@@ -471,7 +508,13 @@ function ObligationMobileSettlePanel({
   return (
     <div className="space-y-3">
       {isPaid && canSettle && (
-        <ObligationPaidBanner paidAt={paidAt} settledByName={settledByName} fullWidth />
+        <ObligationPaidBanner
+          paidAt={paidAt}
+          settledByName={settledByName}
+          fullWidth
+          canAddSignature={canAddSignature}
+          onAddSignature={onAddSignature}
+        />
       )}
       {canSettle && (
         <div>
@@ -1249,12 +1292,25 @@ export default function ObligationsDeskRail({
         status: 'PAID',
         paidAt,
         paidAmount: amt,
-        settledByName: obligationSettledByName(userProfile),
+        ...obligationSettledSignaturePatch(userProfile),
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
       console.error(e);
       onAlert('Enregistrement impossible.', 'error');
+    }
+  };
+
+  const stampSettledSignature = async (occ: ObligationOccurrence) => {
+    if (!canSettle || occ.status !== 'PAID' || occ.settledByName?.trim()) return;
+    try {
+      await updateDoc(doc(db, 'obligation_occurrences', occ.id!), {
+        ...obligationSettledSignaturePatch(userProfile),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error(e);
+      onAlert('Signature impossible.', 'error');
     }
   };
 
@@ -1266,6 +1322,7 @@ export default function ObligationsDeskRail({
         paidAt: null,
         paidAmount: null,
         settledByName: null,
+        settledByUid: null,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1380,6 +1437,9 @@ export default function ObligationsDeskRail({
       await updateDoc(doc(db, 'obligation_occurrences', occ.id), {
         proofStoragePath: path,
         proofDownloadUrl: url,
+        ...(occ.status === 'PAID' && !occ.settledByName?.trim()
+          ? obligationSettledSignaturePatch(userProfile)
+          : {}),
         updatedAt: new Date().toISOString(),
       });
       onAlert('Preuve enregistrée.', 'success');
@@ -1493,12 +1553,25 @@ export default function ObligationsDeskRail({
         status: 'PAID',
         paidAt,
         paidAmount: amt,
-        settledByName: obligationSettledByName(userProfile),
+        ...obligationSettledSignaturePatch(userProfile),
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
       console.error(e);
       onAlert('Enregistrement impossible.', 'error');
+    }
+  };
+
+  const stampSettledSignatureOneOff = async (oo: ObligationOneOff) => {
+    if (!canSettle || oo.status !== 'PAID' || oo.settledByName?.trim()) return;
+    try {
+      await updateDoc(doc(db, 'obligation_one_offs', oo.id!), {
+        ...obligationSettledSignaturePatch(userProfile),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error(e);
+      onAlert('Signature impossible.', 'error');
     }
   };
 
@@ -1510,6 +1583,7 @@ export default function ObligationsDeskRail({
         paidAt: null,
         paidAmount: null,
         settledByName: null,
+        settledByUid: null,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1545,6 +1619,9 @@ export default function ObligationsDeskRail({
       await updateDoc(doc(db, 'obligation_one_offs', oo.id), {
         proofStoragePath: path,
         proofDownloadUrl: url,
+        ...(oo.status === 'PAID' && !oo.settledByName?.trim()
+          ? obligationSettledSignaturePatch(userProfile)
+          : {}),
         updatedAt: new Date().toISOString(),
       });
       onAlert('Preuve enregistrée.', 'success');
@@ -2051,6 +2128,10 @@ export default function ObligationsDeskRail({
                                         status={occ.status}
                                         paidAt={occ.paidAt}
                                         settledByName={occ.settledByName}
+                                        canAddSignature={
+                                          canSettle && occ.status === 'PAID' && !occ.settledByName?.trim()
+                                        }
+                                        onAddSignature={() => void stampSettledSignature(occ)}
                                         paidDateValue={paidDateDraft[occ.id!] ?? ''}
                                         onPaidDateChange={(v) =>
                                           setPaidDateDraft((d) => ({ ...d, [occ.id!]: v }))
@@ -2135,6 +2216,10 @@ export default function ObligationsDeskRail({
                                       status={oo.status}
                                       paidAt={oo.paidAt}
                                       settledByName={oo.settledByName}
+                                      canAddSignature={
+                                        canSettle && oo.status === 'PAID' && !oo.settledByName?.trim()
+                                      }
+                                      onAddSignature={() => void stampSettledSignatureOneOff(oo)}
                                       paidDateValue={paidDateDraft[oo.id!] ?? ''}
                                       onPaidDateChange={(v) =>
                                         setPaidDateDraft((d) => ({ ...d, [oo.id!]: v }))
@@ -2276,6 +2361,10 @@ export default function ObligationsDeskRail({
                                           canEdit={canEdit}
                                           paidAt={occ.paidAt}
                                           settledByName={occ.settledByName}
+                                          canAddSignature={
+                                            canSettle && occ.status === 'PAID' && !occ.settledByName?.trim()
+                                          }
+                                          onAddSignature={() => void stampSettledSignature(occ)}
                                           onPay={() => void applyPayment(occ, tpl)}
                                           onClear={() => void clearPayment(occ)}
                                           onEdit={() => openEditRecurring(occ, tpl)}
@@ -2355,6 +2444,10 @@ export default function ObligationsDeskRail({
                                         canEdit={canEdit}
                                         paidAt={oo.paidAt}
                                         settledByName={oo.settledByName}
+                                        canAddSignature={
+                                          canSettle && oo.status === 'PAID' && !oo.settledByName?.trim()
+                                        }
+                                        onAddSignature={() => void stampSettledSignatureOneOff(oo)}
                                         onPay={() => void applyPaymentOneOff(oo)}
                                         onClear={() => void clearPaymentOneOff(oo)}
                                         onRemove={() => void handleDeleteOneOff(oo)}

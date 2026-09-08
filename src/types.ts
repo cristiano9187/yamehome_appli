@@ -568,6 +568,8 @@ export interface ObligationOccurrence {
   paidAmount: number | null;
   /** Prénom (style signature reçu) de la personne qui a marqué réglé. */
   settledByName?: string | null;
+  /** UID Firebase de la personne qui a marqué réglé. */
+  settledByUid?: string | null;
   proofStoragePath: string | null;
   proofDownloadUrl: string | null;
   notes?: string;
@@ -589,6 +591,8 @@ export interface ObligationOneOff {
   paidAmount: number | null;
   /** Prénom (style signature reçu) de la personne qui a marqué réglé. */
   settledByName?: string | null;
+  /** UID Firebase de la personne qui a marqué réglé. */
+  settledByUid?: string | null;
   proofStoragePath: string | null;
   proofDownloadUrl: string | null;
   notes?: string;

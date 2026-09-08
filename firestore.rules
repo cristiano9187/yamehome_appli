@@ -125,12 +125,17 @@ service cloud.firestore {
       let keys = request.resource.data.diff(resource.data).affectedKeys();
       let notClearing = !(resource.data.status == 'PAID' && request.resource.data.status == 'PENDING');
       let proofOnly = keys.hasOnly(['proofStoragePath', 'proofDownloadUrl', 'updatedAt']);
+      let proofWithStamp = keys.hasOnly(['proofStoragePath', 'proofDownloadUrl', 'settledByName', 'settledByUid', 'updatedAt']);
+      let stampOnly = resource.data.status == 'PAID' && request.resource.data.status == 'PAID' &&
+        keys.hasOnly(['settledByName', 'settledByUid', 'updatedAt']);
       let settleOk = request.resource.data.status == 'PAID' && (
+        keys.hasOnly(['status', 'paidAt', 'paidAmount', 'settledByName', 'settledByUid', 'updatedAt']) ||
         keys.hasOnly(['status', 'paidAt', 'paidAmount', 'settledByName', 'updatedAt']) ||
+        keys.hasOnly(['status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'settledByName', 'settledByUid', 'updatedAt']) ||
         keys.hasOnly(['status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'settledByName', 'updatedAt']) ||
         keys.hasOnly(['paidAt', 'updatedAt'])
       );
-      return notClearing && (proofOnly || settleOk);
+      return notClearing && (proofOnly || proofWithStamp || stampOnly || settleOk);
     }
 
     /** Gardien restreint (codes keybox) — vue exclusive, filtrée par allowedSites. */
@@ -443,7 +448,7 @@ service cloud.firestore {
 
     function isValidObligationOccurrence(data) {
       return data.keys().hasAll(['templateId', 'periodYm', 'dueDate', 'status', 'createdAt', 'updatedAt', 'authorUid']) &&
-        data.keys().hasOnly(['templateId', 'periodYm', 'dueDate', 'category', 'displayTitle', 'expectedAmountOverride', 'status', 'paidAt', 'paidAmount', 'settledByName', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['templateId', 'periodYm', 'dueDate', 'category', 'displayTitle', 'expectedAmountOverride', 'status', 'paidAt', 'paidAmount', 'settledByName', 'settledByUid', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.templateId is string && data.templateId.size() > 0 &&
         data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
         data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
@@ -454,6 +459,7 @@ service cloud.firestore {
         (!('paidAt' in data) || data.paidAt == null || data.paidAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
         (!('paidAmount' in data) || data.paidAmount == null || (data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount < 1000000000000)) &&
         (!('settledByName' in data) || data.settledByName == null || (data.settledByName is string && data.settledByName.size() > 0 && data.settledByName.size() <= 80)) &&
+        (!('settledByUid' in data) || data.settledByUid == null || (data.settledByUid is string && data.settledByUid.size() > 0 && data.settledByUid.size() <= 128)) &&
         (!('proofStoragePath' in data) || data.proofStoragePath == null || (data.proofStoragePath is string && data.proofStoragePath.size() > 0 && data.proofStoragePath.size() <= 500)) &&
         (!('proofDownloadUrl' in data) || data.proofDownloadUrl == null || (data.proofDownloadUrl is string && data.proofDownloadUrl.size() > 0 && data.proofDownloadUrl.size() <= 2048)) &&
         (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
@@ -464,7 +470,7 @@ service cloud.firestore {
 
     function isValidObligationOneOff(data) {
       return data.keys().hasAll(['periodYm', 'title', 'category', 'dueDate', 'status', 'createdAt', 'updatedAt', 'authorUid']) &&
-        data.keys().hasOnly(['periodYm', 'title', 'category', 'dueDate', 'expectedAmount', 'status', 'paidAt', 'paidAmount', 'settledByName', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
+        data.keys().hasOnly(['periodYm', 'title', 'category', 'dueDate', 'expectedAmount', 'status', 'paidAt', 'paidAmount', 'settledByName', 'settledByUid', 'proofStoragePath', 'proofDownloadUrl', 'notes', 'createdAt', 'updatedAt', 'authorUid']) &&
         data.periodYm is string && data.periodYm.matches('^[0-9]{4}-[0-9]{2}$') &&
         data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
         data.category in ['RENT', 'UTILITIES', 'INTERNET', 'SALARY', 'OTHER'] &&
@@ -474,6 +480,7 @@ service cloud.firestore {
         (!('paidAt' in data) || data.paidAt == null || data.paidAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
         (!('paidAmount' in data) || data.paidAmount == null || (data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount < 1000000000000)) &&
         (!('settledByName' in data) || data.settledByName == null || (data.settledByName is string && data.settledByName.size() > 0 && data.settledByName.size() <= 80)) &&
+        (!('settledByUid' in data) || data.settledByUid == null || (data.settledByUid is string && data.settledByUid.size() > 0 && data.settledByUid.size() <= 128)) &&
         (!('proofStoragePath' in data) || data.proofStoragePath == null || (data.proofStoragePath is string && data.proofStoragePath.size() > 0 && data.proofStoragePath.size() <= 500)) &&
         (!('proofDownloadUrl' in data) || data.proofDownloadUrl == null || (data.proofDownloadUrl is string && data.proofDownloadUrl.size() > 0 && data.proofDownloadUrl.size() <= 2048)) &&
         (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 4000)) &&
