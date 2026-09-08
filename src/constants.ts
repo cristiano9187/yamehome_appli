@@ -45,6 +45,14 @@ export function canEditObligations(
   return profile.role === 'admin';
 }
 
+/**
+ * Déposer / remplacer une preuve de paiement sur Échéances.
+ * Tous les employés connectés (hors gardien keybox) — pas de marquage « payé » ni d’édition.
+ */
+export function canUploadObligationProofs(profile: UserProfile | null): boolean {
+  return !!(profile?.email) && !isKeyboxGuardOnly(profile);
+}
+
 /** Catégories visibles par tous les employés (hors salaires). */
 export const OBLIGATION_PUBLIC_CATEGORIES = [
   'RENT',

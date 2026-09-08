@@ -31,6 +31,7 @@ import {
   FINANCE_SALARY_DUE_DAY_BY_HINT,
   FINANCE_SALARY_DUE_DAY_FALLBACK,
   canEditObligations,
+  canUploadObligationProofs,
   canSeeSalaryObligations,
   OBLIGATION_PUBLIC_CATEGORIES,
   MOIS_FR,
@@ -217,6 +218,7 @@ export default function ObligationsDeskRail({
   onMenuClick,
 }: ObligationsDeskRailProps) {
   const canEdit = canEditObligations(userProfile, isMainAdminEmail);
+  const canUploadProof = canUploadObligationProofs(userProfile);
   const canSeeSalary = canSeeSalaryObligations(userProfile, isMainAdminEmail);
   const canManageAdvancedOptions = isMainAdminEmail(userProfile.email);
   const [viewMonth, setViewMonth] = useState(calendarMonthFromDate);
@@ -994,7 +996,7 @@ export default function ObligationsDeskRail({
   };
 
   const handleUploadProof = async (occ: ObligationOccurrence, file: File) => {
-    if (!occ.id) return;
+    if (!occ.id || !canUploadProof) return;
     setUploadingId(occ.id);
     try {
       const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
@@ -1154,7 +1156,7 @@ export default function ObligationsDeskRail({
   };
 
   const handleUploadProofOneOff = async (oo: ObligationOneOff, file: File) => {
-    if (!oo.id) return;
+    if (!oo.id || !canUploadProof) return;
     setUploadingId(oo.id);
     try {
       const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
@@ -1278,7 +1280,9 @@ export default function ObligationsDeskRail({
                   <p className="hidden sm:block text-[11px] text-stone-500 mt-1 leading-relaxed max-w-xl">
                     {canEdit
                       ? 'Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement, preuve. Les lignes récurrentes viennent des modèles ; les lignes ponctuelles s’ajoutent pour le mois affiché.'
-                      : 'Consultation des charges récurrentes (loyers, eau, internet, TV). Seuls les administrateurs peuvent modifier ou marquer les paiements.'}
+                      : canUploadProof
+                        ? 'Consultation des charges. Vous pouvez déposer une preuve de paiement (photo ou PDF) depuis le téléphone. Seuls les administrateurs marquent les paiements et modifient les lignes.'
+                        : 'Consultation des charges récurrentes (loyers, eau, internet, TV). Seuls les administrateurs peuvent modifier ou marquer les paiements.'}
                   </p>
                   <p className="text-[10px] text-stone-400 mt-1 truncate">{userProfile.email}</p>
                 </div>
@@ -1677,10 +1681,16 @@ export default function ObligationsDeskRail({
                                           <div>
                                             <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                             {occ.proofDownloadUrl ? (
-                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-1 text-orange-700 font-bold text-xs underline">Voir</a>
+                                              <div className="flex flex-col gap-2">
+                                                <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir</a>
+                                                <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                                  <Upload size={14} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer'}
+                                                  <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
+                                                </label>
+                                              </div>
                                             ) : (
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
-                                                <Upload size={14} /> Ajouter
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                                <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Ajouter une preuve'}
                                                 <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
                                               </label>
                                             )}
@@ -1699,7 +1709,30 @@ export default function ObligationsDeskRail({
                                         </div>
                                       </>
                                     ) : (
-                                      <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}{occ.proofDownloadUrl ? <> · <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold underline">Preuve</a></> : null}</p>
+                                      <div className="space-y-3">
+                                        <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}</p>
+                                        {canUploadProof ? (
+                                          <div>
+                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
+                                            {occ.proofDownloadUrl ? (
+                                              <div className="flex flex-col gap-2">
+                                                <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                                <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                                  <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer la preuve'}
+                                                  <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
+                                                </label>
+                                              </div>
+                                            ) : (
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
+                                                <Upload size={18} /> {uploadingId === occ.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
+                                              </label>
+                                            )}
+                                          </div>
+                                        ) : occ.proofDownloadUrl ? (
+                                          <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                        ) : null}
+                                      </div>
                                     )}
                                   </article>
                                 );
@@ -1746,10 +1779,16 @@ export default function ObligationsDeskRail({
                                         <div>
                                           <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve</label>
                                           {oo.proofDownloadUrl ? (
-                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block pt-1 text-orange-700 font-bold text-xs underline">Voir</a>
+                                            <div className="flex flex-col gap-2">
+                                              <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir</a>
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
+                                                <Upload size={14} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer'}
+                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
+                                              </label>
+                                            </div>
                                           ) : (
-                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-xs cursor-pointer touch-manipulation">
-                                              <Upload size={14} /> Ajouter
+                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                              <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Ajouter une preuve'}
                                               <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
                                             </label>
                                           )}
@@ -1765,7 +1804,30 @@ export default function ObligationsDeskRail({
                                       </div>
                                     </>
                                   ) : (
-                                    <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}{oo.proofDownloadUrl ? <> · <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold underline">Preuve</a></> : null}</p>
+                                    <div className="space-y-3">
+                                      <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}</p>
+                                      {canUploadProof ? (
+                                        <div>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
+                                          {oo.proofDownloadUrl ? (
+                                            <div className="flex flex-col gap-2">
+                                              <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                                <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer la preuve'}
+                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
+                                              </label>
+                                            </div>
+                                          ) : (
+                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
+                                              <Upload size={18} /> {uploadingId === oo.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
+                                            </label>
+                                          )}
+                                        </div>
+                                      ) : oo.proofDownloadUrl ? (
+                                        <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                      ) : null}
+                                    </div>
                                   )}
                                 </article>
                               );
@@ -1854,6 +1916,23 @@ export default function ObligationsDeskRail({
                                             >
                                               Voir
                                             </a>
+                                            {canUploadProof && (
+                                              <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
+                                                <Upload size={12} />
+                                                Remplacer
+                                                <input
+                                                  type="file"
+                                                  accept="image/*,application/pdf"
+                                                  className="hidden"
+                                                  disabled={uploadingId === occ.id}
+                                                  onChange={(e) => {
+                                                    const f = e.target.files?.[0];
+                                                    e.target.value = '';
+                                                    if (f) void handleUploadProof(occ, f);
+                                                  }}
+                                                />
+                                              </label>
+                                            )}
                                             {canEdit && (
                                             <button
                                               type="button"
@@ -1864,7 +1943,7 @@ export default function ObligationsDeskRail({
                                             </button>
                                             )}
                                           </div>
-                                        ) : canEdit ? (
+                                        ) : canUploadProof ? (
                                           <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                             <Upload size={12} />
                                             Ajouter
@@ -2005,6 +2084,23 @@ export default function ObligationsDeskRail({
                                           >
                                             Voir
                                           </a>
+                                          {canUploadProof && (
+                                            <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
+                                              <Upload size={12} />
+                                              Remplacer
+                                              <input
+                                                type="file"
+                                                accept="image/*,application/pdf"
+                                                className="hidden"
+                                                disabled={uploadingId === oo.id}
+                                                onChange={(e) => {
+                                                  const f = e.target.files?.[0];
+                                                  e.target.value = '';
+                                                  if (f) void handleUploadProofOneOff(oo, f);
+                                                }}
+                                              />
+                                            </label>
+                                          )}
                                           {canEdit && (
                                           <button
                                             type="button"
@@ -2015,7 +2111,7 @@ export default function ObligationsDeskRail({
                                           </button>
                                           )}
                                         </div>
-                                      ) : canEdit ? (
+                                      ) : canUploadProof ? (
                                         <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                           <Upload size={12} />
                                           Ajouter

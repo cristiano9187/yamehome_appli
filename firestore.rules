@@ -115,6 +115,17 @@ service cloud.firestore {
       return isAdmin();
     }
 
+    /** Dépôt de preuves de paiement — agents/admins (pas gardiens keybox). */
+    function canUploadObligationProofs() {
+      return isAgent() && !isKeyboxGuardOnly();
+    }
+
+    /** Mise à jour limitée aux champs preuve (+ updatedAt). */
+    function isObligationProofOnlyUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['proofStoragePath', 'proofDownloadUrl', 'updatedAt']);
+    }
+
     /** Gardien restreint (codes keybox) — vue exclusive, filtrée par allowedSites. */
     function isKeyboxGuardOnly() {
       return isAuthenticated() &&
@@ -816,10 +827,22 @@ service cloud.firestore {
         request.resource.data.authorUid == request.auth.uid &&
         ('category' in request.resource.data) &&
         canReadObligationByCategory(request.resource.data.category);
-      allow update: if canEditObligations() && isValidObligationOccurrence(request.resource.data) &&
-        resource.data.authorUid == request.resource.data.authorUid &&
-        resource.data.templateId == request.resource.data.templateId &&
-        resource.data.periodYm == request.resource.data.periodYm;
+      allow update: if (
+          canEditObligations() && isValidObligationOccurrence(request.resource.data) &&
+          resource.data.authorUid == request.resource.data.authorUid &&
+          resource.data.templateId == request.resource.data.templateId &&
+          resource.data.periodYm == request.resource.data.periodYm
+        ) || (
+          canUploadObligationProofs() &&
+          isObligationProofOnlyUpdate() &&
+          isValidObligationOccurrence(request.resource.data) &&
+          resource.data.authorUid == request.resource.data.authorUid &&
+          resource.data.templateId == request.resource.data.templateId &&
+          resource.data.periodYm == request.resource.data.periodYm &&
+          canReadObligationByCategory(
+            ('category' in resource.data) ? resource.data.category : 'OTHER'
+          )
+        );
       allow delete: if canEditObligations();
     }
 
@@ -837,9 +860,18 @@ service cloud.firestore {
       allow create: if canEditObligations() && isValidObligationOneOff(request.resource.data) &&
         request.resource.data.authorUid == request.auth.uid &&
         canReadObligationByCategory(request.resource.data.category);
-      allow update: if canEditObligations() && isValidObligationOneOff(request.resource.data) &&
-        resource.data.authorUid == request.resource.data.authorUid &&
-        resource.data.periodYm == request.resource.data.periodYm;
+      allow update: if (
+          canEditObligations() && isValidObligationOneOff(request.resource.data) &&
+          resource.data.authorUid == request.resource.data.authorUid &&
+          resource.data.periodYm == request.resource.data.periodYm
+        ) || (
+          canUploadObligationProofs() &&
+          isObligationProofOnlyUpdate() &&
+          isValidObligationOneOff(request.resource.data) &&
+          resource.data.authorUid == request.resource.data.authorUid &&
+          resource.data.periodYm == request.resource.data.periodYm &&
+          canReadObligationByCategory(resource.data.category)
+        );
       allow delete: if canEditObligations();
     }
 
