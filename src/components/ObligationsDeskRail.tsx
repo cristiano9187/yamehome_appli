@@ -1256,8 +1256,10 @@ export default function ObligationsDeskRail({
   const busy = loadingTemplates || loadingOcc || ensuringYear;
 
   return (
-    <div className="flex flex-col md:h-[calc(100vh-2rem)] w-full max-w-6xl mx-auto bg-[#FAFAF9] border-0 md:border border-stone-200 rounded-none md:rounded-2xl md:my-4 md:shadow-sm md:overflow-hidden">
-              <header className="shrink-0 px-3 sm:px-5 py-3 sm:py-4 border-b border-stone-200 bg-white flex flex-wrap items-start gap-3 sm:gap-4">
+    <div className="flex-1 flex flex-col bg-[#F5F5F4] min-h-0 overflow-y-auto relative">
+      <div className="w-full max-w-6xl mx-auto md:my-4 md:px-4 pb-10">
+        <div className="flex flex-col w-full bg-[#FAFAF9] border-0 md:border border-stone-200 rounded-none md:rounded-2xl md:shadow-sm">
+              <header className="shrink-0 sticky top-0 z-20 px-3 sm:px-5 py-3 sm:py-4 border-b border-stone-200 bg-white flex flex-wrap items-start gap-3 sm:gap-4 md:rounded-t-2xl">
                 <div className="flex-1 min-w-0">
                   {onMenuClick && (
                     <button
@@ -1316,7 +1318,7 @@ export default function ObligationsDeskRail({
                 </div>
               </header>
 
-              <div className="flex-1 flex flex-col min-h-0 md:overflow-hidden px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
+              <div className="flex flex-col px-3 sm:px-5 py-3 sm:py-4 gap-3 sm:gap-4">
                 <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 shrink-0">
                   <div className="rounded-2xl border border-stone-200 bg-white px-3 py-3">
                     <p className="text-[10px] font-black uppercase tracking-widest text-stone-500">Lignes du mois</p>
@@ -1357,10 +1359,10 @@ export default function ObligationsDeskRail({
                   </div>
                 </div>
 
-                <div className="md:flex-1 md:min-h-0 flex flex-col">
+                <div className="flex flex-col">
                   <section
                     key={visiblePeriodYm}
-                    className="flex flex-col md:flex-1 md:min-h-0 w-full rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden"
+                    className="flex flex-col w-full rounded-2xl border border-stone-200 bg-white shadow-sm"
                   >
                         <div className="px-3 sm:px-4 py-3.5 bg-stone-50 border-b border-stone-200 space-y-3">
                           <div className="flex flex-wrap justify-between items-start gap-2">
@@ -1432,7 +1434,7 @@ export default function ObligationsDeskRail({
                         </div>
 
                         {showMediaPanel && (
-                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-stone-50/70">
+                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-stone-50/70 max-h-[min(22rem,45vh)] overflow-y-auto">
                             <MediaSubscriptionsPanel
                               userUid={userUid}
                               userProfile={userProfile}
@@ -1444,7 +1446,7 @@ export default function ObligationsDeskRail({
                         )}
 
                         {canManageAdvancedOptions && showTemplatesEditor && (
-                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-orange-50/40">
+                          <div className="px-3 sm:px-4 py-3 border-b border-stone-200 bg-orange-50/40 max-h-[min(26rem,50vh)] overflow-y-auto">
                             <div className="rounded-xl border border-stone-200 bg-white p-4 grid md:grid-cols-2 gap-4">
                               <form onSubmit={handleAddTemplate} className="space-y-2">
                                 <p className="text-[11px] font-bold text-stone-700">Ajouter une ligne récurrente</p>
@@ -1509,7 +1511,7 @@ export default function ObligationsDeskRail({
                                   <Plus size={14} /> Ajouter
                                 </button>
                               </form>
-                              <div className="border-t md:border-t-0 md:border-l border-stone-100 pt-4 md:pt-0 md:pl-4 space-y-2 max-h-56 overflow-y-auto">
+                              <div className="border-t md:border-t-0 md:border-l border-stone-100 pt-4 md:pt-0 md:pl-4 space-y-2 max-h-48 md:max-h-none md:overflow-visible overflow-y-auto">
                                 <p className="text-[11px] font-bold text-stone-700">Modèles existants</p>
                                 {templates.map((t) => (
                                   <div
@@ -1626,7 +1628,7 @@ export default function ObligationsDeskRail({
                           </form>
                         )}
 
-                        <div className="md:flex-1 md:min-h-0 md:overflow-y-auto">
+                        <div>
                           <div className="md:hidden p-3 space-y-3">
                             {!visibleRows.length && (
                               <p className="py-8 text-center text-stone-400 italic text-sm">Aucune ligne ce mois-ci.</p>
@@ -2094,9 +2096,12 @@ export default function ObligationsDeskRail({
                 </div>
               </div>
 
+        </div>
+      </div>
+
               {canEdit && editRecurring && (
                 <div
-                  className="absolute inset-0 z-[60] flex items-center justify-center p-4 bg-black/35"
+                  className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/35"
                   role="presentation"
                   onClick={() => !editRecurringSaving && setEditRecurring(null)}
                 >
