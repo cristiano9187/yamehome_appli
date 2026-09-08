@@ -115,15 +115,22 @@ service cloud.firestore {
       return isAdmin();
     }
 
-    /** Dépôt de preuves de paiement — agents/admins (pas gardiens keybox). */
-    function canUploadObligationProofs() {
+    /** Preuve + marquage payé — agents/admins (pas gardiens keybox). */
+    function canSettleObligations() {
       return isAgent() && !isKeyboxGuardOnly();
     }
 
-    /** Mise à jour limitée aux champs preuve (+ updatedAt). */
-    function isObligationProofOnlyUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['proofStoragePath', 'proofDownloadUrl', 'updatedAt']);
+    /** Mise à jour staff : preuve et/ou passage à PAID (jamais d’effacement PENDING). */
+    function isObligationStaffSettleUpdate() {
+      let keys = request.resource.data.diff(resource.data).affectedKeys();
+      let notClearing = !(resource.data.status == 'PAID' && request.resource.data.status == 'PENDING');
+      let proofOnly = keys.hasOnly(['proofStoragePath', 'proofDownloadUrl', 'updatedAt']);
+      let settleOk = request.resource.data.status == 'PAID' && (
+        keys.hasOnly(['status', 'paidAt', 'paidAmount', 'updatedAt']) ||
+        keys.hasOnly(['status', 'paidAt', 'paidAmount', 'proofStoragePath', 'proofDownloadUrl', 'updatedAt']) ||
+        keys.hasOnly(['paidAt', 'updatedAt'])
+      );
+      return notClearing && (proofOnly || settleOk);
     }
 
     /** Gardien restreint (codes keybox) — vue exclusive, filtrée par allowedSites. */
@@ -833,8 +840,8 @@ service cloud.firestore {
           resource.data.templateId == request.resource.data.templateId &&
           resource.data.periodYm == request.resource.data.periodYm
         ) || (
-          canUploadObligationProofs() &&
-          isObligationProofOnlyUpdate() &&
+          canSettleObligations() &&
+          isObligationStaffSettleUpdate() &&
           isValidObligationOccurrence(request.resource.data) &&
           resource.data.authorUid == request.resource.data.authorUid &&
           resource.data.templateId == request.resource.data.templateId &&
@@ -865,8 +872,8 @@ service cloud.firestore {
           resource.data.authorUid == request.resource.data.authorUid &&
           resource.data.periodYm == request.resource.data.periodYm
         ) || (
-          canUploadObligationProofs() &&
-          isObligationProofOnlyUpdate() &&
+          canSettleObligations() &&
+          isObligationStaffSettleUpdate() &&
           isValidObligationOneOff(request.resource.data) &&
           resource.data.authorUid == request.resource.data.authorUid &&
           resource.data.periodYm == request.resource.data.periodYm &&

@@ -46,11 +46,17 @@ export function canEditObligations(
 }
 
 /**
- * Déposer / remplacer une preuve de paiement sur Échéances.
- * Tous les employés connectés (hors gardien keybox) — pas de marquage « payé » ni d’édition.
+ * Preuve + « OK payé » sur Échéances.
+ * Tous les employés connectés (hors gardien keybox).
+ * Pas d’effacement de paiement ni d’édition des lignes (admins seulement).
  */
-export function canUploadObligationProofs(profile: UserProfile | null): boolean {
+export function canSettleObligations(profile: UserProfile | null): boolean {
   return !!(profile?.email) && !isKeyboxGuardOnly(profile);
+}
+
+/** @deprecated alias — préférer canSettleObligations */
+export function canUploadObligationProofs(profile: UserProfile | null): boolean {
+  return canSettleObligations(profile);
 }
 
 /** Catégories visibles par tous les employés (hors salaires). */

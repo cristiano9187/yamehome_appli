@@ -31,7 +31,7 @@ import {
   FINANCE_SALARY_DUE_DAY_BY_HINT,
   FINANCE_SALARY_DUE_DAY_FALLBACK,
   canEditObligations,
-  canUploadObligationProofs,
+  canSettleObligations,
   canSeeSalaryObligations,
   OBLIGATION_PUBLIC_CATEGORIES,
   MOIS_FR,
@@ -218,7 +218,7 @@ export default function ObligationsDeskRail({
   onMenuClick,
 }: ObligationsDeskRailProps) {
   const canEdit = canEditObligations(userProfile, isMainAdminEmail);
-  const canUploadProof = canUploadObligationProofs(userProfile);
+  const canSettle = canSettleObligations(userProfile);
   const canSeeSalary = canSeeSalaryObligations(userProfile, isMainAdminEmail);
   const canManageAdvancedOptions = isMainAdminEmail(userProfile.email);
   const [viewMonth, setViewMonth] = useState(calendarMonthFromDate);
@@ -871,6 +871,7 @@ export default function ObligationsDeskRail({
   };
 
   const applyPayment = async (occ: ObligationOccurrence, tpl: ObligationTemplate) => {
+    if (!canSettle) return;
     const draft = paidDateDraft[occ.id!]?.trim();
     const paidAt = draft || getLocalDateString();
     const hint = recurringRowExpectedAmount(occ, tpl);
@@ -889,6 +890,7 @@ export default function ObligationsDeskRail({
   };
 
   const clearPayment = async (occ: ObligationOccurrence) => {
+    if (!canEdit) return;
     try {
       await updateDoc(doc(db, 'obligation_occurrences', occ.id!), {
         status: 'PENDING',
@@ -903,6 +905,7 @@ export default function ObligationsDeskRail({
   };
 
   const updatePaidDateOnly = async (occ: ObligationOccurrence) => {
+    if (!canSettle) return;
     const draft = paidDateDraft[occ.id!]?.trim();
     if (!draft || occ.status !== 'PAID') return;
     try {
@@ -996,7 +999,7 @@ export default function ObligationsDeskRail({
   };
 
   const handleUploadProof = async (occ: ObligationOccurrence, file: File) => {
-    if (!occ.id || !canUploadProof) return;
+    if (!occ.id || !canSettle) return;
     setUploadingId(occ.id);
     try {
       const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
@@ -1110,6 +1113,7 @@ export default function ObligationsDeskRail({
   };
 
   const applyPaymentOneOff = async (oo: ObligationOneOff) => {
+    if (!canSettle) return;
     const draft = paidDateDraft[oo.id!]?.trim();
     const paidAt = draft || getLocalDateString();
     const amt =
@@ -1128,6 +1132,7 @@ export default function ObligationsDeskRail({
   };
 
   const clearPaymentOneOff = async (oo: ObligationOneOff) => {
+    if (!canEdit) return;
     try {
       await updateDoc(doc(db, 'obligation_one_offs', oo.id!), {
         status: 'PENDING',
@@ -1142,6 +1147,7 @@ export default function ObligationsDeskRail({
   };
 
   const updatePaidDateOnlyOneOff = async (oo: ObligationOneOff) => {
+    if (!canSettle) return;
     const draft = paidDateDraft[oo.id!]?.trim();
     if (!draft || oo.status !== 'PAID') return;
     try {
@@ -1156,7 +1162,7 @@ export default function ObligationsDeskRail({
   };
 
   const handleUploadProofOneOff = async (oo: ObligationOneOff, file: File) => {
-    if (!oo.id || !canUploadProof) return;
+    if (!oo.id || !canSettle) return;
     setUploadingId(oo.id);
     try {
       const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80);
@@ -1280,8 +1286,8 @@ export default function ObligationsDeskRail({
                   <p className="hidden sm:block text-[11px] text-stone-500 mt-1 leading-relaxed max-w-xl">
                     {canEdit
                       ? 'Un mois à la fois : utilisez les flèches à droite pour changer de mois. Échéance, date de règlement, preuve. Les lignes récurrentes viennent des modèles ; les lignes ponctuelles s’ajoutent pour le mois affiché.'
-                      : canUploadProof
-                        ? 'Consultation des charges. Vous pouvez déposer une preuve de paiement (photo ou PDF) depuis le téléphone. Seuls les administrateurs marquent les paiements et modifient les lignes.'
+                      : canSettle
+                        ? 'Consultation des charges. Vous pouvez déposer une preuve et marquer « OK payé » depuis le téléphone. Seuls les administrateurs effacent un paiement ou modifient les lignes.'
                         : 'Consultation des charges récurrentes (loyers, eau, internet, TV). Seuls les administrateurs peuvent modifier ou marquer les paiements.'}
                   </p>
                   <p className="text-[10px] text-stone-400 mt-1 truncate">{userProfile.email}</p>
@@ -1708,28 +1714,39 @@ export default function ObligationsDeskRail({
                                           </div>
                                         </div>
                                       </>
-                                    ) : (
+                                    ) : canSettle ? (
                                       <div className="space-y-3">
-                                        <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}</p>
-                                        {canUploadProof ? (
-                                          <div>
-                                            <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
-                                            {occ.proofDownloadUrl ? (
-                                              <div className="flex flex-col gap-2">
-                                                <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                                <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                                  <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer la preuve'}
-                                                  <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
-                                                </label>
-                                              </div>
-                                            ) : (
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
-                                                <Upload size={18} /> {uploadingId === occ.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                        <div>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
+                                          <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[occ.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [occ.id!]: e.target.value }))} onBlur={() => { if (occ.status === 'PAID') void updatePaidDateOnly(occ); }} />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
+                                          {occ.proofDownloadUrl ? (
+                                            <div className="flex flex-col gap-2">
+                                              <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                                <Upload size={16} /> {uploadingId === occ.id ? 'Envoi…' : 'Remplacer la preuve'}
                                                 <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
                                               </label>
-                                            )}
-                                          </div>
-                                        ) : occ.proofDownloadUrl ? (
+                                            </div>
+                                          ) : (
+                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
+                                              <Upload size={18} /> {uploadingId === occ.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === occ.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProof(occ, f); }} />
+                                            </label>
+                                          )}
+                                        </div>
+                                        {occ.status !== 'PAID' ? (
+                                          <button type="button" onClick={() => void applyPayment(occ, tpl)} className="w-full py-3.5 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
+                                        ) : (
+                                          <p className="text-[11px] text-emerald-800 font-bold">Déjà marqué réglé{occ.paidAt ? ` le ${occ.paidAt}` : ''}.</p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        <p className="text-[11px] text-stone-500">Réglé le {occ.paidAt || '—'}</p>
+                                        {occ.proofDownloadUrl ? (
                                           <a href={occ.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
                                         ) : null}
                                       </div>
@@ -1803,28 +1820,39 @@ export default function ObligationsDeskRail({
                                         <button type="button" onClick={() => void handleDeleteOneOff(oo)} className="w-full py-2.5 rounded-xl text-[10px] font-black uppercase bg-red-50 border border-red-200 text-red-900 touch-manipulation">Supprimer</button>
                                       </div>
                                     </>
-                                  ) : (
+                                  ) : canSettle ? (
                                     <div className="space-y-3">
-                                      <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}</p>
-                                      {canUploadProof ? (
-                                        <div>
-                                          <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
-                                          {oo.proofDownloadUrl ? (
-                                            <div className="flex flex-col gap-2">
-                                              <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
-                                              <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
-                                                <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer la preuve'}
-                                                <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
-                                              </label>
-                                            </div>
-                                          ) : (
-                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
-                                              <Upload size={18} /> {uploadingId === oo.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                      <div>
+                                        <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
+                                        <input type="date" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2.5 bg-white touch-manipulation" value={paidDateDraft[oo.id!] ?? ''} onChange={(e) => setPaidDateDraft((d) => ({ ...d, [oo.id!]: e.target.value }))} onBlur={() => { if (oo.status === 'PAID') void updatePaidDateOnlyOneOff(oo); }} />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Preuve de paiement</label>
+                                        {oo.proofDownloadUrl ? (
+                                          <div className="flex flex-col gap-2">
+                                            <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-orange-700 font-bold text-xs underline">Voir la preuve</a>
+                                            <label className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg border border-dashed border-orange-300 text-orange-700 font-bold text-sm cursor-pointer touch-manipulation">
+                                              <Upload size={16} /> {uploadingId === oo.id ? 'Envoi…' : 'Remplacer la preuve'}
                                               <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
                                             </label>
-                                          )}
-                                        </div>
-                                      ) : oo.proofDownloadUrl ? (
+                                          </div>
+                                        ) : (
+                                          <label className="inline-flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl border border-dashed border-orange-400 bg-orange-50 text-orange-800 font-bold text-sm cursor-pointer touch-manipulation">
+                                            <Upload size={18} /> {uploadingId === oo.id ? 'Envoi…' : 'Déposer une preuve (photo / PDF)'}
+                                            <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploadingId === oo.id} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleUploadProofOneOff(oo, f); }} />
+                                          </label>
+                                        )}
+                                      </div>
+                                      {oo.status !== 'PAID' ? (
+                                        <button type="button" onClick={() => void applyPaymentOneOff(oo)} className="w-full py-3.5 rounded-xl text-[11px] font-black uppercase bg-emerald-600 text-white touch-manipulation">OK payé</button>
+                                      ) : (
+                                        <p className="text-[11px] text-emerald-800 font-bold">Déjà marqué réglé{oo.paidAt ? ` le ${oo.paidAt}` : ''}.</p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <p className="text-[11px] text-stone-500">Réglé le {oo.paidAt || '—'}</p>
+                                      {oo.proofDownloadUrl ? (
                                         <a href={oo.proofDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-orange-700 font-bold text-xs underline">Voir la preuve</a>
                                       ) : null}
                                     </div>
@@ -1889,7 +1917,7 @@ export default function ObligationsDeskRail({
                                       </td>
                                       <td className="px-3 py-2 align-top tabular-nums font-medium">{occ.dueDate}</td>
                                       <td className="px-3 py-2 align-top">
-                                        {canEdit ? (
+                                        {canSettle ? (
                                         <input
                                           type="date"
                                           className="w-full max-w-[9.5rem] text-[11px] border border-stone-200 rounded-lg px-1 py-1 bg-white"
@@ -1916,7 +1944,7 @@ export default function ObligationsDeskRail({
                                             >
                                               Voir
                                             </a>
-                                            {canUploadProof && (
+                                            {canSettle && (
                                               <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
                                                 <Upload size={12} />
                                                 Remplacer
@@ -1943,7 +1971,7 @@ export default function ObligationsDeskRail({
                                             </button>
                                             )}
                                           </div>
-                                        ) : canUploadProof ? (
+                                        ) : canSettle ? (
                                           <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                             <Upload size={12} />
                                             Ajouter
@@ -1968,7 +1996,7 @@ export default function ObligationsDeskRail({
                                       </td>
                                       <td className="px-3 py-2 align-top">
                                         <div className="flex flex-wrap gap-1.5 items-center">
-                                          {canEdit && occ.status !== 'PAID' && (
+                                          {canSettle && occ.status !== 'PAID' && (
                                             <button
                                               type="button"
                                               onClick={() => void applyPayment(occ, tpl)}
@@ -2057,7 +2085,7 @@ export default function ObligationsDeskRail({
                                     </td>
                                     <td className="px-3 py-2 align-top tabular-nums font-medium">{oo.dueDate}</td>
                                     <td className="px-3 py-2 align-top">
-                                      {canEdit ? (
+                                      {canSettle ? (
                                       <input
                                         type="date"
                                         className="w-full max-w-[9.5rem] text-[11px] border border-stone-200 rounded-lg px-1 py-1 bg-white"
@@ -2084,7 +2112,7 @@ export default function ObligationsDeskRail({
                                           >
                                             Voir
                                           </a>
-                                          {canUploadProof && (
+                                          {canSettle && (
                                             <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline text-[10px]">
                                               <Upload size={12} />
                                               Remplacer
@@ -2111,7 +2139,7 @@ export default function ObligationsDeskRail({
                                           </button>
                                           )}
                                         </div>
-                                      ) : canUploadProof ? (
+                                      ) : canSettle ? (
                                         <label className="inline-flex items-center gap-1 cursor-pointer text-orange-700 font-bold hover:underline">
                                           <Upload size={12} />
                                           Ajouter
@@ -2136,7 +2164,7 @@ export default function ObligationsDeskRail({
                                     </td>
                                     <td className="px-3 py-2 align-top">
                                       <div className="flex flex-wrap gap-1.5 items-center">
-                                        {canEdit && oo.status !== 'PAID' && (
+                                        {canSettle && oo.status !== 'PAID' && (
                                           <button
                                             type="button"
                                             onClick={() => void applyPaymentOneOff(oo)}
