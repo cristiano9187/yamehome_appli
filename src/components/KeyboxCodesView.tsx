@@ -136,6 +136,24 @@ function reasonLabel(reason?: KeyboxRemovalReason | null): string {
   return KEYBOX_REMOVAL_REASONS.find((r) => r.id === reason)?.label || 'Retrait';
 }
 
+function revealReasonLabel(reason?: KeyboxCodeRevealReason | null): string {
+  return KEYBOX_CODE_REVEAL_REASONS.find((r) => r.id === reason)?.label || 'Consultation';
+}
+
+function revealSummary(entry: KeyboxCodeRevealLog): { title: string; subtitle: string } {
+  const title = revealReasonLabel(entry.reason);
+  const parts = [
+    entry.dwellingShortLabel || null,
+    entry.clientName || null,
+    entry.receiptId ? `Reçu ${entry.receiptId}` : null,
+    entry.reasonNote || null,
+  ].filter(Boolean);
+  return {
+    title,
+    subtitle: parts.join(' · '),
+  };
+}
+
 function movementTypeClass(type: KeyboxMovementLogEntry['type']): string {
   switch (type) {
     case 'RETRAIT':
@@ -230,6 +248,7 @@ export default function KeyboxCodesView({
 
   const [dwellings, setDwellings] = useState<KeyboxDwelling[]>([]);
   const [units, setUnits] = useState<KeyboxUnit[]>([]);
+  const [codeReveals, setCodeReveals] = useState<KeyboxCodeRevealLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [tab, setTab] = useState<'boxes' | 'search'>('search');
@@ -313,7 +332,40 @@ export default function KeyboxCodesView({
     };
   }, [onAlert]);
 
+  /** Journal des consultations de code — agents/admins (les gardiens créent mais ne lisent pas). */
+  useEffect(() => {
+    if (!canOperate) {
+      setCodeReveals([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      collection(db, 'keybox_code_reveals'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as KeyboxCodeRevealLog))
+          .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+        setCodeReveals(list);
+      },
+      (err) => {
+        console.error(err);
+        onAlert('Impossible de charger l’historique des consultations de codes.', 'error');
+      }
+    );
+    return () => unsub();
+  }, [canOperate, onAlert]);
+
   const dwellingMap = useMemo(() => new Map(dwellings.map((d) => [d.id!, d])), [dwellings]);
+
+  const revealsByBoxId = useMemo(() => {
+    const map = new Map<string, KeyboxCodeRevealLog[]>();
+    for (const entry of codeReveals) {
+      if (!entry.boxId) continue;
+      const prev = map.get(entry.boxId);
+      if (prev) prev.push(entry);
+      else map.set(entry.boxId, [entry]);
+    }
+    return map;
+  }, [codeReveals]);
 
   const actor = () => ({
     actorUid: auth.currentUser?.uid || userProfile?.uid || '',
@@ -1220,6 +1272,10 @@ export default function KeyboxCodesView({
                   {visibleUnits.map((box) => {
                     const currentKey = `${box.id}:current`;
                     const recentCodes = recentCodesForDisplay(box);
+                    const recentReveals = box.id ? revealsByBoxId.get(box.id)?.slice(0, 8) || [] : [];
+                    const recentMovements = box.movementLog?.slice(0, 4) || [];
+                    const hasHistory =
+                      recentCodes.length > 0 || recentMovements.length > 0 || recentReveals.length > 0;
                     const isEmpty = box.contents.length === 0;
                     return (
                       <motion.div
@@ -1312,13 +1368,39 @@ export default function KeyboxCodesView({
                           )}
                         </div>
 
-                        {(recentCodes.length > 0 || (box.movementLog?.length ?? 0) > 0) && (
+                        {hasHistory && (
                           <details className="group border-t border-gray-100 pt-3 mb-1">
                             <summary className="list-none flex items-center justify-center gap-1 text-[9px] font-black uppercase tracking-widest text-gray-400 cursor-pointer select-none hover:text-gray-600">
                               <History size={11} />
                               Historique
+                              {recentReveals.length > 0 ? ` · ${recentReveals.length} consult.` : ''}
                             </summary>
                             <div className="mt-3 space-y-3">
+                              {recentReveals.length > 0 && (
+                                <div>
+                                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">
+                                    Consultations de code
+                                  </p>
+                                  <ul className="space-y-2">
+                                    {recentReveals.map((entry, idx) => {
+                                      const { title, subtitle } = revealSummary(entry);
+                                      return (
+                                        <li key={entry.id || `${entry.at}-${idx}`}>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <span className="text-xs font-bold text-indigo-700">{title}</span>
+                                            <span className="text-[10px] text-gray-400 shrink-0 text-right">
+                                              {formatDateTimeFr(entry.at)}
+                                            </span>
+                                          </div>
+                                          <p className="text-[10px] text-gray-500 mt-0.5">
+                                            {[subtitle, entry.actorName].filter(Boolean).join(' · ')}
+                                          </p>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
                               {recentCodes.length > 0 && (
                                 <div>
                                   <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">Anciens codes</p>
@@ -1339,11 +1421,11 @@ export default function KeyboxCodesView({
                                   </ul>
                                 </div>
                               )}
-                              {(box.movementLog?.length ?? 0) > 0 && (
+                              {recentMovements.length > 0 && (
                                 <div>
                                   <p className="text-[9px] font-black uppercase text-gray-400 mb-1.5">Derniers mouvements</p>
                                   <ul className="space-y-2">
-                                    {box.movementLog.slice(0, 2).map((entry, idx) => {
+                                    {recentMovements.map((entry, idx) => {
                                       const { title, subtitle } = movementSummary(entry);
                                       return (
                                         <li key={`${entry.type}-${entry.at}-${idx}`}>
