@@ -171,6 +171,16 @@ function urgencyLabel(status: ObligationOccurrence['status'], dueDate: string): 
   return null;
 }
 
+/** Prénom en majuscules — même logique que la signature gérant des reçus. */
+function obligationSettledByName(profile: UserProfile): string {
+  const first = String(profile.displayName || auth.currentUser?.displayName || '')
+    .trim()
+    .split(/\s+/)[0];
+  if (first) return first.toUpperCase();
+  const local = (profile.email || auth.currentUser?.email || '').split('@')[0] || '';
+  return local ? local.toUpperCase() : 'UTILISATEUR';
+}
+
 function ObligationStatusPill({
   status,
   alert,
@@ -203,19 +213,36 @@ function ObligationStatusPill({
 
 function ObligationPaidBanner({
   paidAt,
+  settledByName,
   fullWidth = false,
 }: {
   paidAt?: string | null;
+  settledByName?: string | null;
   fullWidth?: boolean;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-emerald-800 ${
-        fullWidth ? 'w-full justify-center px-3 py-2 rounded-lg' : 'px-2.5 py-1 whitespace-nowrap'
+      className={`inline-flex flex-col gap-0.5 ${
+        fullWidth ? 'w-full items-center' : 'items-start min-w-0'
       }`}
     >
-      <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
-      Réglé{paidAt ? ` · ${paidAt}` : ''}
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-emerald-800 ${
+          fullWidth ? 'w-full justify-center px-3 py-2 rounded-lg' : 'px-2.5 py-1 whitespace-nowrap'
+        }`}
+      >
+        <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
+        Réglé{paidAt ? ` · ${paidAt}` : ''}
+      </span>
+      {settledByName ? (
+        <span
+          className={`text-[9px] font-bold italic text-stone-400 tracking-wide ${
+            fullWidth ? 'text-center' : 'pl-0.5'
+          }`}
+        >
+          {settledByName}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -345,6 +372,7 @@ function ObligationDesktopActions({
   canSettle,
   canEdit,
   paidAt,
+  settledByName,
   onPay,
   onClear,
   onEdit,
@@ -355,6 +383,7 @@ function ObligationDesktopActions({
   canSettle: boolean;
   canEdit: boolean;
   paidAt?: string | null;
+  settledByName?: string | null;
   onPay: () => void;
   onClear?: () => void;
   onEdit?: () => void;
@@ -366,7 +395,7 @@ function ObligationDesktopActions({
     <div className="flex items-center justify-between gap-2 min-w-[9.5rem]">
       <div className="min-w-0">
         {isPaid ? (
-          <ObligationPaidBanner paidAt={paidAt} />
+          <ObligationPaidBanner paidAt={paidAt} settledByName={settledByName} />
         ) : canSettle ? (
           <button
             type="button"
@@ -404,6 +433,7 @@ function ObligationDesktopActions({
 function ObligationMobileSettlePanel({
   status,
   paidAt,
+  settledByName,
   paidDateValue,
   onPaidDateChange,
   onPaidDateBlur,
@@ -421,6 +451,7 @@ function ObligationMobileSettlePanel({
 }: {
   status: ObligationOccurrence['status'];
   paidAt?: string | null;
+  settledByName?: string | null;
   paidDateValue: string;
   onPaidDateChange: (v: string) => void;
   onPaidDateBlur: () => void;
@@ -439,7 +470,9 @@ function ObligationMobileSettlePanel({
   const isPaid = status === 'PAID';
   return (
     <div className="space-y-3">
-      {isPaid && canSettle && <ObligationPaidBanner paidAt={paidAt} fullWidth />}
+      {isPaid && canSettle && (
+        <ObligationPaidBanner paidAt={paidAt} settledByName={settledByName} fullWidth />
+      )}
       {canSettle && (
         <div>
           <label className="text-[9px] font-black uppercase text-stone-400 block mb-1">Réglé le</label>
@@ -1216,6 +1249,7 @@ export default function ObligationsDeskRail({
         status: 'PAID',
         paidAt,
         paidAmount: amt,
+        settledByName: obligationSettledByName(userProfile),
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1231,6 +1265,7 @@ export default function ObligationsDeskRail({
         status: 'PENDING',
         paidAt: null,
         paidAmount: null,
+        settledByName: null,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1458,6 +1493,7 @@ export default function ObligationsDeskRail({
         status: 'PAID',
         paidAt,
         paidAmount: amt,
+        settledByName: obligationSettledByName(userProfile),
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -1473,6 +1509,7 @@ export default function ObligationsDeskRail({
         status: 'PENDING',
         paidAt: null,
         paidAmount: null,
+        settledByName: null,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {
@@ -2013,6 +2050,7 @@ export default function ObligationsDeskRail({
                                       <ObligationMobileSettlePanel
                                         status={occ.status}
                                         paidAt={occ.paidAt}
+                                        settledByName={occ.settledByName}
                                         paidDateValue={paidDateDraft[occ.id!] ?? ''}
                                         onPaidDateChange={(v) =>
                                           setPaidDateDraft((d) => ({ ...d, [occ.id!]: v }))
@@ -2038,7 +2076,11 @@ export default function ObligationsDeskRail({
                                     ) : (
                                       <div className="space-y-2">
                                         {occ.status === 'PAID' && (
-                                          <ObligationPaidBanner paidAt={occ.paidAt} fullWidth />
+                                          <ObligationPaidBanner
+                                            paidAt={occ.paidAt}
+                                            settledByName={occ.settledByName}
+                                            fullWidth
+                                          />
                                         )}
                                         {occ.proofDownloadUrl ? (
                                           <a
@@ -2092,6 +2134,7 @@ export default function ObligationsDeskRail({
                                     <ObligationMobileSettlePanel
                                       status={oo.status}
                                       paidAt={oo.paidAt}
+                                      settledByName={oo.settledByName}
                                       paidDateValue={paidDateDraft[oo.id!] ?? ''}
                                       onPaidDateChange={(v) =>
                                         setPaidDateDraft((d) => ({ ...d, [oo.id!]: v }))
@@ -2115,7 +2158,11 @@ export default function ObligationsDeskRail({
                                   ) : (
                                     <div className="space-y-2">
                                       {oo.status === 'PAID' && (
-                                        <ObligationPaidBanner paidAt={oo.paidAt} fullWidth />
+                                        <ObligationPaidBanner
+                                          paidAt={oo.paidAt}
+                                          settledByName={oo.settledByName}
+                                          fullWidth
+                                        />
                                       )}
                                       {oo.proofDownloadUrl ? (
                                         <a
@@ -2228,6 +2275,7 @@ export default function ObligationsDeskRail({
                                           canSettle={canSettle}
                                           canEdit={canEdit}
                                           paidAt={occ.paidAt}
+                                          settledByName={occ.settledByName}
                                           onPay={() => void applyPayment(occ, tpl)}
                                           onClear={() => void clearPayment(occ)}
                                           onEdit={() => openEditRecurring(occ, tpl)}
@@ -2306,6 +2354,7 @@ export default function ObligationsDeskRail({
                                         canSettle={canSettle}
                                         canEdit={canEdit}
                                         paidAt={oo.paidAt}
+                                        settledByName={oo.settledByName}
                                         onPay={() => void applyPaymentOneOff(oo)}
                                         onClear={() => void clearPaymentOneOff(oo)}
                                         onRemove={() => void handleDeleteOneOff(oo)}

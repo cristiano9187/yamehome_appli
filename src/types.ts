@@ -566,6 +566,8 @@ export interface ObligationOccurrence {
   status: ObligationOccurrenceStatus;
   paidAt: string | null;
   paidAmount: number | null;
+  /** Prénom (style signature reçu) de la personne qui a marqué réglé. */
+  settledByName?: string | null;
   proofStoragePath: string | null;
   proofDownloadUrl: string | null;
   notes?: string;
@@ -585,6 +587,8 @@ export interface ObligationOneOff {
   status: ObligationOccurrenceStatus;
   paidAt: string | null;
   paidAmount: number | null;
+  /** Prénom (style signature reçu) de la personne qui a marqué réglé. */
+  settledByName?: string | null;
   proofStoragePath: string | null;
   proofDownloadUrl: string | null;
   notes?: string;
