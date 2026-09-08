@@ -442,7 +442,7 @@ service cloud.firestore {
         data.amount is number && data.amount > 0 && data.amount < 1000000000000 &&
         data.motif is string && data.motif.size() > 0 && data.motif.size() <= 400 &&
         data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
-        data.source in ['manual', 'receipt'] &&
+        data.source in ['manual', 'receipt', 'transfer', 'external_exit'] &&
         data.authorUid is string && data.authorUid.size() > 0 &&
         data.createdAt is string &&
         data.updatedAt is string &&
@@ -450,6 +450,9 @@ service cloud.firestore {
         (!('receiptId' in data) || data.receiptId == null || (data.receiptId is string && data.receiptId.size() > 0 && data.receiptId.size() <= 80)) &&
         (!('paymentId' in data) || data.paymentId == null || (data.paymentId is string && data.paymentId.size() > 0 && data.paymentId.size() <= 120)) &&
         (!('paymentMethod' in data) || data.paymentMethod == null || (data.paymentMethod is string && data.paymentMethod.size() <= 200)) &&
+        (!('transferId' in data) || data.transferId == null || (data.transferId is string && data.transferId.size() > 0 && data.transferId.size() <= 80)) &&
+        (!('counterpartCaisseId' in data) || data.counterpartCaisseId == null || data.counterpartCaisseId in ['cash', 'marchant_mtn', 'marchant_om', 'mtn_solange', 'om_solange', 'bank_paypal']) &&
+        (!('externalDestination' in data) || data.externalDestination == null || data.externalDestination == 'afriland') &&
         (!('voided' in data) || data.voided is bool) &&
         (!('voidedAt' in data) || data.voidedAt == null || data.voidedAt is string);
     }

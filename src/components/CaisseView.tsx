@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   addDoc,
   collection,
+  doc,
   onSnapshot,
   orderBy,
   query,
   limit,
+  writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { CashMovement, CaisseId, UserProfile } from '../types';
@@ -22,6 +24,7 @@ import {
   Landmark,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowLeftRight,
   Receipt,
 } from 'lucide-react';
 
@@ -30,6 +33,35 @@ type Props = {
   onMenuClick: () => void;
   onAlert: (msg: string, type?: 'success' | 'error' | 'info') => void;
 };
+
+const DEFAULT_TRANSFER_DEST: CaisseId = 'marchant_om';
+/** Destination hors caisse : Afriland First Bank (sortie définitive hors trésorerie). */
+const AFRILAND_EXIT = 'afriland_exit' as const;
+type TransferDest = CaisseId | typeof AFRILAND_EXIT;
+
+type DestOption = { id: TransferDest; label: string };
+
+function destinationOptions(from: CaisseId): DestOption[] {
+  if (from === 'marchant_om') {
+    return [
+      {
+        id: AFRILAND_EXIT,
+        label: 'Afriland First Bank (hors caisse)',
+      },
+    ];
+  }
+  return CAISSES.filter((c) => c.id !== from).map((c) => ({ id: c.id, label: c.label }));
+}
+
+function defaultDestination(from: CaisseId): TransferDest {
+  const opts = destinationOptions(from);
+  if (from === 'marchant_om') return AFRILAND_EXIT;
+  return (
+    opts.find((o) => o.id === DEFAULT_TRANSFER_DEST)?.id ||
+    opts[0]?.id ||
+    AFRILAND_EXIT
+  );
+}
 
 function movementSignedAmount(m: CashMovement): number {
   if (m.voided) return 0;
@@ -46,6 +78,10 @@ function computeBalances(movements: CashMovement[]): Record<CaisseId, number> {
   return balances;
 }
 
+function todayYmd(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props) {
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,8 +90,15 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
   const [modalKind, setModalKind] = useState<'deposit' | 'withdrawal'>('deposit');
   const [formAmount, setFormAmount] = useState('');
   const [formMotif, setFormMotif] = useState('');
-  const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formDate, setFormDate] = useState(todayYmd);
   const [filterCaisse, setFilterCaisse] = useState<CaisseId | 'all'>('all');
+
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferFrom, setTransferFrom] = useState<CaisseId>('om_solange');
+  const [transferTo, setTransferTo] = useState<TransferDest>(DEFAULT_TRANSFER_DEST);
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferMotif, setTransferMotif] = useState('');
+  const [transferDate, setTransferDate] = useState(todayYmd);
 
   useEffect(() => {
     const q = query(
@@ -99,11 +142,23 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
   }, [movements, filterCaisse]);
 
   const openManualModal = (caisseId: CaisseId, kind: 'deposit' | 'withdrawal') => {
+    setTransferOpen(false);
     setModalCaisse(caisseId);
     setModalKind(kind);
     setFormAmount('');
     setFormMotif('');
-    setFormDate(new Date().toISOString().slice(0, 10));
+    setFormDate(todayYmd());
+  };
+
+  const openTransferModal = (from?: CaisseId) => {
+    setModalCaisse(null);
+    const source = from || 'om_solange';
+    setTransferFrom(source);
+    setTransferTo(defaultDestination(source));
+    setTransferAmount('');
+    setTransferMotif('');
+    setTransferDate(todayYmd());
+    setTransferOpen(true);
   };
 
   const submitManual = async () => {
@@ -149,6 +204,127 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
     }
   };
 
+  const submitTransfer = async () => {
+    if (!userProfile) return;
+    const amount = parseFloat(transferAmount.replace(/\s/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      onAlert('Montant invalide.', 'error');
+      return;
+    }
+
+    const destOpts = destinationOptions(transferFrom);
+    if (!destOpts.some((o) => o.id === transferTo)) {
+      onAlert(
+        transferFrom === 'marchant_om'
+          ? 'Depuis Marchand OM, seule la sortie vers Afriland First Bank est autorisée.'
+          : 'Destination non autorisée pour cette caisse.',
+        'error'
+      );
+      return;
+    }
+
+    if (transferTo !== AFRILAND_EXIT && transferFrom === transferTo) {
+      onAlert('Choisissez deux caisses différentes.', 'error');
+      return;
+    }
+
+    const available = balances[transferFrom] || 0;
+    if (amount > available) {
+      onAlert(
+        `Solde insuffisant sur ${getCaisseById(transferFrom)?.label} (${formatCurrency(available)}).`,
+        'error'
+      );
+      return;
+    }
+
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const fromLabel = getCaisseById(transferFrom)?.label || transferFrom;
+    const isAfrilandExit = transferTo === AFRILAND_EXIT;
+    const toLabel = isAfrilandExit
+      ? 'Afriland First Bank (hors caisse)'
+      : getCaisseById(transferTo)?.label || transferTo;
+    const motif =
+      transferMotif.trim() ||
+      (isAfrilandExit
+        ? `Sortie Afriland First Bank (depuis ${fromLabel})`
+        : `Transfert ${fromLabel} → ${toLabel}`);
+
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const displayName =
+        userProfile.displayName?.trim() ||
+        userProfile.email?.split('@')[0] ||
+        'Admin';
+
+      if (isAfrilandExit) {
+        await addDoc(collection(db, 'cash_movements'), {
+          caisseId: transferFrom,
+          kind: 'withdrawal',
+          amount,
+          motif,
+          date: transferDate,
+          source: 'external_exit',
+          externalDestination: 'afriland',
+          authorUid: uid,
+          authorName: displayName,
+          createdAt: now,
+          updatedAt: now,
+          voided: false,
+        } satisfies Omit<CashMovement, 'id'>);
+        setTransferOpen(false);
+        onAlert(
+          `Sortie Afriland enregistrée (−${formatCurrency(amount)} hors caisse globale).`,
+          'success'
+        );
+        return;
+      }
+
+      const transferId = `tr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const batch = writeBatch(db);
+      const outRef = doc(collection(db, 'cash_movements'));
+      const inRef = doc(collection(db, 'cash_movements'));
+      const destCaisse = transferTo as CaisseId;
+
+      const base = {
+        amount,
+        motif,
+        date: transferDate,
+        source: 'transfer' as const,
+        transferId,
+        authorUid: uid,
+        authorName: displayName,
+        createdAt: now,
+        updatedAt: now,
+        voided: false,
+      };
+
+      batch.set(outRef, {
+        ...base,
+        caisseId: transferFrom,
+        kind: 'withdrawal',
+        counterpartCaisseId: destCaisse,
+      } satisfies Omit<CashMovement, 'id'>);
+
+      batch.set(inRef, {
+        ...base,
+        caisseId: destCaisse,
+        kind: 'deposit',
+        counterpartCaisseId: transferFrom,
+      } satisfies Omit<CashMovement, 'id'>);
+
+      await batch.commit();
+      setTransferOpen(false);
+      onAlert(`Transfert enregistré : ${fromLabel} → ${toLabel}.`, 'success');
+    } catch {
+      onAlert('Erreur lors du transfert.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#F5F5F4]">
@@ -163,17 +339,25 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
         <button onClick={onMenuClick} className="md:hidden p-2 hover:bg-gray-100 rounded-xl" type="button">
           <Menu size={20} />
         </button>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
             <Landmark size={20} className="text-violet-700" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-base font-black uppercase tracking-widest text-gray-900">Caisse</h2>
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
+            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest truncate">
               Trésorerie Yaoundé — départ à zéro
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => openTransferModal()}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-violet-600 text-white text-[10px] font-black uppercase tracking-wider hover:bg-violet-700 shadow-sm"
+        >
+          <ArrowLeftRight size={14} />
+          Transférer
+        </button>
       </header>
 
       <div className="p-4 md:p-8 max-w-6xl mx-auto w-full space-y-6">
@@ -210,6 +394,9 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
               <p className="text-3xl md:text-4xl font-black font-mono text-gray-900 tabular-nums">
                 {formatCurrency(globalTotal)}
               </p>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Comptes de passage → Marchand OM. Excédents Marchand OM → Afriland (hors caisse).
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {CAISSES.map((c) => (
@@ -230,7 +417,7 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
           {CAISSES.map((c) => (
             <div
               key={c.id}
-              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4"
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -261,6 +448,14 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
                   Retrait
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => openTransferModal(c.id)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 text-violet-800 border border-violet-200 text-[10px] font-black uppercase tracking-wider hover:bg-violet-100 transition-colors"
+              >
+                <ArrowLeftRight size={13} />
+                Transfert
+              </button>
             </div>
           ))}
         </div>
@@ -286,17 +481,36 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
             ) : (
               filteredMovements.slice(0, 80).map((m) => {
                 const caisse = getCaisseById(m.caisseId);
+                const counterpart = m.counterpartCaisseId
+                  ? getCaisseById(m.counterpartCaisseId)
+                  : null;
                 const signed = movementSignedAmount(m);
                 const isIn = signed >= 0;
+                const sourceLabel =
+                  m.source === 'receipt'
+                    ? 'auto reçu'
+                    : m.source === 'transfer'
+                      ? 'transfert'
+                      : m.source === 'external_exit'
+                        ? 'sortie Afriland'
+                        : 'manuel';
                 return (
                   <div key={m.id} className="px-5 py-3 flex items-start gap-3 hover:bg-gray-50/80">
                     <div
                       className={`mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        isIn ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+                        m.source === 'transfer'
+                          ? 'bg-violet-50 text-violet-600'
+                          : m.source === 'external_exit'
+                            ? 'bg-slate-100 text-slate-700'
+                            : isIn
+                              ? 'bg-emerald-50 text-emerald-600'
+                              : 'bg-red-50 text-red-600'
                       }`}
                     >
                       {m.source === 'receipt' ? (
                         <Receipt size={14} />
+                      ) : m.source === 'transfer' ? (
+                        <ArrowLeftRight size={14} />
                       ) : isIn ? (
                         <ArrowDownLeft size={14} />
                       ) : (
@@ -306,8 +520,13 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{m.motif}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5">
-                        {caisse?.label} · {new Date(m.date).toLocaleDateString('fr-FR')}
-                        {m.source === 'receipt' ? ' · auto reçu' : ' · manuel'}
+                        {caisse?.label}
+                        {counterpart ? ` ↔ ${counterpart.label}` : ''}
+                        {m.externalDestination === 'afriland' ? ' → Afriland (hors caisse)' : ''}
+                        {' · '}
+                        {new Date(m.date).toLocaleDateString('fr-FR')}
+                        {' · '}
+                        {sourceLabel}
                         {m.authorName ? ` · ${m.authorName}` : ''}
                       </p>
                     </div>
@@ -381,6 +600,114 @@ export default function CaisseView({ userProfile, onMenuClick, onAlert }: Props)
                 className="flex-1 py-3 rounded-xl bg-violet-600 text-white text-xs font-black uppercase hover:bg-violet-700 disabled:opacity-50"
               >
                 {saving ? '…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal transfert */}
+      {transferOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">
+                {transferTo === AFRILAND_EXIT ? 'Sortie Afriland' : 'Transfert entre caisses'}
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-1">
+                {transferTo === AFRILAND_EXIT
+                  ? 'Sortie définitive hors trésorerie opérationnelle. La caisse globale diminue. Pas de retour comptable.'
+                  : 'Retrait sur la source + dépôt sur la destination. La caisse globale ne change pas.'}
+              </p>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-gray-500">De</label>
+                  <select
+                    value={transferFrom}
+                    onChange={(e) => {
+                      const next = e.target.value as CaisseId;
+                      setTransferFrom(next);
+                      setTransferTo(defaultDestination(next));
+                    }}
+                    className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 bg-white"
+                  >
+                    {CAISSES.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label} ({formatCurrency(balances[c.id] || 0)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-gray-500">Vers</label>
+                  <select
+                    value={transferTo}
+                    onChange={(e) => setTransferTo(e.target.value as TransferDest)}
+                    className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 bg-white"
+                  >
+                    {destinationOptions(transferFrom).map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500">Montant (FCFA)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 font-mono font-bold outline-none focus:border-violet-400"
+                  placeholder="0"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Dispo {getCaisseById(transferFrom)?.label} : {formatCurrency(balances[transferFrom] || 0)}
+                </p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500">Date</label>
+                <input
+                  type="date"
+                  value={transferDate}
+                  onChange={(e) => setTransferDate(e.target.value)}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500">Motif (optionnel)</label>
+                <input
+                  type="text"
+                  value={transferMotif}
+                  onChange={(e) => setTransferMotif(e.target.value)}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                  placeholder={
+                    transferTo === AFRILAND_EXIT
+                      ? `Sortie Afriland First Bank (depuis ${getCaisseById(transferFrom)?.label})`
+                      : `Transfert ${getCaisseById(transferFrom)?.label} → ${getCaisseById(transferTo as CaisseId)?.label}`
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTransferOpen(false)}
+                className="flex-1 py-3 rounded-xl border border-gray-200 text-xs font-black uppercase text-gray-600 hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={submitTransfer}
+                className="flex-1 py-3 rounded-xl bg-violet-600 text-white text-xs font-black uppercase hover:bg-violet-700 disabled:opacity-50"
+              >
+                {saving ? '…' : transferTo === AFRILAND_EXIT ? 'Sortir' : 'Transférer'}
               </button>
             </div>
           </div>

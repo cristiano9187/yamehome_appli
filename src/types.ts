@@ -496,7 +496,7 @@ export interface ProInvoice {
 export type CaisseId = 'cash' | 'marchant_mtn' | 'marchant_om' | 'mtn_solange' | 'om_solange' | 'bank_paypal';
 
 export type CashMovementKind = 'deposit' | 'withdrawal';
-export type CashMovementSource = 'manual' | 'receipt';
+export type CashMovementSource = 'manual' | 'receipt' | 'transfer' | 'external_exit';
 
 /** Mouvement de caisse — solde = Σ dépôts − Σ retraits (hors lignes voided). Firestore `cash_movements`. */
 export interface CashMovement {
@@ -512,6 +512,15 @@ export interface CashMovement {
   receiptId?: string;
   paymentId?: string;
   paymentMethod?: string;
+  /** Paire de transfert (même id sur le retrait et le dépôt). */
+  transferId?: string;
+  /** Autre caisse du transfert. */
+  counterpartCaisseId?: CaisseId;
+  /**
+   * Sortie hors trésorerie opérationnelle (ex. Afriland First Bank).
+   * Ne crée pas de dépôt ailleurs : diminue la caisse globale.
+   */
+  externalDestination?: 'afriland';
   authorUid: string;
   authorName?: string | null;
   createdAt: string;
