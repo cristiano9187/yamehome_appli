@@ -454,7 +454,26 @@ service cloud.firestore {
         (!('counterpartCaisseId' in data) || data.counterpartCaisseId == null || data.counterpartCaisseId in ['cash', 'marchant_mtn', 'marchant_om', 'mtn_solange', 'om_solange', 'bank_paypal']) &&
         (!('externalDestination' in data) || data.externalDestination == null || data.externalDestination == 'afriland') &&
         (!('voided' in data) || data.voided is bool) &&
-        (!('voidedAt' in data) || data.voidedAt == null || data.voidedAt is string);
+        (!('voidedAt' in data) || data.voidedAt == null || data.voidedAt is string) &&
+        (!('voidedByUid' in data) || data.voidedByUid == null || (data.voidedByUid is string && data.voidedByUid.size() > 0)) &&
+        (!('voidedByName' in data) || data.voidedByName == null || (data.voidedByName is string && data.voidedByName.size() <= 120)) &&
+        (!('voidReason' in data) || data.voidReason == null || (data.voidReason is string && data.voidReason.size() <= 400));
+    }
+
+    /** Annulation d'un mouvement — super-admins uniquement, champs métier inchangés. */
+    function isCashMovementVoidByMainAdmin() {
+      return isMainAdminEmailToken() &&
+        resource.data.voided != true &&
+        request.resource.data.voided == true &&
+        request.resource.data.voidedAt is string &&
+        request.resource.data.caisseId == resource.data.caisseId &&
+        request.resource.data.kind == resource.data.kind &&
+        request.resource.data.amount == resource.data.amount &&
+        request.resource.data.motif == resource.data.motif &&
+        request.resource.data.date == resource.data.date &&
+        request.resource.data.source == resource.data.source &&
+        request.resource.data.authorUid == resource.data.authorUid &&
+        request.resource.data.createdAt == resource.data.createdAt;
     }
 
     function isReceiptCashMovementWrite(data) {
@@ -979,7 +998,7 @@ service cloud.firestore {
       allow create: if isValidCashMovement(request.resource.data) &&
         (canAccessCaisse() || isReceiptCashMovementWrite(request.resource.data));
       allow update: if isValidCashMovement(request.resource.data) &&
-        (canAccessCaisse() || isReceiptCashMovementWrite(request.resource.data));
+        (isCashMovementVoidByMainAdmin() || isReceiptCashMovementWrite(request.resource.data));
       allow delete: if canAccessCaisse() && resource.data.source == 'manual';
     }
 

@@ -53,6 +53,17 @@ export function canAccessCaisse(
   return canEditObligations(profile, isMainAdminEmail);
 }
 
+/** Super-admins — annulation de mouvements de caisse (christian / cyamepi). */
+export const MAIN_ADMIN_EMAILS = new Set(['christian.yamepi@gmail.com', 'cyamepi@gmail.com']);
+
+export function isMainAdminEmail(email?: string | null): boolean {
+  return MAIN_ADMIN_EMAILS.has((email || '').toLowerCase());
+}
+
+export function canVoidCashMovements(profile: UserProfile | null): boolean {
+  return isMainAdminEmail(profile?.email);
+}
+
 /** Catalogue des caisses Yaoundé (point de départ : 0 FCFA partout). */
 export const CAISSES: ReadonlyArray<{
   id: CaisseId;

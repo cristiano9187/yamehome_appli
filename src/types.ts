@@ -527,6 +527,9 @@ export interface CashMovement {
   updatedAt: string;
   voided?: boolean;
   voidedAt?: string;
+  voidedByUid?: string;
+  voidedByName?: string | null;
+  voidReason?: string;
 }
 
 /** Ligne saisie manuelle dans la vue Coûts (Firestore `finance_entries`) */
