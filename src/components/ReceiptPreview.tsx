@@ -1,7 +1,7 @@
 import React from 'react';
 import { Mail, Globe, Phone, MessageCircle, Landmark, Banknote } from 'lucide-react';
 import { ReceiptData } from '../types';
-import { LOGO_BASE64, formatCurrency, RECEIPT_OFFICIAL_PAYMENT_METHODS, RECEIPT_PAYMENT_BADGE_SRC } from '../constants';
+import { LOGO_BASE64, formatCurrency, getReceiptOfficialPaymentMethods, RECEIPT_PAYMENT_BADGE_SRC } from '../constants';
 import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildProformaValidityNotice } from '../utils/receiptCalculations';
 
 interface ReceiptPreviewProps {
@@ -48,6 +48,9 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
   const proformaValidity = proforma
     ? buildProformaValidityNotice(data.createdAt || new Date().toISOString(), data.startDate)
     : null;
+
+  const paymentMethods = getReceiptOfficialPaymentMethods(data.apartmentName);
+  const isBangangtePayments = paymentMethods.city === 'Bangangté';
 
   return (
     <div id="receipt-content" className="print-container w-full max-w-[210mm] min-h-[297mm] bg-white shadow-2xl p-10 text-gray-800 font-sans print:shadow-none print:min-h-0 relative">
@@ -235,6 +238,7 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                 <td className="py-3 pl-2 align-top text-[9px] text-gray-800 leading-snug pr-3">
                   <p className="font-bold text-[#2B4B8C] uppercase text-[10px] mb-1.5 tracking-wide">
                     Moyens de paiement officiels
+                    {isBangangtePayments ? ' · Bangangté' : ''}
                   </p>
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
@@ -248,22 +252,41 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                         />
                         <span className="leading-snug min-w-0">
                           <strong className="text-gray-900">Orange Money</strong>
-                          {' · code marchand'}{' '}
-                          <span className="font-mono font-bold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}
-                          </span>
-                          {' · '}
-                          <span className="font-semibold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
-                          </span>
-                          {' ou '}
-                          <span className="font-mono font-bold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalNumber}
-                          </span>
-                          {' · '}
-                          <span className="font-semibold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalAccountName}
-                          </span>
+                          {isBangangtePayments ? (
+                            <>
+                              {' · '}
+                              <span className="font-mono font-bold">
+                                {paymentMethods.orangeMoney.personalNumber}
+                              </span>
+                              {' · '}
+                              <span className="font-semibold">
+                                {paymentMethods.orangeMoney.personalAccountName}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {' · code marchand'}{' '}
+                              <span className="font-mono font-bold">
+                                {'merchantCode' in paymentMethods.orangeMoney
+                                  ? paymentMethods.orangeMoney.merchantCode
+                                  : ''}
+                              </span>
+                              {' · '}
+                              <span className="font-semibold">
+                                {'merchantAccountName' in paymentMethods.orangeMoney
+                                  ? paymentMethods.orangeMoney.merchantAccountName
+                                  : ''}
+                              </span>
+                              {' ou '}
+                              <span className="font-mono font-bold">
+                                {paymentMethods.orangeMoney.personalNumber}
+                              </span>
+                              {' · '}
+                              <span className="font-semibold">
+                                {paymentMethods.orangeMoney.personalAccountName}
+                              </span>
+                            </>
+                          )}
                         </span>
                       </div>
                       <div className="flex gap-1.5 items-start min-w-0 max-w-full">
@@ -276,23 +299,42 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                         />
                         <span className="leading-snug min-w-0">
                           <strong className="text-gray-900">MTN MoMo</strong>
-                          {' ('}
-                          <span className="italic text-gray-700">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}
-                          </span>
-                          {')'}
-                          {' · '}
-                          <span className="font-semibold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantAccountName}
-                          </span>
-                          {' ou '}
-                          <span className="font-mono font-bold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalNumber}
-                          </span>
-                          {' · '}
-                          <span className="font-semibold">
-                            {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalAccountName}
-                          </span>
+                          {isBangangtePayments ? (
+                            <>
+                              {' · '}
+                              <span className="font-mono font-bold">
+                                {paymentMethods.mtnMoMo.personalNumber}
+                              </span>
+                              {' · '}
+                              <span className="font-semibold">
+                                {paymentMethods.mtnMoMo.personalAccountName}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {' ('}
+                              <span className="italic text-gray-700">
+                                {'pendingNotice' in paymentMethods.mtnMoMo
+                                  ? paymentMethods.mtnMoMo.pendingNotice
+                                  : ''}
+                              </span>
+                              {')'}
+                              {' · '}
+                              <span className="font-semibold">
+                                {'merchantAccountName' in paymentMethods.mtnMoMo
+                                  ? paymentMethods.mtnMoMo.merchantAccountName
+                                  : ''}
+                              </span>
+                              {' ou '}
+                              <span className="font-mono font-bold">
+                                {paymentMethods.mtnMoMo.personalNumber}
+                              </span>
+                              {' · '}
+                              <span className="font-semibold">
+                                {paymentMethods.mtnMoMo.personalAccountName}
+                              </span>
+                            </>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -308,11 +350,11 @@ const ReceiptPreview = React.memo(({ data, showPaymentMethods = false, proforma 
                         />
                       </div>
                       <span className="leading-snug min-w-0">
-                        {RECEIPT_OFFICIAL_PAYMENT_METHODS.ribLine.replace(/\.$/, '')}
+                        {paymentMethods.ribLine.replace(/\.$/, '')}
                       </span>
                       <div className="flex gap-1.5 items-start min-w-0">
                         <Banknote size={17} className="shrink-0 text-emerald-700 mt-0.5" strokeWidth={2} aria-hidden />
-                        <span className="leading-snug">{RECEIPT_OFFICIAL_PAYMENT_METHODS.cashLine}</span>
+                        <span className="leading-snug">{paymentMethods.cashLine}</span>
                       </div>
                     </div>
                   </div>

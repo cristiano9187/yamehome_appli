@@ -1,7 +1,7 @@
 import React from 'react';
 import { Document, Page, View, Text, Image, Link, StyleSheet } from '@react-pdf/renderer';
 import { ReceiptData } from '../../types';
-import { LOGO_BASE64, RECEIPT_OFFICIAL_PAYMENT_METHODS } from '../../constants';
+import { LOGO_BASE64, getReceiptOfficialPaymentMethods } from '../../constants';
 import { computeReceiptCalculations, formatApartmentNameForPdfDisplay, normalizePhone, buildReceiptFileName, buildProformaValidityNotice } from '../../utils/receiptCalculations';
 
 const BLUE = '#2B4B8C';
@@ -215,6 +215,9 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
     pricePerNight,
   } = computeReceiptCalculations(data);
 
+  const paymentMethods = getReceiptOfficialPaymentMethods(data.apartmentName);
+  const isBangangtePayments = paymentMethods.city === 'Bangangté';
+
   const phoneInfo = data.phone ? normalizePhone(data.phone) : null;
   const proformaValidity = proforma
     ? buildProformaValidityNotice(data.createdAt || new Date().toISOString(), data.startDate)
@@ -355,45 +358,87 @@ export default function ReceiptPdfDocument({ data, showPaymentMethods = false, p
           {showPaymentMethods ? (
             <View style={[styles.row, styles.paymentMethodsRow]}>
               <View style={styles.paymentMethodsLeft}>
-                <Text style={styles.paymentMethodsTitle}>Moyens de paiement officiels</Text>
-                <View style={styles.paymentMethodLine}>
-                  <View style={[styles.badge, { backgroundColor: '#FF6600' }]}>
-                    <Text style={styles.badgeText}>OM</Text>
-                  </View>
-                  <Text style={styles.paymentMethodText}>
-                    <Text style={styles.bold}>Orange Money</Text> - code marchand{' '}
-                    <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantCode}</Text> -{' '}
-                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.merchantAccountName}
-                    {' ou '}
-                    <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalNumber}</Text> -{' '}
-                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.orangeMoney.personalAccountName}
-                  </Text>
-                </View>
-                <View style={styles.paymentMethodLine}>
-                  <View style={[styles.badge, { backgroundColor: '#FFCB05' }]}>
-                    <Text style={[styles.badgeText, { color: '#111827' }]}>MTN</Text>
-                  </View>
-                  <Text style={styles.paymentMethodText}>
-                    <Text style={styles.bold}>MTN MoMo</Text> ({RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.pendingNotice}) -{' '}
-                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.merchantAccountName}
-                    {' ou '}
-                    <Text style={styles.bold}>{RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalNumber}</Text> -{' '}
-                    {RECEIPT_OFFICIAL_PAYMENT_METHODS.mtnMoMo.personalAccountName}
-                  </Text>
-                </View>
+                <Text style={styles.paymentMethodsTitle}>
+                  Moyens de paiement officiels{isBangangtePayments ? ' - Bangangte' : ''}
+                </Text>
+                {isBangangtePayments ? (
+                  <>
+                    <View style={styles.paymentMethodLine}>
+                      <View style={[styles.badge, { backgroundColor: '#FF6600' }]}>
+                        <Text style={styles.badgeText}>OM</Text>
+                      </View>
+                      <Text style={styles.paymentMethodText}>
+                        <Text style={styles.bold}>Orange Money</Text> -{' '}
+                        <Text style={styles.bold}>{paymentMethods.orangeMoney.personalNumber}</Text> -{' '}
+                        {pdfSafeText(paymentMethods.orangeMoney.personalAccountName)}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentMethodLine}>
+                      <View style={[styles.badge, { backgroundColor: '#FFCB05' }]}>
+                        <Text style={[styles.badgeText, { color: '#111827' }]}>MTN</Text>
+                      </View>
+                      <Text style={styles.paymentMethodText}>
+                        <Text style={styles.bold}>MTN MoMo</Text> -{' '}
+                        <Text style={styles.bold}>{paymentMethods.mtnMoMo.personalNumber}</Text> -{' '}
+                        {pdfSafeText(paymentMethods.mtnMoMo.personalAccountName)}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.paymentMethodLine}>
+                      <View style={[styles.badge, { backgroundColor: '#FF6600' }]}>
+                        <Text style={styles.badgeText}>OM</Text>
+                      </View>
+                      <Text style={styles.paymentMethodText}>
+                        <Text style={styles.bold}>Orange Money</Text> - code marchand{' '}
+                        <Text style={styles.bold}>
+                          {'merchantCode' in paymentMethods.orangeMoney
+                            ? paymentMethods.orangeMoney.merchantCode
+                            : ''}
+                        </Text>{' '}
+                        -{' '}
+                        {'merchantAccountName' in paymentMethods.orangeMoney
+                          ? paymentMethods.orangeMoney.merchantAccountName
+                          : ''}
+                        {' ou '}
+                        <Text style={styles.bold}>{paymentMethods.orangeMoney.personalNumber}</Text> -{' '}
+                        {paymentMethods.orangeMoney.personalAccountName}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentMethodLine}>
+                      <View style={[styles.badge, { backgroundColor: '#FFCB05' }]}>
+                        <Text style={[styles.badgeText, { color: '#111827' }]}>MTN</Text>
+                      </View>
+                      <Text style={styles.paymentMethodText}>
+                        <Text style={styles.bold}>MTN MoMo</Text> (
+                        {'pendingNotice' in paymentMethods.mtnMoMo
+                          ? paymentMethods.mtnMoMo.pendingNotice
+                          : ''}
+                        ) -{' '}
+                        {'merchantAccountName' in paymentMethods.mtnMoMo
+                          ? paymentMethods.mtnMoMo.merchantAccountName
+                          : ''}
+                        {' ou '}
+                        <Text style={styles.bold}>{paymentMethods.mtnMoMo.personalNumber}</Text> -{' '}
+                        {paymentMethods.mtnMoMo.personalAccountName}
+                      </Text>
+                    </View>
+                  </>
+                )}
                 <View style={styles.paymentMethodLine}>
                   <View style={[styles.badge, { backgroundColor: BLUE }]}>
                     <Text style={styles.badgeText}>B</Text>
                   </View>
                   <Text style={styles.paymentMethodText}>
-                    {pdfSafeText(RECEIPT_OFFICIAL_PAYMENT_METHODS.ribLine.replace(/\.$/, ''))}
+                    {pdfSafeText(paymentMethods.ribLine.replace(/\.$/, ''))}
                   </Text>
                 </View>
                 <View style={styles.paymentMethodLine}>
                   <View style={[styles.badge, { backgroundColor: '#047857' }]}>
                     <Text style={styles.badgeText}>ESP</Text>
                   </View>
-                  <Text style={styles.paymentMethodText}>{pdfSafeText(RECEIPT_OFFICIAL_PAYMENT_METHODS.cashLine)}</Text>
+                  <Text style={styles.paymentMethodText}>{pdfSafeText(paymentMethods.cashLine)}</Text>
                 </View>
               </View>
               <View style={styles.paymentMethodsRight}>

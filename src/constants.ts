@@ -506,27 +506,53 @@ export const FINANCE_QUICK_INTERNET_AMOUNT = 60_000;
 
 /**
  * Moyens de paiement officiels affichés sur le reçu (à côté du « Reste à payer »).
- * Mettre à jour les codes avec la direction lorsque MTN / Orange confirment les identifiants définitifs.
+ * Yaoundé : marchands YameHome + Solange. Bangangté : numéros Régine (alignés site web).
  */
-export const RECEIPT_OFFICIAL_PAYMENT_METHODS = {
+export const RECEIPT_OFFICIAL_PAYMENT_METHODS_YAOUNDE = {
+  city: 'Yaoundé' as const,
   orangeMoney: {
     merchantCode: '1002038',
-    /** Libellé compte marchand tel qu’affiché sur le reçu. */
     merchantAccountName: 'YAMEHOME',
-    /** Alternative personne physique (clients hors Cameroun / sans code marchand). */
     personalNumber: '655 13 54 11',
     personalAccountName: 'SOLANGE BEKALE',
   },
   mtnMoMo: {
     merchantAccountName: 'YAMEHOME',
     pendingNotice: 'En attente',
-    /** Alternative personne physique (clients hors Cameroun / sans n° marchand). */
     personalNumber: '679 41 41 02',
     personalAccountName: 'SOLANGE BEKALE',
   },
   ribLine: 'RIB bancaire ou PayPal — communiqués sur demande.',
   cashLine: 'Espèces sur place.',
 } as const;
+
+/** Bangangté — mêmes infos que le site (TermsModal / Gallaghers City). */
+export const RECEIPT_OFFICIAL_PAYMENT_METHODS_BANGANGTE = {
+  city: 'Bangangté' as const,
+  orangeMoney: {
+    personalNumber: '697 44 73 60',
+    personalAccountName: 'RÉGINE TCHADEU',
+  },
+  mtnMoMo: {
+    personalNumber: '681 98 63 54',
+    personalAccountName: 'RÉGINE TCHADEU',
+  },
+  ribLine: 'RIB bancaire ou PayPal — communiqués sur demande.',
+  cashLine: 'Espèces sur place.',
+} as const;
+
+/** @deprecated Préférer getReceiptOfficialPaymentMethods — alias Yaoundé (rétrocompat). */
+export const RECEIPT_OFFICIAL_PAYMENT_METHODS = RECEIPT_OFFICIAL_PAYMENT_METHODS_YAOUNDE;
+
+/**
+ * Retourne les moyens à afficher sur le reçu selon la ville du logement.
+ * Nom d’appartement TARIFS (ex. « Gallaghers City Chambre A ») → Bangangté si adresse BGT.
+ */
+export function getReceiptOfficialPaymentMethods(apartmentName: string | null | undefined) {
+  return getLocationForApartment(apartmentName || '') === 'Bangangté'
+    ? RECEIPT_OFFICIAL_PAYMENT_METHODS_BANGANGTE
+    : RECEIPT_OFFICIAL_PAYMENT_METHODS_YAOUNDE;
+}
 
 /** Chemins locaux (SVG légers) — pastilles génériques couleur + sigle, sans reproduction des logos déposés. */
 export const RECEIPT_PAYMENT_BADGE_SRC = {
