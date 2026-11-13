@@ -53,6 +53,7 @@ import {
   sumCautionsForSegments,
   findBookingConflictAcrossSegments,
 } from './utils/receiptSegments';
+import { findBlockedDateInStay } from './utils/calendarAvailability';
 import {
   embedProformaDraftInNotes,
   parseProformaDraftJson,
@@ -1354,13 +1355,15 @@ export default function App() {
       for (const s of overlapSegs) {
         const qBlocked = query(collection(db, 'blocked_dates'), where('calendarSlug', '==', s.calendarSlug));
         const snapBlocked = await withTimeout(getDocs(qBlocked) as Promise<any>);
-        const blockedDates = snapBlocked.docs.map((d: any) => d.data() as BlockedDate);
-        const blocked = blockedDates.find((bd) => bd.date >= s.startDate && bd.date < s.endDate);
+        const blockedDates = snapBlocked.docs.map((d: any) => ({ id: d.id, ...d.data() } as BlockedDate));
+        const blocked = findBlockedDateInStay(blockedDates, s.calendarSlug, s.startDate, s.endDate);
         if (blocked) {
           setIsSaving(false);
           setAlertType('error');
           setAlertMessage(
-            `DATE BLOQUÉE : "${s.calendarSlug}" est bloqué le ${blocked.date} (coupe votre plage du ${s.startDate} au ${s.endDate}).`
+            `DATE BLOQUÉE : "${s.calendarSlug}" est bloqué le ${blocked.date}` +
+              (blocked.authorDisplayName ? ` (par ${blocked.authorDisplayName})` : '') +
+              ` — chevauche votre plage du ${s.startDate} au ${s.endDate}. Débloquez d'abord la date depuis le calendrier, ou changez les dates.`
           );
           return;
         }

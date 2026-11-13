@@ -64,6 +64,10 @@ import {
   cleaningSlotKeyFromReport,
 } from '../cleaningReportUtils';
 import { getReceiptSegments } from '../utils/receiptSegments';
+import {
+  findActiveBookingOccupyingDate,
+  listBlockedDatesInStay,
+} from '../utils/calendarAvailability';
 import { 
   collection, 
   query, 
@@ -803,6 +807,21 @@ export default function CalendarView({
       return;
     }
 
+    const occupying = findActiveBookingOccupyingDate(receipts, unitSlug, date);
+    if (occupying) {
+      const who = `${occupying.firstName || ''} ${occupying.lastName || ''}`.trim() || occupying.receiptId;
+      onAlert(
+        `Impossible de bloquer : une réservation active occupe déjà cette nuit (${who}, reçu ${occupying.receiptId}). Annulez ou déplacez la réservation avant de fermer la date.`,
+        "error"
+      );
+      return;
+    }
+
+    if (blockedDates.some((b) => b.calendarSlug === unitSlug && b.date === date)) {
+      onAlert("Cette date est déjà bloquée.", "error");
+      return;
+    }
+
     const authorDisplayName =
       (auth.currentUser?.displayName ||
         userProfile?.displayName ||
@@ -1128,6 +1147,14 @@ export default function CalendarView({
     ? receipts.find((r) => r.id === detailCtx.receipt.id) || detailCtx.receipt
     : undefined;
   const detailSegment = detailCtx?.segment;
+  const detailConflictBlocks = detailSegment
+    ? listBlockedDatesInStay(
+        blockedDates,
+        detailSegment.calendarSlug,
+        detailSegment.startDate,
+        detailSegment.endDate
+      )
+    : [];
   const detailCheckIn =
     detailReceipt && detailSegment
       ? detailReceipt.checkInsBySegmentId?.[detailSegment.id]
@@ -1386,8 +1413,17 @@ export default function CalendarView({
 
                         {viewMode === 'reservations' && booking && (
                           <div 
-                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking, unit.slug, activeSegment?.id)} text-white min-h-0 px-1`}
+                            className={`absolute inset-x-px inset-y-3 rounded-md flex items-center justify-center pointer-events-none transition-all group-hover:scale-[1.01] shadow-sm ${getBookingColor(unit.color, booking, unit.slug, activeSegment?.id)} text-white min-h-0 px-1 ${isBlocked ? 'ring-2 ring-red-500 ring-offset-0' : ''}`}
+                            title={isBlocked ? 'Conflit : réservation sur une date aussi bloquée — ouvrez pour débloquer' : undefined}
                           >
+                            {isBlocked && (
+                              <div
+                                className="absolute -top-1 -right-1 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-600 text-[7px] font-black text-white shadow"
+                                aria-hidden
+                              >
+                                !
+                              </div>
+                            )}
                             {isFirstNightOfSegment && segmentCheckIn && (
                               <div
                                 className="absolute top-0.5 left-0.5 z-10 flex items-center justify-center rounded-sm bg-white/95 p-px shadow-sm"
@@ -1597,6 +1633,56 @@ export default function CalendarView({
                       : <span className="text-xs text-gray-400">Pas de tél</span>}
                   </div>
                 </div>
+
+                {detailConflictBlocks.length > 0 && (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={16} className="text-red-600 shrink-0 mt-0.5" />
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-red-800">
+                          Conflit réservation / date bloquée
+                        </p>
+                        <p className="text-[11px] text-red-700/90 leading-snug">
+                          Une ou plusieurs nuits de ce séjour sont aussi marquées « fermées » sur le calendrier.
+                          Débloquez ci-dessous pour rétablir un état cohérent, ou annulez / déplacez la réservation.
+                        </p>
+                      </div>
+                    </div>
+                    <ul className="space-y-2">
+                      {detailConflictBlocks.map((b) => (
+                        <li
+                          key={b.id || `${b.calendarSlug}-${b.date}`}
+                          className="flex items-center justify-between gap-2 rounded-xl bg-white/80 border border-red-100 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-gray-900">
+                              {new Date(b.date + 'T12:00:00').toLocaleDateString('fr-FR', {
+                                day: 'numeric',
+                                month: 'long',
+                                year: 'numeric',
+                              })}
+                            </p>
+                            {b.authorDisplayName ? (
+                              <p className="text-[10px] text-gray-500 truncate">
+                                Bloqué par {b.authorDisplayName}
+                              </p>
+                            ) : null}
+                          </div>
+                          {canBlockCalendarDates(userProfile, isMainAdminEmail) && b.id ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUnblockDate(b.id!)}
+                              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700"
+                            >
+                              <Unlock size={12} />
+                              Débloquer
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-4">
                   <div className="flex items-start gap-3">
