@@ -1,6 +1,11 @@
 import { ReceiptData, ReceiptStaySegment } from '../types';
 import { getRateForApartment } from '../constants';
-import { getReceiptSegments, receiptHasMultipleSegments, totalNightsAcrossReceipt } from './receiptSegments';
+import {
+  countNightsBetweenExclusiveEnd,
+  getReceiptSegments,
+  receiptHasMultipleSegments,
+  totalNightsAcrossReceipt,
+} from './receiptSegments';
 
 /**
  * Sur le reçu / PDF, les libellés « … APPARTEMENT … STUDIO » sont souvent coupés avant « mode studio ».
@@ -57,6 +62,26 @@ export function computeReceiptCalculations(data: ReceiptData): ReceiptCalculatio
 
   const rateInfo = getRateForApartment(data.apartmentName, nights);
 
+  /**
+   * Tarif standard de référence (par nuit) pour la remise affichée.
+   * Multi-plages : moyenne pondérée des barèmes de chaque segment
+   * (ex. 1×chambre 17k + 2×studio 25k → Std ≈ 22 333, pas le seul tarif « logement racine »).
+   * Mono : barème du logement unique.
+   */
+  let standardLodgingTotal = 0;
+  if (multiStay) {
+    for (const seg of segments) {
+      const segNights = countNightsBetweenExclusiveEnd(seg.startDate, seg.endDate);
+      if (segNights <= 0) continue;
+      const segRate = getRateForApartment(seg.apartmentName, segNights).prix;
+      standardLodgingTotal += segRate * segNights;
+    }
+  } else {
+    standardLodgingTotal = rateInfo.prix * nights;
+  }
+  const basePrice =
+    nights > 0 ? Math.round(standardLodgingTotal / nights) : 0;
+
   const totalPaid = data.payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = data.grandTotal - totalPaid;
 
@@ -74,10 +99,16 @@ export function computeReceiptCalculations(data: ReceiptData): ReceiptCalculatio
   const lateFeeApplied = includeLateDeparture ? latePenalty : 0;
   const lodgingTotal = nightsLodgingTotal + lateFeeApplied;
 
-  const basePrice = rateInfo.prix;
-  const discountPercent = (data.isNegotiatedRate || data.isCustomRate) && basePrice > 0 && pricePerNight < basePrice
-    ? Math.round(((basePrice - pricePerNight) / basePrice) * 100)
-    : 0;
+  // Remise sur totaux séjour (évite l’écart float / arrondi nuit) vs barème standard pondéré.
+  const discountPercent =
+    (data.isNegotiatedRate || data.isCustomRate) &&
+    standardLodgingTotal > 0 &&
+    nightsLodgingTotal < standardLodgingTotal
+      ? Math.round(
+          ((standardLodgingTotal - nightsLodgingTotal) / standardLodgingTotal) *
+            100
+        )
+      : 0;
 
   const priceLabel = data.isCustomRate
     ? '(Ajusté Plateforme)'
