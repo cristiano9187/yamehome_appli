@@ -48,9 +48,9 @@ import {
   getReceiptSegments,
   newStaySegmentId,
   totalNightsAcrossReceipt,
-  primarySegmentChronologically,
   synthesizePersistedReceiptSummary,
   sumCautionsForSegments,
+  sumStandardLodgingForSegments,
   findBookingConflictAcrossSegments,
 } from './utils/receiptSegments';
 import { findBlockedDateInStay } from './utils/calendarAvailability';
@@ -707,10 +707,15 @@ export default function App() {
     const synth = { ...formData, staySegments: segList } as ReceiptData;
     const nights = totalNightsAcrossReceipt(synth);
     if (!nights) return zeroTotals;
-    const prim = primarySegmentChronologically(segList);
-    const rates = getRateForApartment(prim.apartmentName, nights);
-    const pricePerNight = formData.isNegotiatedRate ? (formData.negotiatedPricePerNight || 0) : rates.prix;
-    const nightsLodging = formData.isCustomRate ? formData.customLodgingTotal : (pricePerNight * nights);
+    const standardLodging = sumStandardLodgingForSegments(synth);
+    const pricePerNight = formData.isNegotiatedRate
+      ? (formData.negotiatedPricePerNight || 0)
+      : Math.round(standardLodging / nights);
+    const nightsLodging = formData.isCustomRate
+      ? formData.customLodgingTotal
+      : formData.isNegotiatedRate
+        ? pricePerNight * nights
+        : standardLodging;
     const lateFee = formData.includeLateDeparture ? Math.round(pricePerNight / 2) : 0;
     const totalLodging = nightsLodging + lateFee;
     const cautionAmount = sumCautionsForSegments(synth);

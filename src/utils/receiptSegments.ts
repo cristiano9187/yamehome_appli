@@ -105,6 +105,18 @@ export function sumCautionsForSegments(formData: ReceiptData): number {
 }
 
 /**
+ * Hébergement barème standard (catalogue) = somme (prix_nuit_segment × nuits_segment).
+ * Chaque segment utilise son propre barème (durée de ce segment), pas le logement « racine ».
+ */
+export function sumStandardLodgingForSegments(formData: ReceiptData): number {
+  return getReceiptSegments(formData).reduce((acc, seg) => {
+    const nights = countNightsBetweenExclusiveEnd(seg.startDate, seg.endDate);
+    if (!seg.apartmentName || nights <= 0) return acc;
+    return acc + getRateForApartment(seg.apartmentName, nights).prix * nights;
+  }, 0);
+}
+
+/**
  * Détecte une réservation VALIDE incompatible (même `calendarSlug`, chevauchement de dates),
  * même si l’autre reçu est multi-segments.
  */

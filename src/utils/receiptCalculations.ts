@@ -1,9 +1,9 @@
 import { ReceiptData, ReceiptStaySegment } from '../types';
 import { getRateForApartment } from '../constants';
 import {
-  countNightsBetweenExclusiveEnd,
   getReceiptSegments,
   receiptHasMultipleSegments,
+  sumStandardLodgingForSegments,
   totalNightsAcrossReceipt,
 } from './receiptSegments';
 
@@ -63,33 +63,35 @@ export function computeReceiptCalculations(data: ReceiptData): ReceiptCalculatio
   const rateInfo = getRateForApartment(data.apartmentName, nights);
 
   /**
-   * Tarif standard de référence (par nuit) pour la remise affichée.
+   * Tarif standard de référence (par nuit).
    * Multi-plages : moyenne pondérée des barèmes de chaque segment
-   * (ex. 1×chambre 17k + 2×studio 25k → Std ≈ 22 333, pas le seul tarif « logement racine »).
-   * Mono : barème du logement unique.
+   * (ex. 1×chambre 17k + 2×studio 25k → ≈ 22 333), même sans Plateforme / Négocié.
    */
-  let standardLodgingTotal = 0;
-  if (multiStay) {
-    for (const seg of segments) {
-      const segNights = countNightsBetweenExclusiveEnd(seg.startDate, seg.endDate);
-      if (segNights <= 0) continue;
-      const segRate = getRateForApartment(seg.apartmentName, segNights).prix;
-      standardLodgingTotal += segRate * segNights;
-    }
-  } else {
-    standardLodgingTotal = rateInfo.prix * nights;
-  }
+  const standardLodgingTotal = multiStay
+    ? sumStandardLodgingForSegments(data)
+    : rateInfo.prix * nights;
   const basePrice =
     nights > 0 ? Math.round(standardLodgingTotal / nights) : 0;
 
   const totalPaid = data.payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = data.grandTotal - totalPaid;
 
-  const pricePerNight = data.isCustomRate
-    ? (nights > 0 ? Math.round(data.customLodgingTotal / nights) : 0)
-    : (data.isNegotiatedRate ? data.negotiatedPricePerNight : rateInfo.prix);
-
-  const nightsLodgingTotal = data.isCustomRate ? data.customLodgingTotal : (pricePerNight * nights);
+  let pricePerNight: number;
+  let nightsLodgingTotal: number;
+  if (data.isCustomRate) {
+    nightsLodgingTotal = data.customLodgingTotal;
+    pricePerNight = nights > 0 ? Math.round(data.customLodgingTotal / nights) : 0;
+  } else if (data.isNegotiatedRate) {
+    pricePerNight = data.negotiatedPricePerNight;
+    nightsLodgingTotal = pricePerNight * nights;
+  } else if (multiStay) {
+    // Catalogue multi : totaux + prix/nuit déjà pondérés (pas le seul barème racine).
+    nightsLodgingTotal = standardLodgingTotal;
+    pricePerNight = basePrice;
+  } else {
+    pricePerNight = rateInfo.prix;
+    nightsLodgingTotal = pricePerNight * nights;
+  }
 
   /** Caution : total enregistré sur le reçu (somme segments en multi-barème dans l'app). */
   const cautionDisplay = multiStay ? (data.cautionAmount ?? 0) : rateInfo.caution;
