@@ -17,6 +17,7 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { logger } = require('firebase-functions');
 const { sendProspectCreatedEmail, sendProspectConfirmationEmail } = require('./prospectNotifications');
 const { detectNewCheckIns, sendCheckInValidatedEmail } = require('./checkInNotifications');
+const { notifyTicketAssignee } = require('./ticketNotifications');
 const { handleWhatsAppProspectLookup } = require('./whatsappProspectLookup');
 const { handleWhatsAppProspectFeed } = require('./whatsappProspectFeed');
 const { handleWhatsAppAdminNote } = require('./whatsappAdminNote');
@@ -47,6 +48,8 @@ const whatsappProspectLookupKey = defineSecret('WHATSAPP_PROSPECT_LOOKUP_KEY');
 const whatsappMediaGeminiKey = defineSecret('WHATSAPP_MEDIA_GEMINI_KEY');
 /** Même valeur que le header X-Api-Key WAHA dans n8n (téléchargement /api/files/ côté Cloud). */
 const wahaApiKey = defineSecret('WAHA_API_KEY');
+/** Base URL publique WAHA (sendText) — alignée docs/WHATSAPP_MEDIA_PROOF.md */
+const WAHA_SEND_BASE_URL = 'http://82.165.116.138:3000';
 
 /** Même chaîne pour tous les prospects créés depuis le site (pas un UID Firebase réel). */
 const WEBSITE_PROSPECT_AUTHOR_UID = 'yamehome-site-public';
@@ -443,6 +446,63 @@ exports.onReceiptCheckInSendEmail = onDocumentUpdated(
           e.stack
         );
       }
+    }
+  }
+);
+
+/**
+ * À la création d’un ticket : email à l’assigné (+ WhatsApp si notifyPhone sur authorized_emails).
+ */
+exports.onTicketCreatedNotify = onDocumentCreated(
+  {
+    document: 'tickets/{ticketId}',
+    database: DB_ID,
+    region: REGION,
+    secrets: [prospectSmtpPass, wahaApiKey],
+  },
+  async (event) => {
+    const ticketId = event.params?.ticketId;
+    const snap = event.data;
+    if (!snap) {
+      logger.warn('[ticketNotify] événement sans données');
+      return;
+    }
+    const data = snap.data() || {};
+    logger.info(`[ticketNotify] déclenché tickets/${ticketId} → ${data.assigneeEmail || '?'}`);
+
+    let pass;
+    try {
+      pass = prospectSmtpPass.value();
+    } catch (e) {
+      logger.error('[ticketNotify] lecture secret SMTP impossible', e.message || e);
+      return;
+    }
+    if (!pass || !String(pass).trim()) {
+      logger.warn('[ticketNotify] PROSPECT_SMTP_APP_PASSWORD vide — notif non envoyée');
+      return;
+    }
+
+    let wahaKey = '';
+    try {
+      wahaKey = wahaApiKey.value();
+    } catch (_) {
+      /* WhatsApp optionnel si secret absent */
+    }
+
+    try {
+      await notifyTicketAssignee({
+        db,
+        ticketId,
+        data,
+        smtp: {
+          user: PROSPECT_SMTP_FROM_EMAIL,
+          pass: String(pass).trim().replace(/\s/g, ''),
+        },
+        wahaBaseUrl: WAHA_SEND_BASE_URL,
+        wahaApiKey: wahaKey,
+      });
+    } catch (e) {
+      logger.error('[ticketNotify] échec', e.message || e, e.stack);
     }
   }
 );

@@ -182,6 +182,37 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
     }
   };
 
+  const handleToggleCanCreateTickets = async (authEmailId: string, current: boolean) => {
+    setIsUpdating(authEmailId);
+    try {
+      await setDoc(doc(db, 'authorized_emails', authEmailId), { canCreateTickets: !current }, { merge: true });
+      onAlert(!current ? 'Création de tickets activée' : 'Création de tickets retirée', 'success');
+    } catch (error) {
+      console.error('Error toggling canCreateTickets:', error);
+      onAlert('Erreur lors de la mise à jour', 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleUpdateNotifyPhone = async (authEmailId: string, phone: string) => {
+    setIsUpdating(authEmailId);
+    try {
+      const trimmed = phone.trim();
+      await setDoc(
+        doc(db, 'authorized_emails', authEmailId),
+        { notifyPhone: trimmed || null },
+        { merge: true }
+      );
+      onAlert(trimmed ? 'Téléphone notif tickets enregistré' : 'Téléphone notif tickets retiré', 'success');
+    } catch (error) {
+      console.error('Error updating notifyPhone:', error);
+      onAlert('Erreur lors de la mise à jour du téléphone', 'error');
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
   const handleUpdateLinkedEmployee = async (authEmailId: string, employeeId: string) => {
     setIsUpdating(authEmailId);
     try {
@@ -259,6 +290,16 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                 l'utilisateur arrive directement sur la vue <strong>Codes keybox</strong> (pas de menu, pas de calendrier),
                 filtrée par les <strong>sites autorisés</strong> cochés ci-dessus. Il peut consulter les codes et retirer
                 des clés, mais pas déposer de clés ni changer un code.
+              </p>
+              <p>
+                <strong>« Créer tickets »</strong> autorise un agent à créer et assigner des tickets internes.
+                Les admins peuvent déjà le faire sans pastille. Tous les employés (hors gardiens) voient
+                les tickets qui leur sont assignés.
+              </p>
+              <p>
+                <strong>« Tél. notif »</strong> : numéro WhatsApp pour alerter à la création d’un ticket
+                (ex. <span className="font-mono text-[10px]">2376…</span> ou <span className="font-mono text-[10px]">6…</span>).
+                Sans numéro, seule l’adresse email du compte reçoit la notif.
               </p>
             </div>
           </details>
@@ -425,6 +466,35 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                           </div>
 
                           <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                              Tél. notif tickets (WhatsApp)
+                            </label>
+                            <form
+                              className="flex flex-wrap gap-2 max-w-md"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.currentTarget);
+                                handleUpdateNotifyPhone(item.id!, String(fd.get('notifyPhone') || ''));
+                              }}
+                            >
+                              <input
+                                name="notifyPhone"
+                                type="tel"
+                                defaultValue={item.notifyPhone || ''}
+                                key={`${item.id}-phone-${item.notifyPhone || ''}`}
+                                placeholder="ex. 677123456 ou 237677…"
+                                className="flex-1 min-w-[140px] text-xs font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                              />
+                              <button
+                                type="submit"
+                                className="px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-800 border border-indigo-200 touch-manipulation"
+                              >
+                                Sauver
+                              </button>
+                            </form>
+                          </div>
+
+                          <div>
                             <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-2">
                               Droits spéciaux
                             </label>
@@ -456,6 +526,13 @@ export default function UserManagement({ onAlert, onMenuClick }: UserManagementP
                                 label="Gardien keybox"
                                 title="Compte gardien restreint : accès direct à la vue Codes keybox uniquement, filtrée par sites autorisés"
                                 activeClass="bg-orange-100 border-orange-300 text-orange-950"
+                              />
+                              <AccessPill
+                                active={!!item.canCreateTickets}
+                                onClick={() => handleToggleCanCreateTickets(item.id!, !!item.canCreateTickets)}
+                                label="Créer tickets"
+                                title="Peut créer et assigner des tickets internes (ops, contenu, etc.)"
+                                activeClass="bg-indigo-100 border-indigo-300 text-indigo-950"
                               />
                             </div>
                             {item.keyboxGuardOnly && (

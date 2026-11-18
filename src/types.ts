@@ -179,6 +179,8 @@ export interface UserProfile {
   calendarBlockAccess?: boolean;
   /** Gardien restreint : à la connexion, va directement sur la vue « Codes keybox » (rien d’autre). Filtré par `allowedSites`. */
   keyboxGuardOnly?: boolean;
+  /** Peut créer / assigner des tickets internes (ops, contenu, etc.) */
+  canCreateTickets?: boolean;
 }
 
 export interface AuthorizedEmail {
@@ -197,6 +199,35 @@ export interface AuthorizedEmail {
   calendarBlockAccess?: boolean;
   /** Gardien restreint : à la connexion, va directement sur la vue « Codes keybox » (rien d’autre). Filtré par `allowedSites`. */
   keyboxGuardOnly?: boolean;
+  /** Peut créer / assigner des tickets internes */
+  canCreateTickets?: boolean;
+  /** Téléphone WhatsApp pour notif ticket (ex. 2376… ou 6…) — optionnel */
+  notifyPhone?: string | null;
+}
+
+/** Ticket interne YameHome (suivi tâches employés). */
+export type TicketStatus = 'open' | 'doing' | 'done';
+
+export interface Ticket {
+  id?: string;
+  title: string;
+  description?: string;
+  /** Critères d’acceptation (texte libre) */
+  acceptance?: string;
+  status: TicketStatus;
+  assigneeEmail: string;
+  assigneeDisplayName?: string;
+  createdByUid: string;
+  createdByEmail: string;
+  createdByName?: string;
+  /** Date limite ISO date `YYYY-MM-DD` (optionnel) */
+  dueDate?: string | null;
+  site?: string | null;
+  /** Preuve de done (lien WhatsApp, URL, note…) */
+  proofUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  doneAt?: string | null;
 }
 
 /** Site géographique d’un boîtier de clés (v1 : Yaoundé uniquement). */

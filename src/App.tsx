@@ -30,8 +30,8 @@ import {
   waitForPendingWrites
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { TARIFS, PAYMENT_METHODS, PAYMENT_METHODS_BASE, MOBILE_PAYMENT_METHOD_OPTIONS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly, canAccessCaisse } from './constants';
-import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, ClientProfileSeed, AgentProfile } from './types';
+import { TARIFS, PAYMENT_METHODS, PAYMENT_METHODS_BASE, MOBILE_PAYMENT_METHOD_OPTIONS, HOSTS, getHostsForApartment, getRateForApartment, formatCurrency, SITES, SITE_MAPPING, isOnduleurNonConcerne, canSeeCostsMenu, canSeeObligationsRail, canUseKeybox, isKeyboxGuardOnly, canAccessCaisse, canSeeTickets } from './constants';
+import { ReceiptData, ReceiptStaySegment, CleaningReport, Payment, UserProfile, AuthorizedEmail, BlockedDate, Prospect, ClientProfile, ClientProfileSeed, AgentProfile, Ticket } from './types';
 import {
   defaultCleaningChecklist,
   normalizeCleaningReport,
@@ -76,6 +76,7 @@ const CaisseView = lazy(() => import('./components/CaisseView'));
 const ProInvoicesView = lazy(() => import('./components/ProInvoicesView'));
 const KeyboxCodesView = lazy(() => import('./components/KeyboxCodesView'));
 const ClientsView = lazy(() => import('./components/ClientsView'));
+const TicketsView = lazy(() => import('./components/TicketsView'));
 import { 
   LogOut, 
   Plus, 
@@ -92,6 +93,7 @@ import {
   Home,
   FileText,
   ClipboardCheck,
+  ClipboardList,
   ChevronRight,
   Menu,
   Shield,
@@ -249,7 +251,8 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const { mergedContacts, prospects: directoryProspects } = useContactDirectory(!!user && isAuthReady);
   const [prospectUiRequest, setProspectUiRequest] = useState<ProspectUiRequest | null>(null);
-  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'caisse' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients'>('calendar');
+  const [view, setView] = useState<'form' | 'history' | 'calendar' | 'users' | 'prospects' | 'prepaidTokens' | 'technicians' | 'echeances' | 'costs' | 'caisse' | 'proInvoices' | 'maintenance' | 'keybox' | 'clients' | 'tickets'>('calendar');
+  const [myOpenTicketCount, setMyOpenTicketCount] = useState(0);
   const [clientProfileSeed, setClientProfileSeed] = useState<ClientProfileSeed | null>(null);
   /** Vue où revenir après « Fermer » depuis l’aperçu lecture seule (calendrier, historique…). */
   const [receiptReturnTarget, setReceiptReturnTarget] = useState<'calendar' | 'history' | 'prospects' | 'clients' | null>(null);
@@ -399,6 +402,10 @@ export default function App() {
             const keyboxGuardFromProfile = !!(profile as UserProfile & { keyboxGuardOnly?: boolean }).keyboxGuardOnly;
             const finalKeyboxGuardOnly = keyboxGuardFromWhitelist || keyboxGuardFromProfile;
 
+            const ticketsCreateFromWhitelist = whiteData?.canCreateTickets === true;
+            const ticketsCreateFromProfile = !!(profile as UserProfile & { canCreateTickets?: boolean }).canCreateTickets;
+            const finalCanCreateTickets = ticketsCreateFromWhitelist || ticketsCreateFromProfile;
+
             const { allowedApartments, ...restProfile } = profile as any;
             const updatedProfile: UserProfile = { 
               ...restProfile, 
@@ -408,11 +415,13 @@ export default function App() {
             };
             const forUi: UserProfile = {
               ...updatedProfile,
+              email: (updatedProfile.email || userEmail || '').toLowerCase(),
               linkedEmployeeId: finalLinked ?? undefined,
               ...(finalFinanceAccess ? { financeAccess: true } : {}),
               ...(finalObligationsAccess ? { obligationsAccess: true } : {}),
               ...(finalCalendarBlockAccess ? { calendarBlockAccess: true } : {}),
               ...(finalKeyboxGuardOnly ? { keyboxGuardOnly: true } : {}),
+              ...(finalCanCreateTickets ? { canCreateTickets: true } : {}),
             };
             
             // Only update if something actually changed to avoid unnecessary permission checks
@@ -436,7 +445,7 @@ export default function App() {
             
             const newProfile: UserProfile = {
               uid: u.uid,
-              email: u.email || '',
+              email: (u.email || '').toLowerCase(),
               displayName: u.displayName || 'Utilisateur',
               role: isMainAdmin ? 'admin' : (whiteData?.role || 'agent'),
               isApproved: isApproved,
@@ -449,6 +458,7 @@ export default function App() {
               ...(whiteData?.obligationsAccess ? { obligationsAccess: true } : {}),
               ...(whiteData?.calendarBlockAccess ? { calendarBlockAccess: true } : {}),
               ...(whiteData?.keyboxGuardOnly ? { keyboxGuardOnly: true } : {}),
+              ...(whiteData?.canCreateTickets ? { canCreateTickets: true } : {}),
             };
             console.log("Setting user profile (new):", newProfile);
             try {
@@ -472,6 +482,28 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Badge tickets ouverts assignés à l'utilisateur connecté
+  useEffect(() => {
+    if (!userProfile?.email || isKeyboxGuardOnly(userProfile)) {
+      setMyOpenTicketCount(0);
+      return;
+    }
+    const email = userProfile.email.toLowerCase().trim();
+    const qTickets = query(collection(db, 'tickets'), where('assigneeEmail', '==', email));
+    const unsub = onSnapshot(
+      qTickets,
+      (snap) => {
+        const n = snap.docs.filter((d) => {
+          const s = (d.data() as Ticket).status;
+          return s === 'open' || s === 'doing';
+        }).length;
+        setMyOpenTicketCount(n);
+      },
+      () => setMyOpenTicketCount(0)
+    );
+    return () => unsub();
+  }, [userProfile?.email, userProfile?.keyboxGuardOnly]);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -2596,6 +2628,24 @@ export default function App() {
                     Échéances
                   </button>
                 )}
+                {canSeeTickets(userProfile) && (
+                  <button
+                    onClick={() => {
+                      setView('tickets');
+                      setShowMobileNav(false);
+                      if (window.innerWidth < 768) setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'tickets' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    <ClipboardList size={16} className={view === 'tickets' ? '' : 'text-indigo-600'} />
+                    <span className="flex-1 text-left">Tickets</span>
+                    {myOpenTicketCount > 0 && (
+                      <span className={`min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-black flex items-center justify-center ${view === 'tickets' ? 'bg-white text-indigo-700' : 'bg-indigo-600 text-white'}`}>
+                        {myOpenTicketCount}
+                      </span>
+                    )}
+                  </button>
+                )}
                 {canUseKeybox(userProfile) && (
                   <button
                     onClick={() => {
@@ -3427,6 +3477,16 @@ export default function App() {
           ) : view === 'echeances' ? (
             <ObligationsDeskRail
               userProfile={userProfile!}
+              userUid={user!.uid}
+              onMenuClick={() => setIsSidebarOpen(true)}
+              onAlert={(msg, type) => {
+                setAlertType(type || 'info');
+                setAlertMessage(msg);
+              }}
+            />
+          ) : view === 'tickets' ? (
+            <TicketsView
+              userProfile={userProfile}
               userUid={user!.uid}
               onMenuClick={() => setIsSidebarOpen(true)}
               onAlert={(msg, type) => {

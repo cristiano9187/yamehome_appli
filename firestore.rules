@@ -221,7 +221,7 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'isApproved', 'allowedSites', 'allowedApartments', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly', 'canCreateTickets']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
@@ -230,11 +230,12 @@ service cloud.firestore {
              (!('financeAccess' in data) || data.financeAccess is bool) &&
              (!('obligationsAccess' in data) || data.obligationsAccess is bool) &&
              (!('calendarBlockAccess' in data) || data.calendarBlockAccess is bool) &&
-             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool);
+             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool) &&
+             (!('canCreateTickets' in data) || data.canCreateTickets is bool);
     }
 
     function isValidAuthorizedEmail(data) {
-      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly']) &&
+      return hasOnlyAllowedFields(['email', 'role', 'addedAt', 'allowedSites', 'allowedApartments', 'linkedEmployeeId', 'financeAccess', 'obligationsAccess', 'calendarBlockAccess', 'keyboxGuardOnly', 'canCreateTickets', 'notifyPhone']) &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['admin', 'agent'] &&
              (!('allowedSites' in data) || data.allowedSites is list) &&
@@ -243,7 +244,58 @@ service cloud.firestore {
              (!('financeAccess' in data) || data.financeAccess is bool) &&
              (!('obligationsAccess' in data) || data.obligationsAccess is bool) &&
              (!('calendarBlockAccess' in data) || data.calendarBlockAccess is bool) &&
-             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool);
+             (!('keyboxGuardOnly' in data) || data.keyboxGuardOnly is bool) &&
+             (!('canCreateTickets' in data) || data.canCreateTickets is bool) &&
+             (!('notifyPhone' in data) || data.notifyPhone == null || data.notifyPhone is string);
+    }
+
+    /** Créer / assigner tickets : super-admins, admins, ou flag canCreateTickets. */
+    function canCreateTicketsRule() {
+      return isMainAdminEmailToken() ||
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          'canCreateTickets' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canCreateTickets == true) ||
+        (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+          'canCreateTickets' in get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data &&
+          get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.canCreateTickets == true);
+    }
+
+    function isValidTicket(data) {
+      return data.keys().hasAll(['title', 'status', 'assigneeEmail', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 300 &&
+             data.status in ['open', 'doing', 'done'] &&
+             data.assigneeEmail is string && isValidEmail(data.assigneeEmail) &&
+             data.createdByUid is string &&
+             data.createdByEmail is string &&
+             data.createdAt is string &&
+             data.updatedAt is string &&
+             (!('description' in data) || data.description is string) &&
+             (!('acceptance' in data) || data.acceptance is string) &&
+             (!('assigneeDisplayName' in data) || data.assigneeDisplayName is string) &&
+             (!('createdByName' in data) || data.createdByName is string) &&
+             (!('dueDate' in data) || data.dueDate == null || data.dueDate is string) &&
+             (!('site' in data) || data.site == null || data.site is string) &&
+             (!('proofUrl' in data) || data.proofUrl == null || data.proofUrl is string) &&
+             (!('doneAt' in data) || data.doneAt == null || data.doneAt is string);
+    }
+
+    function ticketAssigneeIsMe() {
+      return resource.data.assigneeEmail == request.auth.token.email ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == resource.data.assigneeEmail);
+    }
+
+    function canReadTicket() {
+      return isAdmin() ||
+        ticketAssigneeIsMe() ||
+        resource.data.createdByUid == request.auth.uid;
+    }
+
+    function canUpdateTicket() {
+      return isAdmin() ||
+        resource.data.createdByUid == request.auth.uid ||
+        ticketAssigneeIsMe();
     }
 
     function isAuthorizedForApartment(apartmentName) {
@@ -1008,6 +1060,21 @@ service cloud.firestore {
       allow update: if canAccessFinance() && isValidFinanceEntry(request.resource.data) &&
         resource.data.authorUid == request.resource.data.authorUid;
       allow delete: if canAccessFinance() && (isAdmin() || resource.data.authorUid == request.auth.uid);
+    }
+
+    /** Tickets internes (suivi tâches employés). */
+    match /tickets/{ticketId} {
+      allow read: if isAgent() && canReadTicket();
+      allow create: if isAgent() && canCreateTicketsRule() &&
+        isValidTicket(request.resource.data) &&
+        request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isAgent() && canUpdateTicket() &&
+        isValidTicket(request.resource.data) &&
+        request.resource.data.createdByUid == resource.data.createdByUid &&
+        request.resource.data.createdByEmail == resource.data.createdByEmail &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin() ||
+        (isAgent() && resource.data.createdByUid == request.auth.uid);
     }
 
     // Default deny

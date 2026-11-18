@@ -156,6 +156,22 @@ export function canManageKeyboxCatalog(
   return profile.role === 'admin';
 }
 
+/** Menu Tickets — tous les employés connectés sauf gardiens keybox. */
+export function canSeeTickets(profile: UserProfile | null): boolean {
+  return !!(profile?.email) && !isKeyboxGuardOnly(profile);
+}
+
+/** Créer / assigner des tickets — super-admins, admins, ou flag canCreateTickets. */
+export function canCreateTickets(
+  profile: UserProfile | null,
+  isMainAdminEmail: (email?: string | null) => boolean
+): boolean {
+  if (!profile?.email) return false;
+  if (isMainAdminEmail(profile.email)) return true;
+  if (profile.role === 'admin') return true;
+  return profile.canCreateTickets === true;
+}
+
 /** Changer un code, déposer des clés — tout agent/admin avec accès app (pas les gardiens). */
 export function canOperateKeybox(profile: UserProfile | null): boolean {
   return !!(profile?.email) && !isKeyboxGuardOnly(profile);
