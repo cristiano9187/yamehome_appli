@@ -1,20 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
   query,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase';
-import { AuthorizedEmail, Ticket, TicketStatus, UserProfile } from '../types';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, storage } from '../firebase';
+import { AuthorizedEmail, Employee, Ticket, TicketStatus, UserProfile } from '../types';
 import { SITES, canCreateTickets, isMainAdminEmail } from '../constants';
 import {
   CheckCircle2,
   Circle,
   ClipboardList,
+  ImagePlus,
   Loader2,
   Menu,
   Play,
@@ -34,6 +36,8 @@ interface TicketsViewProps {
   onAlert: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+
 function statusLabel(s: TicketStatus): string {
   if (s === 'open') return 'Ouvert';
   if (s === 'doing') return 'En cours';
@@ -44,6 +48,21 @@ function statusClass(s: TicketStatus): string {
   if (s === 'open') return 'bg-amber-100 text-amber-900 border-amber-200';
   if (s === 'doing') return 'bg-blue-100 text-blue-900 border-blue-200';
   return 'bg-emerald-100 text-emerald-900 border-emerald-200';
+}
+
+function assigneeLabel(a: AuthorizedEmail, employeesById: Map<string, string>): string {
+  const linked = a.linkedEmployeeId ? employeesById.get(a.linkedEmployeeId) : null;
+  if (linked) return linked;
+  return a.email.split('@')[0] || a.email;
+}
+
+async function uploadTicketImage(ticketId: string, file: File): Promise<{ url: string; path: string }> {
+  const safe = file.name.replace(/[^\w.-]/g, '_').slice(0, 80) || 'photo.jpg';
+  const path = `ticket_attachments/${ticketId}/${Date.now()}_${safe}`;
+  const sref = ref(storage, path);
+  await uploadBytes(sref, file, { contentType: file.type || 'image/jpeg' });
+  const url = await getDownloadURL(sref);
+  return { url, path };
 }
 
 export default function TicketsView({
@@ -57,7 +76,6 @@ export default function TicketsView({
   const isAdmin =
     userProfile?.role === 'admin' || isMainAdminEmail(userProfile?.email);
 
-  // Créateurs / admins : par défaut « Créés par moi » (leurs tickets sont souvent assignés à d’autres)
   const [tab, setTab] = useState<FilterTab>(() =>
     canCreateTickets(userProfile, isMainAdminEmail) ||
     userProfile?.role === 'admin' ||
@@ -69,20 +87,42 @@ export default function TicketsView({
   const [created, setCreated] = useState<Ticket[]>([]);
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [assignees, setAssignees] = useState<AuthorizedEmail[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [proofDraft, setProofDraft] = useState<Record<string, string>>({});
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
-  const [formAcceptance, setFormAcceptance] = useState('');
   const [formAssignee, setFormAssignee] = useState('');
   const [formDueDate, setFormDueDate] = useState('');
   const [formSite, setFormSite] = useState('');
+  const [formImageFile, setFormImageFile] = useState<File | null>(null);
+  const [formImagePreview, setFormImagePreview] = useState<string | null>(null);
+  const [formExistingImageUrl, setFormExistingImageUrl] = useState<string | null>(null);
+  const [formRemoveExistingImage, setFormRemoveExistingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formOpen = showCreate || !!editingTicket;
+
+  const employeesById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of employees) {
+      if (e.id) m.set(e.id, e.name);
+    }
+    return m;
+  }, [employees]);
+
+  const assigneesSorted = useMemo(() => {
+    return [...assignees].sort((a, b) =>
+      assigneeLabel(a, employeesById).localeCompare(assigneeLabel(b, employeesById), 'fr', {
+        sensitivity: 'base',
+      })
+    );
+  }, [assignees, employeesById]);
 
   useEffect(() => {
     if (!email) return;
@@ -143,17 +183,30 @@ export default function TicketsView({
     if (!canCreate && !isAdmin) return;
     const unsub = onSnapshot(collection(db, 'authorized_emails'), (snap) => {
       const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AuthorizedEmail));
-      rows.sort((a, b) => a.email.localeCompare(b.email));
       setAssignees(rows);
     });
     return () => unsub();
   }, [canCreate, isAdmin]);
 
   useEffect(() => {
-    if (!formAssignee && assignees.length) {
-      setFormAssignee(assignees[0].email);
+    if (!canCreate && !isAdmin) return;
+    const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
+      setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    });
+    return () => unsub();
+  }, [canCreate, isAdmin]);
+
+  useEffect(() => {
+    if (!formAssignee && assigneesSorted.length) {
+      setFormAssignee(assigneesSorted[0].email);
     }
-  }, [assignees, formAssignee]);
+  }, [assigneesSorted, formAssignee]);
+
+  useEffect(() => {
+    return () => {
+      if (formImagePreview?.startsWith('blob:')) URL.revokeObjectURL(formImagePreview);
+    };
+  }, [formImagePreview]);
 
   const list = useMemo(() => {
     if (tab === 'mine_open') {
@@ -166,12 +219,21 @@ export default function TicketsView({
 
   const openCount = mine.filter((t) => t.status === 'open' || t.status === 'doing').length;
 
+  const clearImageForm = () => {
+    if (formImagePreview?.startsWith('blob:')) URL.revokeObjectURL(formImagePreview);
+    setFormImageFile(null);
+    setFormImagePreview(null);
+    setFormExistingImageUrl(null);
+    setFormRemoveExistingImage(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const resetForm = () => {
     setFormTitle('');
     setFormDescription('');
-    setFormAcceptance('');
     setFormDueDate('');
     setFormSite('');
+    clearImageForm();
   };
 
   const closeForm = () => {
@@ -183,7 +245,7 @@ export default function TicketsView({
   const openCreate = () => {
     resetForm();
     setEditingTicket(null);
-    if (assignees.length) setFormAssignee(assignees[0].email);
+    if (assigneesSorted.length) setFormAssignee(assigneesSorted[0].email);
     setShowCreate(true);
   };
 
@@ -192,30 +254,87 @@ export default function TicketsView({
     setEditingTicket(t);
     setFormTitle(t.title || '');
     setFormDescription(t.description || '');
-    setFormAcceptance(t.acceptance || '');
     setFormAssignee(t.assigneeEmail || '');
     setFormDueDate(t.dueDate || '');
     setFormSite(t.site || '');
+    if (formImagePreview?.startsWith('blob:')) URL.revokeObjectURL(formImagePreview);
+    setFormImageFile(null);
+    setFormImagePreview(null);
+    setFormExistingImageUrl(t.attachmentUrl || null);
+    setFormRemoveExistingImage(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const resolveAssigneeName = (assigneeEmail: string): string => {
+    const row = assignees.find((a) => a.email.toLowerCase() === assigneeEmail.toLowerCase());
+    if (row) return assigneeLabel(row, employeesById);
+    return assigneeEmail.split('@')[0] || assigneeEmail;
+  };
+
+  const onPickImage = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onAlert('Choisissez une image (jpg, png, heic…)', 'error');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      onAlert('Image trop lourde (max 12 Mo)', 'error');
+      return;
+    }
+    if (formImagePreview?.startsWith('blob:')) URL.revokeObjectURL(formImagePreview);
+    setFormImageFile(file);
+    setFormImagePreview(URL.createObjectURL(file));
+    setFormRemoveExistingImage(false);
   };
 
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formAssignee.trim()) return;
     const assigneeEmail = formAssignee.toLowerCase().trim();
+    const assigneeDisplayName = resolveAssigneeName(assigneeEmail);
     const now = new Date().toISOString();
 
     if (editingTicket?.id) {
       if (!(editingTicket.createdByUid === userUid || isAdmin)) return;
       setSaving(true);
       try {
+        let attachmentUrl = editingTicket.attachmentUrl ?? null;
+        let attachmentStoragePath = editingTicket.attachmentStoragePath ?? null;
+
+        if (formRemoveExistingImage && !formImageFile) {
+          if (attachmentStoragePath) {
+            try {
+              await deleteObject(ref(storage, attachmentStoragePath));
+            } catch {
+              /* absent */
+            }
+          }
+          attachmentUrl = null;
+          attachmentStoragePath = null;
+        }
+
+        if (formImageFile) {
+          const uploaded = await uploadTicketImage(editingTicket.id, formImageFile);
+          if (attachmentStoragePath && attachmentStoragePath !== uploaded.path) {
+            try {
+              await deleteObject(ref(storage, attachmentStoragePath));
+            } catch {
+              /* absent */
+            }
+          }
+          attachmentUrl = uploaded.url;
+          attachmentStoragePath = uploaded.path;
+        }
+
         await updateDoc(doc(db, 'tickets', editingTicket.id), {
           title: formTitle.trim(),
           description: formDescription.trim() || '',
-          acceptance: formAcceptance.trim() || '',
           assigneeEmail,
-          assigneeDisplayName: assigneeEmail.split('@')[0],
+          assigneeDisplayName,
           dueDate: formDueDate || null,
           site: formSite || null,
+          attachmentUrl,
+          attachmentStoragePath,
           updatedAt: now,
         });
         onAlert('Ticket mis à jour', 'success');
@@ -232,24 +351,35 @@ export default function TicketsView({
     if (!canCreate) return;
     setSaving(true);
     try {
+      const ticketRef = doc(collection(db, 'tickets'));
+      let attachmentUrl: string | null = null;
+      let attachmentStoragePath: string | null = null;
+
+      if (formImageFile) {
+        const uploaded = await uploadTicketImage(ticketRef.id, formImageFile);
+        attachmentUrl = uploaded.url;
+        attachmentStoragePath = uploaded.path;
+      }
+
       const payload: Omit<Ticket, 'id'> = {
         title: formTitle.trim(),
         description: formDescription.trim() || '',
-        acceptance: formAcceptance.trim() || '',
         status: 'open',
         assigneeEmail,
-        assigneeDisplayName: assigneeEmail.split('@')[0],
+        assigneeDisplayName,
         createdByUid: userUid,
         createdByEmail: email,
         createdByName: userProfile?.displayName || email,
         dueDate: formDueDate || null,
         site: formSite || null,
+        attachmentUrl,
+        attachmentStoragePath,
         proofUrl: null,
         createdAt: now,
         updatedAt: now,
         doneAt: null,
       };
-      await addDoc(collection(db, 'tickets'), payload);
+      await setDoc(ticketRef, payload);
       onAlert('Ticket créé', 'success');
       closeForm();
       setTab('created');
@@ -290,6 +420,9 @@ export default function TicketsView({
   const canEditContent = (t: Ticket) => t.createdByUid === userUid || isAdmin;
   const canManage = (t: Ticket) =>
     isMine(t) || t.createdByUid === userUid || isAdmin;
+
+  const showPreviewUrl =
+    formImagePreview || (!formRemoveExistingImage ? formExistingImageUrl : null);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 md:h-full bg-[#F5F5F4] md:overflow-hidden">
@@ -404,7 +537,7 @@ export default function TicketsView({
                   <div className="min-w-0">
                     <h3 className="text-sm font-bold text-gray-900 leading-snug">{t.title}</h3>
                     <p className="text-[10px] text-gray-400 font-mono mt-1">
-                      → {t.assigneeEmail}
+                      → {t.assigneeDisplayName || t.assigneeEmail}
                       {t.dueDate ? ` · échéance ${t.dueDate}` : ''}
                       {t.site ? ` · ${t.site}` : ''}
                     </p>
@@ -434,13 +567,18 @@ export default function TicketsView({
                   <p className="text-xs text-gray-600 whitespace-pre-wrap">{t.description}</p>
                 ) : null}
 
-                {t.acceptance ? (
-                  <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">
-                      Acceptance
-                    </p>
-                    <p className="text-xs text-gray-700 whitespace-pre-wrap">{t.acceptance}</p>
-                  </div>
+                {t.attachmentUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxUrl(t.attachmentUrl!)}
+                    className="block w-full max-w-sm overflow-hidden rounded-xl border border-gray-100 bg-gray-50 touch-manipulation"
+                  >
+                    <img
+                      src={t.attachmentUrl}
+                      alt="Pièce jointe du ticket"
+                      className="w-full max-h-56 object-cover"
+                    />
+                  </button>
                 ) : null}
 
                 {t.proofUrl ? (
@@ -536,7 +674,7 @@ export default function TicketsView({
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50"
-                    placeholder="Ex. Vidéo parcours Axe → Rieti"
+                    placeholder="Ex. Étiquettes frigo Rieti"
                   />
                 </div>
                 <div>
@@ -546,21 +684,66 @@ export default function TicketsView({
                   <textarea
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
-                    rows={3}
+                    rows={4}
                     className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50"
+                    placeholder="Décrivez le besoin (y compris critères de fin si utile)…"
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">
-                    Acceptance
+                    Image (optionnel)
                   </label>
-                  <textarea
-                    value={formAcceptance}
-                    onChange={(e) => setFormAcceptance(e.target.value)}
-                    rows={3}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50"
-                    placeholder="Ex. moins de 30 s, texte overlay, publié dans le groupe WhatsApp…"
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => onPickImage(e.target.files?.[0] || null)}
                   />
+                  {showPreviewUrl ? (
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                      <img
+                        src={showPreviewUrl}
+                        alt="Aperçu"
+                        className="w-full max-h-48 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (formImagePreview?.startsWith('blob:')) {
+                            URL.revokeObjectURL(formImagePreview);
+                          }
+                          setFormImageFile(null);
+                          setFormImagePreview(null);
+                          if (formExistingImageUrl) setFormRemoveExistingImage(true);
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white"
+                        aria-label="Retirer l’image"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-500 text-xs font-bold touch-manipulation"
+                    >
+                      <ImagePlus size={16} />
+                      Photo / image (ex. frigo, étiquettes…)
+                    </button>
+                  )}
+                  {showPreviewUrl && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-2 text-[10px] font-bold uppercase tracking-widest text-indigo-600"
+                    >
+                      Remplacer l’image
+                    </button>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">
@@ -573,14 +756,16 @@ export default function TicketsView({
                     className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50"
                   >
                     {formAssignee &&
-                      !assignees.some(
+                      !assigneesSorted.some(
                         (a) => a.email.toLowerCase() === formAssignee.toLowerCase()
                       ) && (
-                        <option value={formAssignee}>{formAssignee}</option>
+                        <option value={formAssignee}>
+                          {resolveAssigneeName(formAssignee)}
+                        </option>
                       )}
-                    {assignees.map((a) => (
+                    {assigneesSorted.map((a) => (
                       <option key={a.email} value={a.email}>
-                        {a.email}
+                        {assigneeLabel(a, employeesById)}
                       </option>
                     ))}
                   </select>
@@ -630,6 +815,30 @@ export default function TicketsView({
                 </button>
               </form>
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-[110] bg-black/85 flex items-center justify-center p-4"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <button
+              type="button"
+              className="absolute top-4 right-4 p-2 rounded-xl bg-white/10 text-white"
+              onClick={() => setLightboxUrl(null)}
+              aria-label="Fermer"
+            >
+              <X size={20} />
+            </button>
+            <img
+              src={lightboxUrl}
+              alt="Pièce jointe"
+              className="max-w-full max-h-[90vh] rounded-xl object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         )}
       </AnimatePresence>

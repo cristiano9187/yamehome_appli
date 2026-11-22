@@ -276,6 +276,8 @@ service cloud.firestore {
              (!('createdByName' in data) || data.createdByName is string) &&
              (!('dueDate' in data) || data.dueDate == null || data.dueDate is string) &&
              (!('site' in data) || data.site == null || data.site is string) &&
+             (!('attachmentUrl' in data) || data.attachmentUrl == null || data.attachmentUrl is string) &&
+             (!('attachmentStoragePath' in data) || data.attachmentStoragePath == null || data.attachmentStoragePath is string) &&
              (!('proofUrl' in data) || data.proofUrl == null || data.proofUrl is string) &&
              (!('doneAt' in data) || data.doneAt == null || data.doneAt is string);
     }

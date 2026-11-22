@@ -212,10 +212,11 @@ export interface Ticket {
   id?: string;
   title: string;
   description?: string;
-  /** Critères d’acceptation (texte libre) */
+  /** @deprecated Conservé pour anciens tickets — plus saisi (inclus dans description) */
   acceptance?: string;
   status: TicketStatus;
   assigneeEmail: string;
+  /** Nom affiché (employé lié) — l’email reste la clé d’assignation */
   assigneeDisplayName?: string;
   createdByUid: string;
   createdByEmail: string;
@@ -223,6 +224,9 @@ export interface Ticket {
   /** Date limite ISO date `YYYY-MM-DD` (optionnel) */
   dueDate?: string | null;
   site?: string | null;
+  /** Image jointe (ex. photo du besoin) — URL Storage */
+  attachmentUrl?: string | null;
+  attachmentStoragePath?: string | null;
   /** Preuve de done (lien WhatsApp, URL, note…) */
   proofUrl?: string | null;
   createdAt: string;
