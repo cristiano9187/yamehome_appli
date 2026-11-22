@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  addDoc,
   collection,
   doc,
   onSnapshot,
+  orderBy,
   query,
   setDoc,
   updateDoc,
@@ -10,7 +12,15 @@ import {
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, storage } from '../firebase';
-import { AuthorizedEmail, Employee, Ticket, TicketStatus, UserProfile } from '../types';
+import {
+  AuthorizedEmail,
+  Employee,
+  Ticket,
+  TicketComment,
+  TicketCommentKind,
+  TicketStatus,
+  UserProfile,
+} from '../types';
 import { SITES, canCreateTickets, isMainAdminEmail } from '../constants';
 import {
   CheckCircle2,
@@ -19,10 +29,12 @@ import {
   ImagePlus,
   Loader2,
   Menu,
+  MessageSquare,
   Play,
   Pencil,
   Plus,
   RotateCcw,
+  Send,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -50,6 +62,19 @@ function statusClass(s: TicketStatus): string {
   return 'bg-emerald-100 text-emerald-900 border-emerald-200';
 }
 
+function formatWhen(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function assigneeLabel(a: AuthorizedEmail, employeesById: Map<string, string>): string {
   const linked = a.linkedEmployeeId ? employeesById.get(a.linkedEmployeeId) : null;
   if (linked) return linked;
@@ -63,6 +88,445 @@ async function uploadTicketImage(ticketId: string, file: File): Promise<{ url: s
   await uploadBytes(sref, file, { contentType: file.type || 'image/jpeg' });
   const url = await getDownloadURL(sref);
   return { url, path };
+}
+
+function TicketCard({
+  ticket: t,
+  email,
+  userUid,
+  userProfile,
+  isAdmin,
+  saving,
+  onAlert,
+  onEdit,
+  onLightbox,
+  setSaving,
+}: {
+  ticket: Ticket;
+  email: string;
+  userUid: string;
+  userProfile: UserProfile | null;
+  isAdmin: boolean;
+  saving: boolean;
+  onAlert: TicketsViewProps['onAlert'];
+  onEdit: (t: Ticket) => void;
+  onLightbox: (url: string) => void;
+  setSaving: (v: boolean) => void;
+}) {
+  const [comments, setComments] = useState<TicketComment[]>([]);
+  const [draft, setDraft] = useState('');
+  const [draftFile, setDraftFile] = useState<File | null>(null);
+  const [draftPreview, setDraftPreview] = useState<string | null>(null);
+  const [closeMode, setCloseMode] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const isMine = t.assigneeEmail === email;
+  const canEditContent = t.createdByUid === userUid || isAdmin;
+  const canComment = isMine || t.createdByUid === userUid || isAdmin;
+
+  useEffect(() => {
+    if (!t.id) return;
+    const q = query(
+      collection(db, 'tickets', t.id, 'comments'),
+      orderBy('createdAt', 'asc')
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() } as TicketComment)));
+      },
+      (err) => console.error('ticket comments listen:', err)
+    );
+    return () => unsub();
+  }, [t.id]);
+
+  useEffect(() => {
+    return () => {
+      if (draftPreview?.startsWith('blob:')) URL.revokeObjectURL(draftPreview);
+    };
+  }, [draftPreview]);
+
+  const clearDraftImage = () => {
+    if (draftPreview?.startsWith('blob:')) URL.revokeObjectURL(draftPreview);
+    setDraftFile(null);
+    setDraftPreview(null);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const onPickDraftImage = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onAlert('Choisissez une image (jpg, png…)', 'error');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      onAlert('Image trop lourde (max 12 Mo)', 'error');
+      return;
+    }
+    if (draftPreview?.startsWith('blob:')) URL.revokeObjectURL(draftPreview);
+    setDraftFile(file);
+    setDraftPreview(URL.createObjectURL(file));
+  };
+
+  const postComment = async (kind: TicketCommentKind) => {
+    if (!t.id || !canComment) return;
+    const body = draft.trim();
+    if (!body) {
+      onAlert(kind === 'close' ? 'Ajoutez un commentaire pour clôturer' : 'Écrivez un commentaire', 'error');
+      return;
+    }
+    setPosting(true);
+    setSaving(true);
+    try {
+      let attachmentUrl: string | null = null;
+      let attachmentStoragePath: string | null = null;
+      if (draftFile) {
+        const uploaded = await uploadTicketImage(t.id, draftFile);
+        attachmentUrl = uploaded.url;
+        attachmentStoragePath = uploaded.path;
+      }
+
+      const now = new Date().toISOString();
+      const payload: Omit<TicketComment, 'id'> = {
+        body,
+        kind,
+        authorUid: userUid,
+        authorEmail: email,
+        authorName: userProfile?.displayName || email.split('@')[0] || email,
+        createdAt: now,
+        attachmentUrl,
+        attachmentStoragePath,
+      };
+      await addDoc(collection(db, 'tickets', t.id, 'comments'), payload);
+
+      if (kind === 'close') {
+        await updateDoc(doc(db, 'tickets', t.id), {
+          status: 'done',
+          doneAt: now,
+          updatedAt: now,
+          proofUrl: null,
+        });
+        onAlert('Ticket clos', 'success');
+        setCloseMode(false);
+      } else {
+        await updateDoc(doc(db, 'tickets', t.id), { updatedAt: now });
+        onAlert('Commentaire ajouté', 'success');
+      }
+
+      setDraft('');
+      clearDraftImage();
+    } catch (err) {
+      console.error(err);
+      onAlert(kind === 'close' ? 'Clôture impossible' : 'Commentaire refusé', 'error');
+    } finally {
+      setPosting(false);
+      setSaving(false);
+    }
+  };
+
+  const setStatus = async (status: TicketStatus) => {
+    if (!t.id) return;
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      await updateDoc(doc(db, 'tickets', t.id), {
+        status,
+        updatedAt: now,
+        ...(status === 'open' || status === 'doing' ? { doneAt: null } : {}),
+      });
+      onAlert(
+        status === 'doing' ? 'Ticket en cours' : status === 'open' ? 'Ticket rouvert' : 'Statut mis à jour',
+        'success'
+      );
+      if (status !== 'done') setCloseMode(false);
+    } catch (err) {
+      console.error(err);
+      onAlert('Mise à jour refusée (droits ou connexion)', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const creatorName = t.createdByName || t.createdByEmail || '—';
+  const assigneeName = t.assigneeDisplayName || t.assigneeEmail || '—';
+
+  return (
+    <article className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-bold text-gray-900 leading-snug">{t.title}</h3>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                Créé par
+              </p>
+              <p className="text-xs font-bold text-slate-800 truncate">{creatorName}</p>
+            </div>
+            <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-indigo-400">
+                Assigné à
+              </p>
+              <p className="text-xs font-bold text-indigo-900 truncate">{assigneeName}</p>
+            </div>
+          </div>
+          {(t.dueDate || t.site) && (
+            <p className="text-[10px] text-gray-400 font-mono mt-2">
+              {t.dueDate ? `échéance ${t.dueDate}` : ''}
+              {t.dueDate && t.site ? ' · ' : ''}
+              {t.site || ''}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {canEditContent && (
+            <button
+              type="button"
+              title="Modifier"
+              onClick={() => onEdit(t)}
+              className="p-2 rounded-xl bg-gray-50 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 border border-gray-100 touch-manipulation"
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+          <span
+            className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${statusClass(
+              t.status
+            )}`}
+          >
+            {statusLabel(t.status)}
+          </span>
+        </div>
+      </div>
+
+      {t.description ? (
+        <p className="text-xs text-gray-600 whitespace-pre-wrap">{t.description}</p>
+      ) : null}
+
+      {t.attachmentUrl ? (
+        <button
+          type="button"
+          onClick={() => onLightbox(t.attachmentUrl!)}
+          className="block w-full max-w-sm overflow-hidden rounded-xl border border-gray-100 bg-gray-50 touch-manipulation"
+        >
+          <img
+            src={t.attachmentUrl}
+            alt="Pièce jointe du ticket"
+            className="w-full max-h-56 object-cover"
+          />
+        </button>
+      ) : null}
+
+      {/* Fil commentaires */}
+      <div className="rounded-xl border border-gray-100 bg-gray-50/80 overflow-hidden">
+        <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-1.5">
+          <MessageSquare size={12} className="text-gray-400" />
+          <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">
+            Updates ({comments.length})
+          </span>
+        </div>
+        <div className="max-h-56 overflow-y-auto px-3 py-2 space-y-2">
+          {comments.length === 0 ? (
+            <p className="text-[11px] text-gray-400 py-1">Aucun commentaire pour l’instant.</p>
+          ) : (
+            comments.map((c) => (
+              <div
+                key={c.id}
+                className={`rounded-lg px-2.5 py-2 border ${
+                  c.kind === 'close'
+                    ? 'bg-emerald-50 border-emerald-100'
+                    : 'bg-white border-gray-100'
+                }`}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-[11px] font-bold text-gray-800 truncate">
+                    {c.authorName}
+                    {c.kind === 'close' ? (
+                      <span className="ml-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-700">
+                        clôture
+                      </span>
+                    ) : null}
+                  </p>
+                  <span className="text-[9px] text-gray-400 shrink-0">{formatWhen(c.createdAt)}</span>
+                </div>
+                <p className="text-xs text-gray-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                {c.attachmentUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => onLightbox(c.attachmentUrl!)}
+                    className="mt-1.5 block overflow-hidden rounded-lg border border-gray-100 max-w-[200px]"
+                  >
+                    <img
+                      src={c.attachmentUrl}
+                      alt="PJ commentaire"
+                      className="w-full max-h-28 object-cover"
+                    />
+                  </button>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+
+        {canComment && t.status !== 'done' && !closeMode && (
+          <div className="border-t border-gray-100 px-3 py-2 space-y-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={2}
+              placeholder="Update : avancement, blocage…"
+              className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 bg-white"
+            />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => onPickDraftImage(e.target.files?.[0] || null)}
+            />
+            {draftPreview ? (
+              <div className="relative inline-block">
+                <img src={draftPreview} alt="Aperçu" className="h-16 rounded-lg object-cover" />
+                <button
+                  type="button"
+                  onClick={clearDraftImage}
+                  className="absolute -top-1 -right-1 p-0.5 rounded-full bg-black/70 text-white"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 flex items-center gap-1"
+              >
+                <ImagePlus size={12} /> Image
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={posting || saving || !draft.trim()}
+              onClick={() => postComment('update')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
+            >
+              <Send size={12} /> Publier
+            </button>
+          </div>
+        )}
+
+        {canComment && closeMode && (
+          <div className="border-t border-emerald-100 bg-emerald-50/50 px-3 py-3 space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">
+              Clôturer — commentaire + photo (optionnelle)
+            </p>
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={2}
+              required
+              placeholder="Ex. étiquettes posées, photo jointe…"
+              className="w-full text-xs border border-emerald-200 rounded-xl px-3 py-2 bg-white"
+            />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => onPickDraftImage(e.target.files?.[0] || null)}
+            />
+            {draftPreview ? (
+              <div className="relative inline-block">
+                <img src={draftPreview} alt="Aperçu" className="h-16 rounded-lg object-cover" />
+                <button
+                  type="button"
+                  onClick={clearDraftImage}
+                  className="absolute -top-1 -right-1 p-0.5 rounded-full bg-black/70 text-white"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 flex items-center gap-1"
+              >
+                <ImagePlus size={12} /> Joindre une preuve photo
+              </button>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={posting || saving || !draft.trim()}
+                onClick={() => postComment('close')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
+              >
+                <CheckCircle2 size={12} /> Confirmer clôture
+              </button>
+              <button
+                type="button"
+                disabled={posting}
+                onClick={() => {
+                  setCloseMode(false);
+                  clearDraftImage();
+                }}
+                className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 text-[10px] font-black uppercase tracking-widest"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {canComment && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {t.status === 'open' && isMine && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setStatus('doing')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
+            >
+              <Play size={12} /> En cours
+            </button>
+          )}
+          {(t.status === 'open' || t.status === 'doing') && isMine && !closeMode && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setCloseMode(true);
+                setDraft('');
+                clearDraftImage();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
+            >
+              <CheckCircle2 size={12} /> Clôturer
+            </button>
+          )}
+          {t.status === 'done' && (isMine || isAdmin || t.createdByUid === userUid) && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setStatus('open')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
+            >
+              <RotateCcw size={12} /> Rouvrir
+            </button>
+          )}
+          {!isMine && t.status !== 'done' && (
+            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+              <Circle size={10} /> En attente de l’assigné
+            </span>
+          )}
+        </div>
+      )}
+    </article>
+  );
 }
 
 export default function TicketsView({
@@ -92,7 +556,6 @@ export default function TicketsView({
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
-  const [proofDraft, setProofDraft] = useState<Record<string, string>>({});
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const [formTitle, setFormTitle] = useState('');
@@ -126,10 +589,7 @@ export default function TicketsView({
 
   useEffect(() => {
     if (!email) return;
-    const qMine = query(
-      collection(db, 'tickets'),
-      where('assigneeEmail', '==', email)
-    );
+    const qMine = query(collection(db, 'tickets'), where('assigneeEmail', '==', email));
     const unsub = onSnapshot(
       qMine,
       (snap) => {
@@ -149,10 +609,7 @@ export default function TicketsView({
 
   useEffect(() => {
     if (!canCreate || !userUid) return;
-    const qCreated = query(
-      collection(db, 'tickets'),
-      where('createdByUid', '==', userUid)
-    );
+    const qCreated = query(collection(db, 'tickets'), where('createdByUid', '==', userUid));
     const unsub = onSnapshot(
       qCreated,
       (snap) => {
@@ -182,8 +639,7 @@ export default function TicketsView({
   useEffect(() => {
     if (!canCreate && !isAdmin) return;
     const unsub = onSnapshot(collection(db, 'authorized_emails'), (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AuthorizedEmail));
-      setAssignees(rows);
+      setAssignees(snap.docs.map((d) => ({ id: d.id, ...d.data() } as AuthorizedEmail)));
     });
     return () => unsub();
   }, [canCreate, isAdmin]);
@@ -391,36 +847,6 @@ export default function TicketsView({
     }
   };
 
-  const setStatus = async (ticket: Ticket, status: TicketStatus, proofUrl?: string | null) => {
-    if (!ticket.id) return;
-    setSaving(true);
-    try {
-      const now = new Date().toISOString();
-      const patch: Partial<Ticket> = {
-        status,
-        updatedAt: now,
-        ...(status === 'done'
-          ? { doneAt: now, proofUrl: proofUrl ?? ticket.proofUrl ?? null }
-          : { doneAt: null }),
-      };
-      await updateDoc(doc(db, 'tickets', ticket.id), patch);
-      onAlert(
-        status === 'done' ? 'Ticket clos' : status === 'doing' ? 'Ticket en cours' : 'Ticket rouvert',
-        'success'
-      );
-    } catch (err) {
-      console.error(err);
-      onAlert('Mise à jour refusée (droits ou connexion)', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const isMine = (t: Ticket) => t.assigneeEmail === email;
-  const canEditContent = (t: Ticket) => t.createdByUid === userUid || isAdmin;
-  const canManage = (t: Ticket) =>
-    isMine(t) || t.createdByUid === userUid || isAdmin;
-
   const showPreviewUrl =
     formImagePreview || (!formRemoveExistingImage ? formExistingImageUrl : null);
 
@@ -529,115 +955,19 @@ export default function TicketsView({
         ) : (
           <div className="max-w-3xl mx-auto space-y-3">
             {list.map((t) => (
-              <article
+              <TicketCard
                 key={t.id}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5 space-y-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-gray-900 leading-snug">{t.title}</h3>
-                    <p className="text-[10px] text-gray-400 font-mono mt-1">
-                      → {t.assigneeDisplayName || t.assigneeEmail}
-                      {t.dueDate ? ` · échéance ${t.dueDate}` : ''}
-                      {t.site ? ` · ${t.site}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {canEditContent(t) && (
-                      <button
-                        type="button"
-                        title="Modifier"
-                        onClick={() => openEdit(t)}
-                        className="p-2 rounded-xl bg-gray-50 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 border border-gray-100 touch-manipulation"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    )}
-                    <span
-                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${statusClass(
-                        t.status
-                      )}`}
-                    >
-                      {statusLabel(t.status)}
-                    </span>
-                  </div>
-                </div>
-
-                {t.description ? (
-                  <p className="text-xs text-gray-600 whitespace-pre-wrap">{t.description}</p>
-                ) : null}
-
-                {t.attachmentUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setLightboxUrl(t.attachmentUrl!)}
-                    className="block w-full max-w-sm overflow-hidden rounded-xl border border-gray-100 bg-gray-50 touch-manipulation"
-                  >
-                    <img
-                      src={t.attachmentUrl}
-                      alt="Pièce jointe du ticket"
-                      className="w-full max-h-56 object-cover"
-                    />
-                  </button>
-                ) : null}
-
-                {t.proofUrl ? (
-                  <p className="text-[11px] text-emerald-700 break-all">
-                    Preuve : {t.proofUrl}
-                  </p>
-                ) : null}
-
-                {canManage(t) && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {t.status === 'open' && isMine(t) && (
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => setStatus(t, 'doing')}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
-                      >
-                        <Play size={12} /> En cours
-                      </button>
-                    )}
-                    {(t.status === 'open' || t.status === 'doing') && isMine(t) && (
-                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                        <input
-                          type="text"
-                          placeholder="Preuve (lien WhatsApp…)"
-                          value={proofDraft[t.id!] || ''}
-                          onChange={(e) =>
-                            setProofDraft((prev) => ({ ...prev, [t.id!]: e.target.value }))
-                          }
-                          className="flex-1 min-w-[160px] text-xs border border-gray-200 rounded-xl px-3 py-2 bg-gray-50"
-                        />
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => setStatus(t, 'done', proofDraft[t.id!] || null)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
-                        >
-                          <CheckCircle2 size={12} /> Clôturer
-                        </button>
-                      </div>
-                    )}
-                    {t.status === 'done' && (isMine(t) || isAdmin || t.createdByUid === userUid) && (
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => setStatus(t, 'open')}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-widest touch-manipulation disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} /> Rouvrir
-                      </button>
-                    )}
-                    {!isMine(t) && t.status !== 'done' && (
-                      <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                        <Circle size={10} /> En attente de l’assigné
-                      </span>
-                    )}
-                  </div>
-                )}
-              </article>
+                ticket={t}
+                email={email}
+                userUid={userUid}
+                userProfile={userProfile}
+                isAdmin={isAdmin}
+                saving={saving}
+                onAlert={onAlert}
+                onEdit={openEdit}
+                onLightbox={setLightboxUrl}
+                setSaving={setSaving}
+              />
             ))}
           </div>
         )}
@@ -686,7 +1016,7 @@ export default function TicketsView({
                     onChange={(e) => setFormDescription(e.target.value)}
                     rows={4}
                     className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50"
-                    placeholder="Décrivez le besoin (y compris critères de fin si utile)…"
+                    placeholder="Décrivez le besoin…"
                   />
                 </div>
                 <div>

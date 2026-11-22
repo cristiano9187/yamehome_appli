@@ -208,6 +208,22 @@ export interface AuthorizedEmail {
 /** Ticket interne YameHome (suivi tâches employés). */
 export type TicketStatus = 'open' | 'doing' | 'done';
 
+export type TicketCommentKind = 'update' | 'close';
+
+/** Commentaire / update sur un ticket (`tickets/{id}/comments`). */
+export interface TicketComment {
+  id?: string;
+  body: string;
+  kind: TicketCommentKind;
+  authorUid: string;
+  authorEmail: string;
+  authorName: string;
+  createdAt: string;
+  /** Image optionnelle (update ou preuve de clôture) */
+  attachmentUrl?: string | null;
+  attachmentStoragePath?: string | null;
+}
+
 export interface Ticket {
   id?: string;
   title: string;
@@ -224,10 +240,10 @@ export interface Ticket {
   /** Date limite ISO date `YYYY-MM-DD` (optionnel) */
   dueDate?: string | null;
   site?: string | null;
-  /** Image jointe (ex. photo du besoin) — URL Storage */
+  /** Image jointe à la création (ex. photo du besoin) — URL Storage */
   attachmentUrl?: string | null;
   attachmentStoragePath?: string | null;
-  /** Preuve de done (lien WhatsApp, URL, note…) */
+  /** @deprecated Ancienne preuve lien — remplacée par commentaire kind=close + PJ */
   proofUrl?: string | null;
   createdAt: string;
   updatedAt: string;

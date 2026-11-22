@@ -1064,6 +1064,30 @@ service cloud.firestore {
       allow delete: if canAccessFinance() && (isAdmin() || resource.data.authorUid == request.auth.uid);
     }
 
+    function ticketParentData(ticketId) {
+      return get(/databases/$(database)/documents/tickets/$(ticketId)).data;
+    }
+
+    function canAccessTicketThread(ticketId) {
+      return isAdmin() ||
+        ticketParentData(ticketId).createdByUid == request.auth.uid ||
+        ticketParentData(ticketId).assigneeEmail == request.auth.token.email ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == ticketParentData(ticketId).assigneeEmail);
+    }
+
+    function isValidTicketComment(data) {
+      return data.keys().hasAll(['body', 'kind', 'authorUid', 'authorEmail', 'authorName', 'createdAt']) &&
+        data.body is string && data.body.size() > 0 && data.body.size() <= 4000 &&
+        data.kind in ['update', 'close'] &&
+        data.authorUid is string && data.authorUid == request.auth.uid &&
+        data.authorEmail is string &&
+        data.authorName is string &&
+        data.createdAt is string &&
+        (!('attachmentUrl' in data) || data.attachmentUrl == null || data.attachmentUrl is string) &&
+        (!('attachmentStoragePath' in data) || data.attachmentStoragePath == null || data.attachmentStoragePath is string);
+    }
+
     /** Tickets internes (suivi tâches employés). */
     match /tickets/{ticketId} {
       allow read: if isAgent() && canReadTicket();
@@ -1077,6 +1101,13 @@ service cloud.firestore {
         request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isAdmin() ||
         (isAgent() && resource.data.createdByUid == request.auth.uid);
+
+      match /comments/{commentId} {
+        allow read: if isAgent() && canAccessTicketThread(ticketId);
+        allow create: if isAgent() && canAccessTicketThread(ticketId) &&
+          isValidTicketComment(request.resource.data);
+        allow update, delete: if false;
+      }
     }
 
     // Default deny
