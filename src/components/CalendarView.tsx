@@ -1522,7 +1522,7 @@ export default function CalendarView({
               </div>
               {groupedUnits.map((group) => (
                 <React.Fragment key={`m-${group.site}`}>
-                  <div className="px-2 py-1 bg-gray-50 text-[9px] font-black uppercase tracking-[0.16em] text-gray-400 border-b border-gray-100">
+                  <div className={`px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white border-b border-white/10 ${group.color}`}>
                     {group.site}
                   </div>
                   {group.units.map((unit) => (
@@ -1533,11 +1533,17 @@ export default function CalendarView({
                       <button
                         type="button"
                         onClick={() => setExpandedUnitSlug(expandedUnitSlug === unit.slug ? null : unit.slug)}
-                        className="px-2 py-2 text-left min-w-0 touch-manipulation"
+                        className="px-1.5 py-2 text-left min-w-0 touch-manipulation flex items-stretch gap-1"
+                        title={unit.category}
+                        aria-label={`Détail logement ${unit.shortName}`}
                       >
-                        <p className="text-[10px] font-black uppercase tracking-tight text-gray-900 truncate leading-tight">
-                          {unit.shortName}
-                        </p>
+                        <span className={`w-1 shrink-0 rounded-full ${group.color}`} aria-hidden />
+                        <span className="min-w-0 flex items-center gap-0.5">
+                          <span className="text-[10px] font-black uppercase tracking-tight text-gray-900 truncate leading-tight">
+                            {unit.shortName}
+                          </span>
+                          <Info size={11} className="shrink-0 text-gray-400" aria-hidden />
+                        </span>
                       </button>
                       {mobileWeekDays.map((date) => {
                         const dateStr = getLocalDateString(date);
@@ -1597,7 +1603,9 @@ export default function CalendarView({
               if (visibleUnits.length === 0) return null;
               return (
               <div key={group.site} className="space-y-2">
-                <p className="px-1 text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">{group.site}</p>
+                <p className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-[0.18em] text-white ${group.color}`}>
+                  {group.site}
+                </p>
                 {visibleUnits.map((unit) => {
                   const booking = getBookingForUnitAndDay(unit.slug, mobileDay);
                   const cleaningBooking =
@@ -1639,8 +1647,9 @@ export default function CalendarView({
                           onOpenCleaning(cleaningBooking?.receiptId || 'MANUAL', unit.slug, mobileDayStr);
                         }
                       }}
-                      className="w-full text-left bg-white border border-gray-100 rounded-2xl p-3.5 shadow-sm touch-manipulation active:scale-[0.99] transition-transform"
+                      className="relative w-full text-left bg-white border border-gray-100 rounded-2xl p-3.5 pl-4 shadow-sm touch-manipulation active:scale-[0.99] transition-transform overflow-hidden"
                     >
+                      <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${group.color}`} aria-hidden />
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2 min-w-0">
                           <span
@@ -1655,12 +1664,17 @@ export default function CalendarView({
                             }`}
                           />
                           <div className="min-w-0">
-                            <p className="text-sm font-black uppercase tracking-tight text-gray-900 truncate">
+                            <p className="text-sm font-black uppercase tracking-tight text-gray-900 leading-snug">
                               {unit.shortName}
                             </p>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">
-                              {unit.slug}
+                            <p className="text-[11px] font-semibold text-gray-600 leading-snug mt-0.5">
+                              {unit.category}
                             </p>
+                            {doorNumberForUnitSlug(unit.slug) && (
+                              <p className="text-[10px] font-bold text-[#2B4B8C] mt-0.5">
+                                Porte {doorNumberForUnitSlug(unit.slug)}
+                              </p>
+                            )}
                           </div>
                         </div>
                         {viewMode === 'reservations' && blockedDate && (
@@ -1978,6 +1992,73 @@ export default function CalendarView({
           </>
         )}
       </div>
+
+      {/* Mobile: full unit name sheet (better than desktop hover bubble on touch) */}
+      <AnimatePresence>
+        {expandedUnitSlug && (() => {
+          const unit = allUnits.find((u) => u.slug === expandedUnitSlug);
+          if (!unit) return null;
+          return (
+            <div className="md:hidden fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+              <button
+                type="button"
+                className="absolute inset-0 cursor-default"
+                aria-label="Fermer"
+                onClick={() => setExpandedUnitSlug(null)}
+              />
+              <motion.div
+                initial={{ y: 40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 40, opacity: 0 }}
+                className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden"
+              >
+                <div className={`h-2 ${unit.color}`} />
+                <div className="p-5 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest text-white ${unit.color}`}>
+                        {unit.site}
+                      </p>
+                      <h3 className="mt-2 text-lg font-black uppercase tracking-tight text-gray-900 leading-snug">
+                        {unit.shortName}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedUnitSlug(null)}
+                      className="p-2 rounded-full hover:bg-gray-100 touch-manipulation"
+                      aria-label="Fermer"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  {doorNumberForUnitSlug(unit.slug) && (
+                    <p className="text-sm font-bold text-[#2B4B8C]">
+                      Porte {doorNumberForUnitSlug(unit.slug)}
+                    </p>
+                  )}
+                  <div className="rounded-2xl bg-gray-50 border border-gray-100 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                      Nom complet
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 leading-snug">
+                      {unit.category}
+                    </p>
+                  </div>
+                  <p className="text-[10px] font-mono text-gray-400 break-all">{unit.slug}</p>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedUnitSlug(null)}
+                    className="w-full py-3 rounded-2xl bg-[#2B4B8C] text-white text-xs font-black uppercase tracking-widest touch-manipulation"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
 
       {/* Booking Sidebar */}
       <AnimatePresence>
