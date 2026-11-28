@@ -1510,25 +1510,21 @@ export default function CalendarView({
               </div>
             </div>
 
-            {/* Compact week matrix — same mental model as desktop grid */}
+            {/* Compact week matrix — days are chosen in the strip above (no duplicate header) */}
             <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-              <div className="grid grid-cols-[minmax(4.5rem,30%)_repeat(7,1fr)] border-b border-gray-100 bg-zinc-900 text-white">
-                <div className="px-2 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400">Logement</div>
+              <div className="grid grid-cols-[minmax(4.5rem,30%)_repeat(7,1fr)] border-b border-gray-100 bg-zinc-900">
+                <div className="px-2 py-1.5 text-[9px] font-black uppercase tracking-widest text-gray-400">
+                  Logement
+                </div>
                 {mobileWeekDays.map((date) => {
                   const dateStr = getLocalDateString(date);
                   const selected = dateStr === mobileDayStr;
                   return (
-                    <button
+                    <div
                       key={`h-${dateStr}`}
-                      type="button"
-                      onClick={() => setMobileDay(date)}
-                      className={`py-2 text-center touch-manipulation ${selected ? 'bg-[#2B4B8C]' : ''}`}
-                    >
-                      <div className="text-[9px] font-black uppercase opacity-70">
-                        {date.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
-                      </div>
-                      <div className="text-[10px] font-black">{date.getDate()}</div>
-                    </button>
+                      className={`py-1.5 ${selected ? 'bg-[#2B4B8C]/40' : ''}`}
+                      aria-hidden
+                    />
                   );
                 })}
               </div>
