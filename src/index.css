@@ -1,5 +1,47 @@
 @import "tailwindcss";
 
+:root {
+  --yh-brand: #2B4B8C;
+  --yh-brand-soft: rgba(43, 75, 140, 0.12);
+  --yh-bg: #F5F5F4;
+  --yh-ink: #141414;
+  --yh-scrim: rgba(20, 20, 20, 0.45);
+}
+
+.yh-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  background: var(--yh-scrim);
+}
+
+.yh-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 400;
+  transform: translateX(-50%);
+  max-width: min(28rem, calc(100vw - 2rem));
+  padding: 0.875rem 1.25rem;
+  border-radius: 1rem;
+  background: var(--yh-ink);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.yh-toast--success {
+  background: #166534;
+}
+
+.yh-toast--error {
+  background: #991b1b;
+}
+
 /* DateRangePicker Custom Styles */
 .rdp-custom {
   --rdp-cell-size: 40px;

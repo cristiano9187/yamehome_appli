@@ -95,6 +95,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   ChevronRight,
+  ChevronDown,
   Menu,
   Shield,
   Users,
@@ -289,6 +290,15 @@ export default function App() {
   const [agentPaymentReferenceInput, setAgentPaymentReferenceInput] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  const [formSectionsOpen, setFormSectionsOpen] = useState({
+    client: true,
+    stay: true,
+    pricing: false,
+    payments: true,
+    options: false,
+    hosts: false,
+    notes: false,
+  });
   
   useEffect(() => {
     if (window.innerWidth < 768 && (urlParams.has('id') || urlParams.has('menageId'))) {
@@ -299,6 +309,43 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [alertType, setAlertType] = useState<'info' | 'error' | 'success'>('info');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'info'>('success');
+
+  useEffect(() => {
+    if (!alertMessage || alertType !== 'success') return;
+    setToastMessage(alertMessage);
+    setToastType('success');
+    setAlertMessage(null);
+  }, [alertMessage, alertType]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
+  useEffect(() => {
+    if (view !== 'form') return;
+    const hasAdvancedPricing = formData.isCustomRate || formData.isNegotiatedRate;
+    const hasOptions =
+      formData.electricityCharge ||
+      formData.packEco ||
+      formData.packConfort ||
+      !!formData.includeLateDeparture;
+    const hasHosts = (formData.hosts || []).length > 0 || !!formData.agentName || !!formData.signature;
+    const hasNotes = !!(formData.observations || formData.internalNotes);
+    setFormSectionsOpen((prev) => ({
+      ...prev,
+      client: true,
+      stay: true,
+      payments: true,
+      pricing: prev.pricing || hasAdvancedPricing,
+      options: prev.options || hasOptions,
+      hosts: prev.hosts || hasHosts,
+      notes: prev.notes || hasNotes,
+    }));
+  }, [view, formData.receiptId]);
   const [cleaningSubmitHint, setCleaningSubmitHint] = useState<string | null>(null);
   
   const [isCleaningMode, setIsCleaningMode] = useState(urlParams.has('menageId'));
@@ -2047,19 +2094,19 @@ export default function App() {
   // --- RENDER LOGIN ---
   if (!user && isAuthReady) {
     return (
-      <div className="min-h-screen bg-[#141414] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#F5F5F4] flex items-center justify-center p-4 sm:p-6">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-12 rounded-3xl shadow-2xl w-full max-w-md text-center"
+          className="bg-white p-8 sm:p-10 rounded-3xl shadow-xl border border-gray-100 w-full max-w-md text-center"
         >
           <div className="mb-8">
-            <h1 className="text-5xl font-black text-[#141414] italic tracking-tighter uppercase mb-2">YameHome</h1>
-            <p className="text-xs font-mono text-gray-400 uppercase tracking-widest">Property Management Portal</p>
+            <h1 className="text-4xl sm:text-5xl font-black text-[#2B4B8C] italic tracking-tighter uppercase mb-2">YameHome</h1>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Property Management</p>
           </div>
           <button 
             onClick={handleLogin} 
-            className="w-full bg-[#141414] text-white font-black py-5 rounded-2xl uppercase tracking-widest transition-all hover:bg-gray-800 flex items-center justify-center gap-3 shadow-xl"
+            className="w-full bg-[#2B4B8C] text-white font-black py-4 sm:py-5 rounded-2xl uppercase tracking-widest transition-all hover:bg-[#243f75] flex items-center justify-center gap-3 shadow-lg shadow-[#2B4B8C]/25"
           >
             <UserIcon size={18} />
             Se connecter avec Google
@@ -2074,16 +2121,16 @@ export default function App() {
 
   if (user && !isMainAdmin && (!userProfile || !userProfile.isApproved)) {
     return (
-      <div className="min-h-screen bg-[#141414] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#F5F5F4] flex items-center justify-center p-4 sm:p-6">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-12 rounded-3xl shadow-2xl w-full max-w-md text-center"
+          className="bg-white p-8 sm:p-10 rounded-3xl shadow-xl border border-gray-100 w-full max-w-md text-center"
         >
-          <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-8">
-            <Lock size={40} />
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6 sm:mb-8">
+            <Lock size={36} />
           </div>
-          <h2 className="text-2xl font-black text-[#141414] uppercase tracking-tighter mb-4">Accès Refusé</h2>
+          <h2 className="text-xl sm:text-2xl font-black text-[#141414] uppercase tracking-tighter mb-4">Accès Refusé</h2>
           <p className="text-sm text-gray-500 mb-8 leading-relaxed">
             Votre email <span className="font-bold text-gray-900">{user.email}</span> n'est pas autorisé à accéder à cette application.
             Veuillez contacter l'administrateur pour obtenir l'accès.
@@ -2102,8 +2149,8 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-[#141414] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-[#F5F5F4] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-[#2B4B8C] border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -2497,6 +2544,21 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Mobile sidebar scrim */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.button
+            type="button"
+            aria-label="Fermer le menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="yh-scrim md:hidden print:hidden border-0 cursor-pointer"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -2509,10 +2571,12 @@ export default function App() {
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <div className="flex flex-col leading-tight">
-                <h1 className="text-2xl font-black italic tracking-tighter">YameHome</h1>
-                <span className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">Property Management</span>
+                <h1 className="text-2xl font-black italic tracking-tighter text-[#2B4B8C]">YameHome</h1>
+                <span className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">
+                  {view === 'form' ? 'Édition reçu' : 'Property Management'}
+                </span>
               </div>
-              <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={20}/></button>
+              <button type="button" onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 -mr-2 rounded-xl hover:bg-gray-100" aria-label="Fermer le menu"><X size={20}/></button>
             </div>
 
             <div className="px-6 py-4 border-b border-gray-100 space-y-2">
@@ -2523,11 +2587,11 @@ export default function App() {
                   activeView={view}
                 />
 
-                {/* Toggle nav when in form view — visible on all screens */}
                 {view === 'form' && (
                   <button 
+                    type="button"
                     onClick={() => setShowMobileNav(!showMobileNav)}
-                    className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-all"
+                    className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-[#2B4B8C] transition-all"
                   >
                     <span>{showMobileNav ? '↑ Masquer le menu' : '↓ Autres vues'}</span>
                     <ChevronRight size={14} className={`transition-transform ${showMobileNav ? 'rotate-90' : ''}`} />
@@ -2535,182 +2599,108 @@ export default function App() {
                 )}
               </div>
               
-              {/* Nav items hidden when in form edit mode — shown on all screens only if toggled */}
-              <div className={`${(view === 'form' && !showMobileNav) ? 'hidden' : 'block'} space-y-2`}>
-                <button 
-                  onClick={() => {
-                    setView('history');
+              <div className={`${(view === 'form' && !showMobileNav) ? 'hidden' : 'block'} space-y-3 max-h-[42vh] overflow-y-auto pr-1`}>
+                {(() => {
+                  const go = (next: typeof view, extra?: () => void) => {
+                    extra?.();
+                    setView(next);
                     setShowMobileNav(false);
                     if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <History size={16} className={view === 'history' ? '' : 'text-indigo-500'} />
-                  Historique
-                </button>
-                <button
-                  onClick={() => {
-                    setView('clients');
-                    setClientProfileSeed(null);
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'clients' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <BookUser size={16} className={view === 'clients' ? '' : 'text-pink-500'} />
-                  Clients
-                </button>
-                <button
-                  onClick={() => {
-                    setView('proInvoices');
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'proInvoices' ? 'bg-[#2B4B8C] text-white shadow-lg shadow-[#2B4B8C]/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <ScrollText size={16} className={view === 'proInvoices' ? '' : 'text-sky-600'} />
-                  Factures société
-                </button>
-                <button 
-                  onClick={() => {
-                    setView('calendar');
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <CalendarIcon size={16} className={view === 'calendar' ? '' : 'text-teal-600'} />
-                  Calendrier
-                </button>
-                <button
-                  onClick={() => {
-                    setView('prospects');
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prospects' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <Search size={16} className={view === 'prospects' ? '' : 'text-violet-600'} />
-                  Prospects
-                </button>
-                <button
-                  onClick={() => {
-                    setView('prepaidTokens');
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'prepaidTokens' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <Zap size={16} className={view === 'prepaidTokens' ? '' : 'text-amber-600'} />
-                  Prépayé (kWh)
-                </button>
-                <button
-                  onClick={() => {
-                    setView('technicians');
-                    setShowMobileNav(false);
-                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'technicians' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <BookUser size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
-                  Annuaire
-                </button>
-                {canSeeObligationsRail(userProfile) && (
-                  <button
-                    onClick={() => {
-                      setView('echeances');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'echeances' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <CalendarClock size={16} className={view === 'echeances' ? '' : 'text-orange-600'} />
-                    Échéances
-                  </button>
-                )}
-                {canSeeTickets(userProfile) && (
-                  <button
-                    onClick={() => {
-                      setView('tickets');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'tickets' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <ClipboardList size={16} className={view === 'tickets' ? '' : 'text-indigo-600'} />
-                    <span className="flex-1 text-left">Tickets</span>
-                    {myOpenTicketCount > 0 && (
-                      <span className={`min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-black flex items-center justify-center ${view === 'tickets' ? 'bg-white text-indigo-700' : 'bg-indigo-600 text-white'}`}>
-                        {myOpenTicketCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {canUseKeybox(userProfile) && (
-                  <button
-                    onClick={() => {
-                      setView('keybox');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'keybox' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <KeyRound size={16} className={view === 'keybox' ? '' : 'text-amber-600'} />
-                    Codes keybox
-                  </button>
-                )}
-                {canAccessCaisse(userProfile, isMainAdminEmail) && (
-                  <button
-                    onClick={() => {
-                      setView('caisse');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'caisse' ? 'bg-violet-700 text-white shadow-lg shadow-violet-900/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <Landmark size={16} className={view === 'caisse' ? '' : 'text-violet-600'} />
-                    Caisse
-                  </button>
-                )}
-                {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
-                  <button
-                    onClick={() => {
-                      setView('costs');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'costs' ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-900/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <Wallet size={16} className={view === 'costs' ? '' : 'text-emerald-600'} />
-                    Coûts & marges
-                  </button>
-                )}
-                {(userProfile?.role === 'admin' || isMainAdmin) && (
-                  <button 
-                    onClick={() => {
-                      setView('users');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <Users size={16} className={view === 'users' ? '' : 'text-cyan-600'} />
-                    Utilisateurs
-                  </button>
-                )}
-                {isMainAdmin && (
-                  <button
-                    onClick={() => {
-                      setView('maintenance');
-                      setShowMobileNav(false);
-                      if (window.innerWidth < 768) setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'maintenance' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <Shield size={16} className={view === 'maintenance' ? '' : 'text-orange-600'} />
-                    Maintenance
-                  </button>
-                )}
+                  };
+                  const navBtn = (active: boolean) =>
+                    `w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all touch-manipulation ${
+                      active
+                        ? 'bg-[#2B4B8C] text-white shadow-lg shadow-[#2B4B8C]/20'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`;
+                  const sectionLabel = (label: string) => (
+                    <p className="px-2 pt-1 text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">{label}</p>
+                  );
+                  return (
+                    <>
+                      {sectionLabel('Ops')}
+                      <button type="button" onClick={() => go('calendar')} className={navBtn(view === 'calendar')}>
+                        <CalendarIcon size={16} className={view === 'calendar' ? '' : 'text-teal-600'} />
+                        Calendrier
+                      </button>
+                      <button type="button" onClick={() => go('history')} className={navBtn(view === 'history')}>
+                        <History size={16} className={view === 'history' ? '' : 'text-indigo-500'} />
+                        Historique
+                      </button>
+                      <button type="button" onClick={() => go('clients', () => setClientProfileSeed(null))} className={navBtn(view === 'clients')}>
+                        <BookUser size={16} className={view === 'clients' ? '' : 'text-pink-500'} />
+                        Clients
+                      </button>
+                      <button type="button" onClick={() => go('prospects')} className={navBtn(view === 'prospects')}>
+                        <Search size={16} className={view === 'prospects' ? '' : 'text-violet-600'} />
+                        Prospects
+                      </button>
+                      <button type="button" onClick={() => go('technicians')} className={navBtn(view === 'technicians')}>
+                        <BookUser size={16} className={view === 'technicians' ? '' : 'text-orange-600'} />
+                        Annuaire
+                      </button>
+                      {canSeeTickets(userProfile) && (
+                        <button type="button" onClick={() => go('tickets')} className={navBtn(view === 'tickets')}>
+                          <ClipboardList size={16} className={view === 'tickets' ? '' : 'text-indigo-600'} />
+                          <span className="flex-1 text-left">Tickets</span>
+                          {myOpenTicketCount > 0 && (
+                            <span className={`min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-black flex items-center justify-center ${view === 'tickets' ? 'bg-white text-[#2B4B8C]' : 'bg-[#2B4B8C] text-white'}`}>
+                              {myOpenTicketCount}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {canUseKeybox(userProfile) && (
+                        <button type="button" onClick={() => go('keybox')} className={navBtn(view === 'keybox')}>
+                          <KeyRound size={16} className={view === 'keybox' ? '' : 'text-amber-600'} />
+                          Codes keybox
+                        </button>
+                      )}
+
+                      {sectionLabel('Finance')}
+                      <button type="button" onClick={() => go('proInvoices')} className={navBtn(view === 'proInvoices')}>
+                        <ScrollText size={16} className={view === 'proInvoices' ? '' : 'text-sky-600'} />
+                        Factures société
+                      </button>
+                      <button type="button" onClick={() => go('prepaidTokens')} className={navBtn(view === 'prepaidTokens')}>
+                        <Zap size={16} className={view === 'prepaidTokens' ? '' : 'text-amber-600'} />
+                        Prépayé (kWh)
+                      </button>
+                      {canSeeObligationsRail(userProfile) && (
+                        <button type="button" onClick={() => go('echeances')} className={navBtn(view === 'echeances')}>
+                          <CalendarClock size={16} className={view === 'echeances' ? '' : 'text-orange-600'} />
+                          Échéances
+                        </button>
+                      )}
+                      {canAccessCaisse(userProfile, isMainAdminEmail) && (
+                        <button type="button" onClick={() => go('caisse')} className={navBtn(view === 'caisse')}>
+                          <Landmark size={16} className={view === 'caisse' ? '' : 'text-violet-600'} />
+                          Caisse
+                        </button>
+                      )}
+                      {canSeeCostsMenu(userProfile, isMainAdminEmail) && (
+                        <button type="button" onClick={() => go('costs')} className={navBtn(view === 'costs')}>
+                          <Wallet size={16} className={view === 'costs' ? '' : 'text-emerald-600'} />
+                          Coûts & marges
+                        </button>
+                      )}
+
+                      {((userProfile?.role === 'admin' || isMainAdmin) || isMainAdmin) && sectionLabel('Admin')}
+                      {(userProfile?.role === 'admin' || isMainAdmin) && (
+                        <button type="button" onClick={() => go('users')} className={navBtn(view === 'users')}>
+                          <Users size={16} className={view === 'users' ? '' : 'text-cyan-600'} />
+                          Utilisateurs
+                        </button>
+                      )}
+                      {isMainAdmin && (
+                        <button type="button" onClick={() => go('maintenance')} className={navBtn(view === 'maintenance')}>
+                          <Shield size={16} className={view === 'maintenance' ? '' : 'text-orange-600'} />
+                          Maintenance
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2734,14 +2724,20 @@ export default function App() {
               />
 
               {/* Form */}
-              <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+              <form className={`space-y-4 ${view === 'form' && !isReadOnly ? 'pb-28 md:pb-4' : ''}`} onSubmit={(e) => e.preventDefault()}>
 
                 {/* ── SECTION CLIENT ── */}
                 <div className="rounded-2xl border border-blue-100 bg-blue-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-600">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, client: !s.client }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-left"
+                  >
                     <UserIcon size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Client</span>
-                  </div>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Client</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.client ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.client && (
                   <div className="p-4 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <input disabled={isReadOnly} type="text" name="firstName" value={formData.firstName} placeholder="Prénom" className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 transition-all disabled:opacity-60" onChange={handleChange} />
@@ -2772,15 +2768,22 @@ export default function App() {
                       </button>
                     )}
                   </div>
+                  )}
                 </div>
 
                 {/* ── SECTION LOGEMENT + DATES ── */}
                 {/* Pas de overflow-hidden ici : le popup DateRangePicker est positionné en absolu et serait sinon coupé */}
                 <div className="rounded-2xl border border-violet-100 bg-violet-50/60">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 rounded-t-[15px]">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, stay: !s.stay }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-violet-600 rounded-t-[15px] text-left"
+                  >
                     <Home size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Logement &amp; Dates de séjour</span>
-                  </div>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Logement &amp; Dates de séjour</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.stay ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.stay && (
                   <div className="p-4 space-y-3">
                     {!isReadOnly && (
                       <div className="flex flex-col gap-2 rounded-xl border border-violet-200/80 bg-white/80 p-3">
@@ -2942,14 +2945,21 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
 
                 {/* ── SECTION TARIFICATION ── */}
                 <div className="rounded-2xl border border-amber-100 bg-amber-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, pricing: !s.pricing }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-left"
+                  >
                     <FileText size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Tarification</span>
-                  </div>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Tarification</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.pricing ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.pricing && (
                   <div className="p-4 space-y-3">
                     <div className="flex gap-4">
                       <label className="flex items-center text-[10px] font-bold uppercase cursor-pointer select-none text-amber-800">
@@ -2970,15 +2980,21 @@ export default function App() {
                       </p>
                     )}
                   </div>
+                  )}
                 </div>
 
                 {/* ── SECTION VERSEMENTS ── */}
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-600">
-                    <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormSectionsOpen((s) => ({ ...s, payments: !s.payments }))}
+                      className="flex items-center gap-2 text-left flex-1 min-w-0"
+                    >
                       <CheckCircle2 size={13} className="text-white" />
                       <span className="text-[10px] font-black uppercase tracking-widest text-white">Versements</span>
-                    </div>
+                      <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.payments ? 'rotate-180' : ''}`} />
+                    </button>
                     {!isReadOnly && (
                       <button type="button"
                         onClick={() => setFormData(prev => ({...prev, payments: [...prev.payments, { id: Date.now().toString(), date: getLocalDateString(), amount: 0, method: 'Espèces' }]}))}
@@ -2987,6 +3003,7 @@ export default function App() {
                       </button>
                     )}
                   </div>
+                  {formSectionsOpen.payments && (
                   <div className="p-4 space-y-3">
                     {formData.payments.map((p) => (
                       <div key={p.id} className="bg-white p-3 rounded-xl border border-emerald-200 shadow-sm space-y-2">
@@ -3039,14 +3056,21 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                  )}
                 </div>
 
                 {/* ── SECTION OPTIONS ── */}
                 <div className="rounded-2xl border border-teal-100 bg-teal-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-teal-600">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, options: !s.options }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-left"
+                  >
                     <ClipboardCheck size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Options &amp; Services</span>
-                  </div>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Options &amp; Services</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.options ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.options && (
                   <div className="p-4 space-y-2">
                     <div className="flex flex-wrap gap-3">
                       <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none text-teal-800 bg-white border border-teal-200 px-3 py-2 rounded-xl">
@@ -3067,14 +3091,21 @@ export default function App() {
                       </label>
                     </div>
                   </div>
+                  )}
                 </div>
 
                 {/* ── SECTION HÔTES + AGENT + SIGNATURE ── */}
                 <div className="rounded-2xl border border-orange-100 bg-orange-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-orange-500">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, hosts: !s.hosts }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-left"
+                  >
                     <Users size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Hôtes &amp; Agent</span>
-                  </div>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Hôtes &amp; Agent</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.hosts ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.hosts && (
                   <div className="p-4 space-y-4">
 
                     {/* Contacts Utiles */}
@@ -3169,83 +3200,92 @@ export default function App() {
                       <input disabled={isReadOnly} type="text" name="signature" value={formData.signature} placeholder="Signature (Nom)" className="w-full bg-white border border-orange-200 rounded-xl p-3 text-xs outline-none focus:border-orange-400 transition-all disabled:opacity-60" onChange={handleChange} />
                     </div>
                   </div>
+                  )}
                 </div>
 
-                {/* ── SECTION OBSERVATIONS ── */}
+                {/* ── SECTION NOTES ── */}
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-500">
+                  <button
+                    type="button"
+                    onClick={() => setFormSectionsOpen((s) => ({ ...s, notes: !s.notes }))}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-slate-500 text-left"
+                  >
                     <Info size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Observations</span>
+                    <span className="flex-1 text-[10px] font-black uppercase tracking-widest text-white">Notes &amp; observations</span>
+                    <ChevronDown size={14} className={`text-white/90 transition-transform ${formSectionsOpen.notes ? 'rotate-180' : ''}`} />
+                  </button>
+                  {formSectionsOpen.notes && (
+                  <div className="p-4 space-y-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">Observations (reçues)</p>
+                      <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={3} placeholder="Observations particulières, notes spéciales..." className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-slate-400 transition-all disabled:opacity-60 resize-none" onChange={handleChange}></textarea>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Lock size={12} className="text-amber-600" />
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Notes internes</p>
+                        <span className="ml-auto text-[9px] font-bold text-amber-500 uppercase tracking-widest">Non imprimé</span>
+                      </div>
+                      <textarea
+                        disabled={isReadOnly}
+                        name="internalNotes"
+                        value={formData.internalNotes || ''}
+                        rows={3}
+                        placeholder="Remarques internes, instructions d'équipe, contexte confidentiel… (jamais visible sur le PDF client)"
+                        className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs outline-none focus:border-amber-400 transition-all disabled:opacity-60 resize-none"
+                        onChange={handleChange}
+                      />
+                    </div>
                   </div>
-                  <div className="p-4">
-                    <textarea disabled={isReadOnly} name="observations" value={formData.observations} rows={3} placeholder="Observations particulières, notes spéciales..." className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-slate-400 transition-all disabled:opacity-60 resize-none" onChange={handleChange}></textarea>
-                  </div>
-                </div>
-
-                {/* ── SECTION NOTES INTERNES ── */}
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500">
-                    <Lock size={13} className="text-white" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">Notes internes</span>
-                    <span className="ml-auto text-[9px] font-bold text-amber-100 uppercase tracking-widest">Non imprimé sur le reçu</span>
-                  </div>
-                  <div className="p-4">
-                    <textarea
-                      disabled={isReadOnly}
-                      name="internalNotes"
-                      value={formData.internalNotes || ''}
-                      rows={3}
-                      placeholder="Remarques internes, instructions d'équipe, contexte confidentiel… (jamais visible sur le PDF client)"
-                      className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs outline-none focus:border-amber-400 transition-all disabled:opacity-60 resize-none"
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
-
-                {/* Legacy closing div for Options section */}
-                <div>
-                  
-                  {!isReadOnly && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setIsSidebarOpen(false)}
-                        className="md:hidden w-full bg-blue-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-                      >
-                        <Eye size={16} />
-                        Voir l'aperçu
-                      </button>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={showReceiptPaymentMethods}
-                        aria-label={
-                          showReceiptPaymentMethods
-                            ? 'Masquer les moyens de paiement sur le reçu'
-                            : 'Afficher les moyens de paiement sur le reçu'
-                        }
-                        onClick={() => setShowReceiptPaymentMethods((v) => !v)}
-                        className={`md:hidden w-full mt-2 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest border-2 flex items-center justify-center gap-2 transition-colors ${
-                          showReceiptPaymentMethods
-                            ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
-                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        <CreditCard size={16} className="shrink-0" aria-hidden />
-                        <span className="text-center leading-tight px-1">
-                          {showReceiptPaymentMethods
-                            ? 'Moyens de paiement sur le reçu : affichés'
-                            : 'Moyens de paiement sur le reçu : masqués'}
-                        </span>
-                      </button>
-                      <p className="md:hidden text-[9px] text-gray-500 text-center mt-1.5 leading-snug px-1">
-                        Sur ordinateur : même réglage dans la barre au-dessus du reçu (icône carte).
-                      </p>
-                    </>
                   )}
                 </div>
               </form>
             </div>
+
+            {/* Sticky mobile form actions */}
+            {view === 'form' && !isReadOnly && (
+              <div className="md:hidden sticky bottom-0 z-10 p-3 border-t border-gray-100 bg-white/95 backdrop-blur-sm space-y-2 safe-area-pb">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="flex-1 bg-[#2B4B8C] text-white py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-[#2B4B8C]/20 flex items-center justify-center gap-2 touch-manipulation"
+                  >
+                    <Eye size={16} />
+                    Aperçu
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveToFirestore}
+                    disabled={isSaving || formData.status === 'ANNULE'}
+                    className={`flex-1 py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 touch-manipulation ${
+                      formData.status === 'ANNULE'
+                        ? 'bg-gray-200 text-gray-400'
+                        : saveStatus === 'success'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                    }`}
+                  >
+                    {isSaving ? <Clock size={16} className="animate-spin" /> : <Save size={16} />}
+                    {isSaving ? '…' : saveStatus === 'success' ? 'OK' : 'Sauver'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showReceiptPaymentMethods}
+                  onClick={() => setShowReceiptPaymentMethods((v) => !v)}
+                  className={`w-full py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border flex items-center justify-center gap-2 touch-manipulation ${
+                    showReceiptPaymentMethods
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                      : 'border-gray-200 bg-white text-gray-700'
+                  }`}
+                >
+                  <CreditCard size={14} />
+                  {showReceiptPaymentMethods ? 'Paiements affichés sur reçu' : 'Paiements masqués sur reçu'}
+                </button>
+              </div>
+            )}
 
             {/* Sidebar Footer */}
             <div className="p-6 border-t border-gray-100 bg-gray-50">
@@ -3966,7 +4006,7 @@ export default function App() {
           </div>
         )}
 
-        {alertMessage && (
+        {alertMessage && alertType !== 'success' && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -3975,18 +4015,12 @@ export default function App() {
               className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
             >
               <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${
-                alertType === 'error' ? 'bg-red-50 text-red-600' : 
-                alertType === 'success' ? 'bg-green-50 text-green-600' : 
-                'bg-blue-50 text-blue-600'
+                alertType === 'error' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
               }`}>
-                {alertType === 'error' ? <AlertCircle size={32} /> : 
-                 alertType === 'success' ? <CheckCircle2 size={32} /> : 
-                 <Info size={32} />}
+                {alertType === 'error' ? <AlertCircle size={32} /> : <Info size={32} />}
               </div>
               <h3 className="text-xl font-black uppercase tracking-tight mb-2">
-                {alertType === 'error' ? 'Attention' : 
-                 alertType === 'success' ? 'Succès' : 
-                 'Information'}
+                {alertType === 'error' ? 'Attention' : 'Information'}
               </h3>
               <p className="text-sm text-gray-500 mb-8 leading-relaxed">
                 {alertMessage}
@@ -3995,14 +4029,27 @@ export default function App() {
                 onClick={() => setAlertMessage(null)}
                 className={`w-full font-black py-4 rounded-2xl uppercase text-xs tracking-widest transition-all ${
                   alertType === 'error' ? 'bg-red-600 text-white shadow-xl shadow-red-600/20 hover:bg-red-700' : 
-                  alertType === 'success' ? 'bg-green-600 text-white shadow-xl shadow-green-600/20 hover:bg-green-700' : 
-                  'bg-blue-600 text-white shadow-xl shadow-blue-600/20 hover:bg-blue-700'
+                  'bg-[#2B4B8C] text-white shadow-xl shadow-[#2B4B8C]/20 hover:bg-[#243f75]'
                 }`}
               >
                 D'accord
               </button>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            role="status"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className={`yh-toast print:hidden ${toastType === 'success' ? 'yh-toast--success' : ''}`}
+          >
+            {toastMessage}
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

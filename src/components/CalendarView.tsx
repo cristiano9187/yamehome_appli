@@ -262,6 +262,12 @@ export default function CalendarView({
   const [idDocUploading, setIdDocUploading] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ unitSlug: string, date: string } | null>(null);
   const [expandedUnitSlug, setExpandedUnitSlug] = useState<string | null>(null);
+  const [mobileDay, setMobileDay] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  });
+  /** Mobile list filter: busy = occupés/bloqués/ménage only (faster scan) */
+  const [mobileListFilter, setMobileListFilter] = useState<'busy' | 'all'>('busy');
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredScroll = useRef(false);
@@ -779,6 +785,103 @@ export default function CalendarView({
   const prevMonth = () => onDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const monthName = currentDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
+  useEffect(() => {
+    if (
+      mobileDay.getFullYear() !== currentDate.getFullYear() ||
+      mobileDay.getMonth() !== currentDate.getMonth()
+    ) {
+      const clamped = new Date(currentDate.getFullYear(), currentDate.getMonth(), Math.min(mobileDay.getDate(), 28));
+      setMobileDay(clamped);
+    }
+  }, [currentDate.getFullYear(), currentDate.getMonth()]);
+
+  const goMobileToday = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    setMobileDay(today);
+    onDateChange(new Date(today.getFullYear(), today.getMonth(), 1));
+  };
+
+  const shiftMobileDay = (delta: number) => {
+    const next = new Date(mobileDay);
+    next.setDate(next.getDate() + delta);
+    setMobileDay(next);
+    if (next.getFullYear() !== currentDate.getFullYear() || next.getMonth() !== currentDate.getMonth()) {
+      onDateChange(new Date(next.getFullYear(), next.getMonth(), 1));
+    }
+  };
+
+  const mobileDayLabel = mobileDay.toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  const mobileDayStr = getLocalDateString(mobileDay);
+  const isMobileToday = mobileDayStr === getLocalDateString(new Date());
+
+  /** Monday-start week containing the selected mobile day */
+  const mobileWeekDays = useMemo(() => {
+    const anchor = new Date(mobileDay.getFullYear(), mobileDay.getMonth(), mobileDay.getDate());
+    const dow = anchor.getDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const monday = new Date(anchor);
+    monday.setDate(anchor.getDate() + mondayOffset);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [mobileDay]);
+
+  const getMobileCellKind = (
+    unitSlug: string,
+    date: Date
+  ): 'occupied' | 'blocked' | 'cleaning' | 'free' => {
+    const dateStr = getLocalDateString(date);
+    if (viewMode === 'cleaning') {
+      const cleaningBooking = cleaningBookingByCell.get(`${unitSlug}|${dateStr}`);
+      const slotState = cleaningSlotsMap.get(cleaningSlotKey(unitSlug, dateStr) || '');
+      if (slotState?.suppressed) return 'free';
+      if (cleaningBooking || slotState?.displayReport) return 'cleaning';
+      return 'free';
+    }
+    if (blockedDates.some((b) => b.calendarSlug === unitSlug && b.date === dateStr)) {
+      return 'blocked';
+    }
+    if (getBookingForUnitAndDay(unitSlug, date)) return 'occupied';
+    return 'free';
+  };
+
+  const mobileDayStats = useMemo(() => {
+    let occupied = 0;
+    let blocked = 0;
+    let cleaning = 0;
+    let free = 0;
+    for (const group of groupedUnits) {
+      for (const unit of group.units) {
+        const kind = getMobileCellKind(unit.slug, mobileDay);
+        if (kind === 'occupied') occupied += 1;
+        else if (kind === 'blocked') blocked += 1;
+        else if (kind === 'cleaning') cleaning += 1;
+        else free += 1;
+      }
+    }
+    return { occupied, blocked, cleaning, free, total: occupied + blocked + cleaning + free };
+  }, [groupedUnits, mobileDay, viewMode, receipts, blockedDates, cleaningBookingByCell, cleaningSlotsMap]);
+
+  const mobileWeekOccupancy = useMemo(() => {
+    return mobileWeekDays.map((date) => {
+      let busy = 0;
+      for (const group of groupedUnits) {
+        for (const unit of group.units) {
+          const kind = getMobileCellKind(unit.slug, date);
+          if (kind !== 'free') busy += 1;
+        }
+      }
+      return { date, busy };
+    });
+  }, [mobileWeekDays, groupedUnits, viewMode, receipts, blockedDates, cleaningBookingByCell, cleaningSlotsMap]);
+
   const handleBlockDate = async (unitSlug: string, date: string) => {
     if (!canBlockCalendarDates(userProfile, isMainAdminEmail)) {
       onAlert("Vous n'avez pas l'autorisation de bloquer des dates.", "error");
@@ -1183,58 +1286,101 @@ export default function CalendarView({
   return (
     <div className="flex-1 flex flex-col md:h-full bg-[#F5F5F4] md:overflow-hidden">
       {/* Header */}
-      <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-4 md:py-0 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-40 gap-4">
-        <div className="flex items-center gap-4 md:gap-8">
+      <div className="h-auto md:h-20 bg-white border-b border-gray-200 px-4 md:px-8 py-3 md:py-0 flex flex-col md:flex-row items-stretch md:items-center justify-between sticky top-0 z-40 gap-3">
+        <div className="flex items-center gap-3 md:gap-8 min-w-0">
           {onMenuClick && (
             <button 
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onMenuClick();
               }} 
-              className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all"
+              className="md:hidden p-2 hover:bg-gray-100 rounded-xl transition-all touch-manipulation shrink-0"
+              aria-label="Ouvrir le menu"
             >
               <Menu size={20} />
             </button>
           )}
-          <div className="flex flex-col">
-            <h2 className="text-sm font-black uppercase tracking-widest">Planning YameHome</h2>
+          <div className="flex flex-col min-w-0">
+            <h2 className="text-sm font-black uppercase tracking-widest truncate">Planning YameHome</h2>
             <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{monthName}</span>
           </div>
 
-          <div className="flex bg-gray-100 p-1 rounded-xl">
+          <div className="hidden md:flex bg-gray-100 p-1 rounded-xl">
             <button 
+              type="button"
               onClick={() => onViewModeChange('reservations')}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'reservations' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'reservations' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
             >
               Réservations
             </button>
             <button 
+              type="button"
               onClick={() => onViewModeChange('cleaning')}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'cleaning' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'cleaning' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
             >
               Suivi Ménage
             </button>
             <button 
+              type="button"
               onClick={() => onViewModeChange('presence')}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'presence' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'presence' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
             >
               Présence
             </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
-            <button onClick={prevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
+        <div className="flex md:hidden bg-gray-100 p-1 rounded-xl w-full">
+          <button 
+            type="button"
+            onClick={() => onViewModeChange('reservations')}
+            className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all touch-manipulation ${viewMode === 'reservations' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
+          >
+            Résa
+          </button>
+          <button 
+            type="button"
+            onClick={() => onViewModeChange('cleaning')}
+            className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all touch-manipulation ${viewMode === 'cleaning' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
+          >
+            Ménage
+          </button>
+          <button 
+            type="button"
+            onClick={() => onViewModeChange('presence')}
+            className={`flex-1 px-2 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all touch-manipulation ${viewMode === 'presence' ? 'bg-white shadow-sm text-[#2B4B8C]' : 'text-gray-400'}`}
+          >
+            Présence
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 md:gap-4">
+          <button
+            type="button"
+            onClick={goMobileToday}
+            className="md:hidden px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#2B4B8C] text-white touch-manipulation"
+          >
+            Aujourd&apos;hui
+          </button>
+          <div className="hidden md:flex items-center gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
+            <button type="button" onClick={prevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
               <ChevronLeft size={18} />
             </button>
             <div className="px-4 text-xs font-black uppercase tracking-widest text-gray-900 min-w-[140px] text-center">
               {monthName}
             </div>
-            <button onClick={nextMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
+            <button type="button" onClick={nextMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-600">
               <ChevronRight size={18} />
             </button>
           </div>
+          <button
+            type="button"
+            onClick={goMobileToday}
+            className="hidden md:inline-flex px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-gray-200 text-gray-600 hover:bg-gray-50"
+          >
+            Aujourd&apos;hui
+          </button>
         </div>
       </div>
 
@@ -1251,8 +1397,341 @@ export default function CalendarView({
             </Suspense>
           </div>
         ) : (
+          <>
+          {/* Mobile: week overview (fast scan like desktop) + day detail */}
+          <div className="md:hidden flex-1 overflow-y-auto px-3 pb-6 space-y-3">
+            <div className="sticky top-0 z-20 -mx-3 px-3 pt-1 pb-2 bg-[#F5F5F4]/95 backdrop-blur-sm space-y-2 border-b border-gray-200/60">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => shiftMobileDay(-7)}
+                  className="p-2 rounded-xl bg-white border border-gray-200 touch-manipulation"
+                  aria-label="Semaine précédente"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex-1 grid grid-cols-7 gap-1">
+                  {mobileWeekOccupancy.map(({ date, busy }) => {
+                    const dateStr = getLocalDateString(date);
+                    const selected = dateStr === mobileDayStr;
+                    const today = dateStr === getLocalDateString(new Date());
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => {
+                          setMobileDay(date);
+                          if (
+                            date.getFullYear() !== currentDate.getFullYear() ||
+                            date.getMonth() !== currentDate.getMonth()
+                          ) {
+                            onDateChange(new Date(date.getFullYear(), date.getMonth(), 1));
+                          }
+                        }}
+                        className={`flex flex-col items-center py-1.5 rounded-xl touch-manipulation transition-all ${
+                          selected
+                            ? 'bg-[#2B4B8C] text-white shadow-md'
+                            : today
+                              ? 'bg-blue-50 text-[#2B4B8C] border border-blue-200'
+                              : 'bg-white border border-gray-100 text-gray-700'
+                        }`}
+                      >
+                        <span className={`text-[9px] font-black uppercase ${selected ? 'text-white/80' : 'text-gray-400'}`}>
+                          {date.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
+                        </span>
+                        <span className="text-xs font-black leading-tight">{date.getDate()}</span>
+                        <span
+                          className={`mt-0.5 min-w-[1.1rem] h-4 px-1 rounded-full text-[9px] font-black flex items-center justify-center ${
+                            selected
+                              ? busy > 0
+                                ? 'bg-white text-[#2B4B8C]'
+                                : 'bg-white/20 text-white'
+                              : busy > 0
+                                ? 'bg-[#2B4B8C] text-white'
+                                : 'bg-gray-100 text-gray-400'
+                          }`}
+                        >
+                          {busy}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => shiftMobileDay(7)}
+                  className="p-2 rounded-xl bg-white border border-gray-200 touch-manipulation"
+                  aria-label="Semaine suivante"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-gray-900 capitalize truncate">
+                    {mobileDayLabel}
+                  </p>
+                  <p className="text-[10px] font-bold text-gray-500">
+                    {viewMode === 'cleaning'
+                      ? `${mobileDayStats.cleaning} ménage · ${mobileDayStats.free} libre`
+                      : `${mobileDayStats.occupied} occupé${mobileDayStats.occupied > 1 ? 's' : ''} · ${mobileDayStats.blocked} bloqué${mobileDayStats.blocked > 1 ? 's' : ''} · ${mobileDayStats.free} libre${mobileDayStats.free > 1 ? 's' : ''}`}
+                  </p>
+                </div>
+                <div className="flex shrink-0 bg-white border border-gray-200 rounded-xl p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMobileListFilter('busy')}
+                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest touch-manipulation ${
+                      mobileListFilter === 'busy' ? 'bg-[#2B4B8C] text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Actifs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileListFilter('all')}
+                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest touch-manipulation ${
+                      mobileListFilter === 'all' ? 'bg-[#2B4B8C] text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Tous
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-wide text-gray-500 px-0.5">
+                <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#2B4B8C]" /> Occupé</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Bloqué</span>
+                {viewMode === 'cleaning' && (
+                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500" /> Ménage</span>
+                )}
+                <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-gray-200" /> Libre</span>
+              </div>
+            </div>
+
+            {/* Compact week matrix — same mental model as desktop grid */}
+            <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="grid grid-cols-[minmax(4.5rem,30%)_repeat(7,1fr)] border-b border-gray-100 bg-zinc-900 text-white">
+                <div className="px-2 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400">Logement</div>
+                {mobileWeekDays.map((date) => {
+                  const dateStr = getLocalDateString(date);
+                  const selected = dateStr === mobileDayStr;
+                  return (
+                    <button
+                      key={`h-${dateStr}`}
+                      type="button"
+                      onClick={() => setMobileDay(date)}
+                      className={`py-2 text-center touch-manipulation ${selected ? 'bg-[#2B4B8C]' : ''}`}
+                    >
+                      <div className="text-[9px] font-black uppercase opacity-70">
+                        {date.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
+                      </div>
+                      <div className="text-[10px] font-black">{date.getDate()}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {groupedUnits.map((group) => (
+                <React.Fragment key={`m-${group.site}`}>
+                  <div className="px-2 py-1 bg-gray-50 text-[9px] font-black uppercase tracking-[0.16em] text-gray-400 border-b border-gray-100">
+                    {group.site}
+                  </div>
+                  {group.units.map((unit) => (
+                    <div
+                      key={`row-${unit.slug}`}
+                      className="grid grid-cols-[minmax(4.5rem,30%)_repeat(7,1fr)] border-b border-gray-50"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setExpandedUnitSlug(expandedUnitSlug === unit.slug ? null : unit.slug)}
+                        className="px-2 py-2 text-left min-w-0 touch-manipulation"
+                      >
+                        <p className="text-[10px] font-black uppercase tracking-tight text-gray-900 truncate leading-tight">
+                          {unit.shortName}
+                        </p>
+                      </button>
+                      {mobileWeekDays.map((date) => {
+                        const dateStr = getLocalDateString(date);
+                        const kind = getMobileCellKind(unit.slug, date);
+                        const selected = dateStr === mobileDayStr;
+                        const cellClass =
+                          kind === 'occupied'
+                            ? 'bg-[#2B4B8C]'
+                            : kind === 'blocked'
+                              ? 'bg-red-400'
+                              : kind === 'cleaning'
+                                ? 'bg-teal-500'
+                                : 'bg-gray-100';
+                        return (
+                          <button
+                            key={`${unit.slug}-${dateStr}`}
+                            type="button"
+                            aria-label={`${unit.shortName} ${dateStr} ${kind}`}
+                            onClick={() => {
+                              setMobileDay(date);
+                              if (viewMode === 'reservations') {
+                                const booking = getBookingForUnitAndDay(unit.slug, date);
+                                if (booking) {
+                                  const seg = getActiveSegmentForCell(booking, unit.slug, dateStr);
+                                  if (seg) setSelectedBookingContext({ receipt: booking, segment: seg });
+                                  else setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                                } else {
+                                  setSelectedCell({ unitSlug: unit.slug, date: dateStr });
+                                }
+                              } else {
+                                const cleaningBooking =
+                                  cleaningBookingByCell.get(`${unit.slug}|${dateStr}`) ?? null;
+                                onOpenCleaning(cleaningBooking?.receiptId || 'MANUAL', unit.slug, dateStr);
+                              }
+                            }}
+                            className={`h-9 m-0.5 rounded-md touch-manipulation ${cellClass} ${
+                              selected ? 'ring-2 ring-offset-1 ring-[#2B4B8C]' : ''
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 px-1">
+              Détail du jour · {mobileListFilter === 'busy' ? 'actifs seulement' : 'tous les logements'}
+            </p>
+
+            {groupedUnits.map((group) => {
+              const visibleUnits = group.units.filter((unit) => {
+                if (mobileListFilter === 'all') return true;
+                return getMobileCellKind(unit.slug, mobileDay) !== 'free';
+              });
+              if (visibleUnits.length === 0) return null;
+              return (
+              <div key={group.site} className="space-y-2">
+                <p className="px-1 text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">{group.site}</p>
+                {visibleUnits.map((unit) => {
+                  const booking = getBookingForUnitAndDay(unit.slug, mobileDay);
+                  const cleaningBooking =
+                    viewMode === 'cleaning'
+                      ? cleaningBookingByCell.get(`${unit.slug}|${mobileDayStr}`) ?? null
+                      : null;
+                  const blockedDate = blockedDates.find(
+                    (b) => b.calendarSlug === unit.slug && b.date === mobileDayStr
+                  );
+                  const activeSegment =
+                    booking && viewMode === 'reservations'
+                      ? getActiveSegmentForCell(booking, unit.slug, mobileDayStr)
+                      : null;
+                  const slotKeyForCell = cleaningSlotKey(unit.slug, mobileDayStr);
+                  const slotState = slotKeyForCell ? cleaningSlotsMap.get(slotKeyForCell) : undefined;
+                  const suppressed = slotState?.suppressed ?? false;
+                  const currentReport = slotState?.displayReport ?? null;
+                  const isCleaningDay =
+                    viewMode === 'cleaning' &&
+                    !suppressed &&
+                    (!!cleaningBooking || !!currentReport);
+                  const guestName = booking
+                    ? `${booking.firstName || ''} ${booking.lastName || ''}`.trim()
+                    : '';
+                  const kind = getMobileCellKind(unit.slug, mobileDay);
+
+                  return (
+                    <button
+                      key={unit.slug}
+                      type="button"
+                      onClick={() => {
+                        if (viewMode === 'reservations') {
+                          if (booking && activeSegment) {
+                            setSelectedBookingContext({ receipt: booking, segment: activeSegment });
+                          } else {
+                            setSelectedCell({ unitSlug: unit.slug, date: mobileDayStr });
+                          }
+                        } else {
+                          onOpenCleaning(cleaningBooking?.receiptId || 'MANUAL', unit.slug, mobileDayStr);
+                        }
+                      }}
+                      className="w-full text-left bg-white border border-gray-100 rounded-2xl p-3.5 shadow-sm touch-manipulation active:scale-[0.99] transition-transform"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <span
+                            className={`mt-1 w-2.5 h-2.5 rounded-sm shrink-0 ${
+                              kind === 'occupied'
+                                ? 'bg-[#2B4B8C]'
+                                : kind === 'blocked'
+                                  ? 'bg-red-400'
+                                  : kind === 'cleaning'
+                                    ? 'bg-teal-500'
+                                    : 'bg-gray-200'
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-black uppercase tracking-tight text-gray-900 truncate">
+                              {unit.shortName}
+                            </p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                              {unit.slug}
+                            </p>
+                          </div>
+                        </div>
+                        {viewMode === 'reservations' && blockedDate && (
+                          <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
+                            <Lock size={12} /> Bloqué
+                          </span>
+                        )}
+                        {viewMode === 'cleaning' && isCleaningDay && (
+                          <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-[#2B4B8C] bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg">
+                            {currentReport?.status || 'À faire'}
+                          </span>
+                        )}
+                      </div>
+                      {viewMode === 'reservations' && booking && (
+                        <div className="mt-2 flex items-center gap-2 text-xs text-gray-700">
+                          <UserIcon size={14} className="text-[#2B4B8C] shrink-0" />
+                          <span className="font-bold truncate">{guestName || 'Client'}</span>
+                          {activeSegment && (
+                            <span className="ml-auto text-[10px] font-mono text-gray-400 shrink-0">
+                              {activeSegment.startDate.slice(8, 10)}/{activeSegment.startDate.slice(5, 7)}
+                              {' → '}
+                              {activeSegment.endDate.slice(8, 10)}/{activeSegment.endDate.slice(5, 7)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {viewMode === 'reservations' && !booking && !blockedDate && (
+                        <p className="mt-2 text-[11px] font-semibold text-emerald-700">Disponible</p>
+                      )}
+                      {viewMode === 'cleaning' && !isCleaningDay && (
+                        <p className="mt-2 text-[11px] font-semibold text-gray-400">Pas de ménage prévu</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              );
+            })}
+
+            {mobileListFilter === 'busy' &&
+              mobileDayStats.occupied + mobileDayStats.blocked + mobileDayStats.cleaning === 0 && (
+                <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-6 text-center">
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-500">
+                    Aucun logement actif ce jour
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMobileListFilter('all')}
+                    className="mt-3 text-[10px] font-black uppercase tracking-widest text-[#2B4B8C]"
+                  >
+                    Afficher tous les logements
+                  </button>
+                </div>
+              )}
+          </div>
+
+          {/* Desktop month grid */}
           <div 
-            className="flex-1 overflow-auto relative" 
+            className="hidden md:flex md:flex-1 overflow-auto relative" 
             ref={scrollContainerRef}
             onScroll={(e) => {
               const target = e.currentTarget;
@@ -1508,6 +1987,7 @@ export default function CalendarView({
         </tbody>
           </table>
         </div>
+          </>
         )}
       </div>
 

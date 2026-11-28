@@ -502,19 +502,19 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                               <Banknote size={10} />
                               <span className="text-xs font-black">{formatCurrency(receipt.commissionAmount || 0)}</span>
                             </div>
-                            <span className="text-[9px] font-bold text-gray-500 uppercase truncate max-w-[100px]">{receipt.agentName}</span>
+                            <span className="text-[10px] font-bold text-gray-500 uppercase truncate max-w-[100px]">{receipt.agentName}</span>
                             {receipt.isCommissionPaid ? (
-                              <div className="text-[8px] font-black uppercase mt-1 px-1.5 py-0.5 rounded inline-flex w-fit bg-green-100 text-green-600">
+                              <div className="text-[10px] font-black uppercase mt-1 px-2 py-1 rounded inline-flex w-fit bg-green-100 text-green-600">
                                 Payée
                               </div>
                             ) : (
-                              <div className="flex flex-col gap-1 mt-1">
-                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                              <div className="flex flex-col gap-1.5 mt-1">
+                                <div className={`text-[10px] font-black uppercase px-2 py-1 rounded inline-flex w-fit ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                                   Délai: {deadline.toLocaleDateString('fr-FR')}
                                 </div>
                                 <button
                                   onClick={() => handleMarkCommissionPaid(receipt)}
-                                  className="text-[7px] font-black uppercase bg-orange-50 border border-orange-200 text-orange-700 px-1 py-0.5 rounded transition-all w-fit"
+                                  className="text-[10px] font-black uppercase bg-orange-50 border border-orange-200 text-orange-700 px-2.5 py-1.5 min-h-9 rounded-lg transition-all w-fit touch-manipulation"
                                 >
                                   Marquer payée
                                 </button>
@@ -535,26 +535,26 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                             </div>
                             {receipt.isCautionRefunded ? (
                               <div className="flex flex-col mt-1">
-                                <span className="text-[8px] font-black uppercase bg-green-100 text-green-600 px-1.5 py-0.5 rounded w-fit">Remboursée</span>
-                                <span className="text-[7px] text-gray-400 font-bold mt-0.5">
+                                <span className="text-[10px] font-black uppercase bg-green-100 text-green-600 px-2 py-1 rounded w-fit">Remboursée</span>
+                                <span className="text-[10px] text-gray-400 font-bold mt-1">
                                   {new Date(receipt.cautionRefundDate!).toLocaleDateString('fr-FR')} via {receipt.cautionRefundMethod}
                                 </span>
                               </div>
                             ) : (
-                              <div className="flex flex-col mt-1 gap-1">
-                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded w-fit ${isRefundOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                              <div className="flex flex-col mt-1 gap-1.5">
+                                <div className={`text-[10px] font-black uppercase px-2 py-1 rounded w-fit ${isRefundOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                                   Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
                                 </div>
-                                <div className="flex gap-1">
+                                <div className="flex gap-1.5">
                                   <button 
                                     onClick={() => handleRefundCaution(receipt, 'Espèces')}
-                                    className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                    className="text-[10px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 min-h-9 rounded-lg transition-all touch-manipulation"
                                   >
                                     Espèces
                                   </button>
                                   <button 
                                     onClick={() => handleRefundCaution(receipt, 'Mobile')}
-                                    className="text-[7px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded transition-all"
+                                    className="text-[10px] font-black uppercase bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 min-h-9 rounded-lg transition-all touch-manipulation"
                                   >
                                     Mobile
                                   </button>
@@ -662,11 +662,11 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
 
                   <div className="grid grid-cols-2 gap-4 py-3 border-y border-gray-50">
                     <div className="flex flex-col flex-1 min-w-0">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1">Logement</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Logement</span>
                       <AptBadge name={receipt.apartmentName || ''} />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total</span>
                       <span className="text-xs font-black text-gray-900">{formatCurrency(receipt.grandTotal)}</span>
                     </div>
                   </div>
@@ -674,10 +674,10 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                   {/* Commission & Caution Details */}
                   <div className="space-y-3">
                     {receipt.agentName && (
-                      <div className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                      <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-lg">
                         <div className="flex flex-col">
-                          <span className="text-[8px] font-black uppercase text-gray-400">Commission</span>
-                          <span className="text-[10px] font-bold text-gray-700">{receipt.agentName}</span>
+                          <span className="text-[10px] font-black uppercase text-gray-400">Commission</span>
+                          <span className="text-xs font-bold text-gray-700">{receipt.agentName}</span>
                         </div>
                         <div className={`flex items-center gap-1 ${receipt.isCommissionPaid ? 'text-green-600' : 'text-orange-600'}`}>
                           <Banknote size={12} />
@@ -688,23 +688,23 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                     {receipt.agentName && !receipt.isCommissionPaid && (
                       <button
                         onClick={() => handleMarkCommissionPaid(receipt)}
-                        className="w-full bg-orange-50 border border-orange-200 text-orange-700 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest"
+                        className="w-full bg-orange-50 border border-orange-200 text-orange-700 py-3 min-h-11 rounded-xl text-[10px] font-black uppercase tracking-widest touch-manipulation"
                       >
                         Marquer commission payée
                       </button>
                     )}
 
                     {hasCaution && (
-                      <div className={`p-2 rounded-lg border ${receipt.isCautionRefunded ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
+                      <div className={`p-2.5 rounded-lg border ${receipt.isCautionRefunded ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-1">
                             <ShieldCheck size={12} className={receipt.isCautionRefunded ? 'text-green-600' : 'text-blue-600'} />
                             <span className="text-[10px] font-black uppercase tracking-widest">Caution: {formatCurrency(receipt.cautionAmount || 0)}</span>
                           </div>
                           {receipt.isCautionRefunded ? (
-                            <span className="text-[8px] font-black uppercase bg-green-200 text-green-700 px-1.5 py-0.5 rounded">Remboursée</span>
+                            <span className="text-[10px] font-black uppercase bg-green-200 text-green-700 px-2 py-1 rounded">Remboursée</span>
                           ) : (
-                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${isRefundOverdue ? 'bg-red-200 text-red-700' : 'bg-blue-200 text-blue-700'}`}>
+                            <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${isRefundOverdue ? 'bg-red-200 text-red-700' : 'bg-blue-200 text-blue-700'}`}>
                               Délai: {refundDeadline?.toLocaleDateString('fr-FR')}
                             </span>
                           )}
@@ -714,13 +714,13 @@ export default function HistoryView({ onEdit, onPrint, onMenuClick, userProfile,
                           <div className="flex gap-2">
                             <button 
                               onClick={() => handleRefundCaution(receipt, 'Espèces')}
-                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm"
+                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-3 min-h-11 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm touch-manipulation"
                             >
                               Remb. Espèces
                             </button>
                             <button 
                               onClick={() => handleRefundCaution(receipt, 'Mobile')}
-                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm"
+                              className="flex-1 bg-white border border-blue-200 text-blue-600 py-3 min-h-11 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm touch-manipulation"
                             >
                               Remb. Mobile
                             </button>
